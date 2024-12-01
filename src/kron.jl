@@ -1,4 +1,4 @@
-using Base.GC, LinearAlgebra, FFTW, LoopVectorization, Primes, BenchmarkTools, Plots, RuntimeGeneratedFunctions
+using Base.GC, LinearAlgebra, LoopVectorization, Primes, RuntimeGeneratedFunctions
 
 include("radix_plan.jl")
 include("radix_exec.jl")
@@ -22,7 +22,7 @@ end
 
 @inline function generate_and_cache_fft!(n::Int)
     haskey(F_cache, n) && return F_cache[n]
-    
+
     if is_power_of(n, 2) || is_power_of(n, 3) || is_power_of(n, 5) || is_power_of(n, 7)
         fft_func = call_radix_families(n)
     elseif isprime(n)
@@ -32,7 +32,7 @@ end
         plan = MixedRadixFFT(p, m)
         fft_func = generate_formulation_fft(plan)
     end
-    
+
     #Cache-in
     F_cache[n] = fft_func
     return fft_func
@@ -88,7 +88,7 @@ end
 
 function generate_prime_fft_raders(n::Int)
     @assert isprime(n) "Input length must be prime for Rader's FFT"
-    
+
     # Find primitive root
     function generator(p)
         for gen in 2:(p-1)
@@ -110,57 +110,57 @@ function generate_prime_fft_raders(n::Int)
         end
         error("No generator found")
     end
-    
+
     # Generate the generator and permutation sequence
     gen, gen_seq = generator(n)
     inv_gen = powermod(gen, n-2, n)
     inv_seq = [powermod(inv_gen, i, n) for i in 0:(n-2)]
-    
+
     # Precompute twiddle factors
     ω = cispi(2/n)
     W = [ω^(-inv_seq[i]) for i in 1:(n-1)]
-    
+
     # Get FFT for length n-1
     F = recursive_F(n-1)
-    
+
     return function (y::AbstractVector{ComplexF64}, x::AbstractVector{ComplexF64})
         @assert length(x) == n && length(y) == n "Input and output vectors must have length n"
-        
+
         # Preallocate two buffers
         buffer1 = similar(x, n-1)
         buffer2 = similar(x, n-1)
-        
+
         fill!(buffer1, zero(ComplexF64))
         fill!(buffer2, zero(ComplexF64))
-        
+
         x0 = x[1]
-        
+
         @inbounds @simd for i in 1:(n-1)
             buffer1[i] = x[gen_seq[i] + 1]
         end
 
-        y[1] = x0 + sum(buffer1)  
-        
+        y[1] = x0 + sum(buffer1)
+
         F(buffer2, buffer1)  # FFT of permuted input -> buffer2
         F(buffer1, W)        # FFT of twiddle factors -> buffer1
-        
+
         # Multiply in frequency domain (reuse buffer1 or buffer2 as needed)
         @inbounds @simd for i in 1:(n-1)
             buffer2[i] *= buffer1[i]
         end
-        
+
         # Inverse FFT (reuse buffer1 for the result)
         F(buffer1, conj.(buffer2))
 
         @inbounds @simd for i in 1:(n-1)
             buffer1[i] = conj(buffer1[i]) / (n-1)
         end
-        
+
         # Step 5: Place remaining terms
         @inbounds @simd for j in 1:(n-1)
             y[inv_seq[j] + 1] = x0 + buffer1[j]
         end
-        
+
         return nothing
     end
 end
@@ -215,7 +215,7 @@ end
 @inline function D(p,m)::Matrix
   w = cispi.(-2/(p*m) * collect(1:m-1))
   d = zeros(ComplexF64,(p-1)*(m-1))
-  
+
   @inbounds d[1:m-1] .= w
 
   @inbounds @simd for j in 2:p-1
@@ -230,7 +230,7 @@ function generate_formulation_fft(plan::MixedRadixFFT)
     p, m = plan.p, plan.m
     #W = reshape(D(p,m), m-1, p-1)
     W = D(p,m)
-    
+
     Ypm = Matrix{ComplexF64}(undef, p, m)
     Xpm = Matrix{ComplexF64}(undef, p, m)
 
@@ -273,7 +273,7 @@ end
 
 @inline function multiply_D!(Xpm::AbstractMatrix{ComplexF64}, p::Int, m::Int)
     base_w = cispi(-2 / (p * m))  # Precompute base rotation factor
-    
+
     # First column remains unchanged
     @inbounds @simd for j in 1:p-1
         w = base_w^j  # Efficient power computation
@@ -281,7 +281,7 @@ end
             Xpm[j+1, i+1] *= w^i
         end
     end
-    
+
     return nothing
 end
 

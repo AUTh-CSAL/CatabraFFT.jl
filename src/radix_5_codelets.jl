@@ -3,7 +3,7 @@ module radix5_family
 const Cp1, Sp1 = 0.8090169943749473, 0.5877852522924731
 const Cp2, Sp2 = 0.30901699437494734, 0.9510565162951536
 
-using LoopVectorization, SIMD
+using LoopVectorization
 
 @inline function fft5_shell!(y::AbstractVector{ComplexF64}, x::AbstractVector{ComplexF64}, s::Int)
     @inbounds @simd for q in 1:s
@@ -13,7 +13,7 @@ using LoopVectorization, SIMD
         bme, dmc = b - e, d - c
         x1, y1 = a + bpe*Cp2 - dpc*Cp1, im*(-bme*Sp2 + dmc*Sp1)
         x2, y2 = a - bpe*Cp1 + dpc*Cp2, im*(bme*Sp1 + dmc*Sp2)
-        
+
         y[q] = a + bpe + dpc
         y[q + s] = x1 + y1
         y[q + 2s] = x2 - y2
@@ -30,7 +30,7 @@ end
         bme, dmc = b - e, d - c
         x1, y1 = a + bpe*Cp2 - dpc*Cp1, im*(-bme*Sp2 + dmc*Sp1)
         x2, y2 = a - bpe*Cp1 + dpc*Cp2, im*(bme*Sp1 + dmc*Sp2)
-        
+
         y[q] = a + bpe + dpc
         y[q + s] = x1 + y1
         y[q + 2s] = x2 - y2
@@ -45,7 +45,7 @@ end
         w2p = w1p * w1p
         w3p = w2p * w1p
         w4p = w3p * w1p
-        @inbounds @simd for q in 1:s 
+        @inbounds @simd for q in 1:s
             a, b, c, d, e = x[q + s*p], x[q + s*(p + n1)], x[q + s*(p + 2n1)], x[q + s*(p + 3n1)], x[q + s*(p + 4n1)]
 
             bpe, dpc = b + e, d + c

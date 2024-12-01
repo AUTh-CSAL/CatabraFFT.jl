@@ -26,7 +26,7 @@ const WORKSPACE = Dict{Int, FFTWorkspace}()
 end
 
 # Non-mutating FFT that reuses workspace
-@inline function FFT(x::AbstractVector{ComplexF64})
+@inline function FFT(x::Vector{ComplexF64})
     n = length(x)
     workspace = get_workspace(n)
     copyto!(workspace.x_work, x)  # Fast copy into preallocated space

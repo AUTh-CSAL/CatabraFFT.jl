@@ -13,13 +13,13 @@ include("radix_7_codelets.jl")
 
 export generate_execute_function!
 
-using LoopVectorization, SIMD 
+using LoopVectorization
 
 function generate_safe_execute_function!(plan::RadixPlan)
     current_input = :x
     current_output = :y
     ops = []
-    
+
     for (i, op) in enumerate(plan.operations)
         if op.op_type == :fft16
                 if op === last(plan.operations)
@@ -75,7 +75,7 @@ function generate_safe_execute_function!(plan::RadixPlan)
             end
             elseif op.op_type == :fft5
                 if op === last(plan.operations)
-                    if op.eo 
+                    if op.eo
                     push!(ops, :(radix5_family.fft5_shell_y!($(current_input), $(op.stride))))
                 else
                     push!(ops, :(radix5_family.fft5_shell!($(current_output), $(current_input), $(op.stride))))
@@ -86,13 +86,13 @@ function generate_safe_execute_function!(plan::RadixPlan)
                     push!(ops,  :(radix5_family.fft5_shell_layered!($(current_output), $(current_input), $(op.stride), $n1, $theta)))
             end
             elseif op.op_type == :fft4
-                if op.eo 
+                if op.eo
                     push!(ops, :(radix2_family.fft4_shell_y!($(current_input), $(op.stride))))
                 else
                     push!(ops, :(radix2_family.fft4_shell!($(current_output), $(current_input), $(op.stride))))
                 end
             elseif op.op_type == :fft3
-                    if op.eo 
+                    if op.eo
                     push!(ops, :(radix3_family.fft3_shell_y!($(current_input), $(op.stride))))
                 else
                     push!(ops, :(radix3_family.fft3_shell!($(current_output), $(current_input), $(op.stride))))
@@ -106,37 +106,36 @@ function generate_safe_execute_function!(plan::RadixPlan)
         end
         current_input, current_output = current_output, current_input
     end
-    
+
 
     function_body = Expr(:block, ops...)
     #=
     # Create module first
 
     mod = Module(:FFTTempModule)
-    
+
     #Add necessary imports to the module - using proper symbol syntax
     Core.eval(mod, :(using LoopVectorization))
-    Core.eval(mod, :(using SIMD))
-    
+
     #Get the parent module name as a symbol
     parent_mod_name = Symbol(parentmodule(Radix_Execute))
     Core.eval(mod, :(using .$parent_mod_name))
-    
+
     #Make radix families available directly
     Core.eval(mod, :(const radix2_family = $radix2_family))
     Core.eval(mod, :(const radix3_family = $radix3_family))
     Core.eval(mod, :(const radix5_family = $radix5_family))
     Core.eval(mod, :(const radix7_family = $radix7_family))
     =#
-    
+
     # Combine all operations into a single function
     ex = :(function execute_fft_linear!(y::AbstractVector{ComplexF64}, x::AbstractVector{ComplexF64})
         $function_body
         return nothing
     end)
-    
+
     #@show ex
-    
+
     runtime_generated_function = @RuntimeGeneratedFunction(ex)
 
     #Core.eval(mod, expr)

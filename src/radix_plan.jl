@@ -1,7 +1,7 @@
 module Radix_Plan
 
 #include("radix2_family.jl")
-using SIMD
+using LoopVectorization
 
 export FFTOp, TwiddleOp, RadixPlan, create_radix2s_plan, execute_plan!
 
@@ -23,14 +23,14 @@ end
 
 function create_radix_2_plan(n::Int)
     operations = FFTOp[]
-    
+
     # Determine the sequence of radix operations
     remaining_n = n
     current_stride = 1
     input_buffer = :x
     output_buffer = :y
     eo = false
-    
+
     while remaining_n > 1
         # Choose largest possible radix (16, 4, or 2)
         #if remaining_n % 16 == 0 && remaining_n ≥ 16
@@ -42,7 +42,7 @@ function create_radix_2_plan(n::Int)
         else
             radix = 2
         end
-        
+
         # Add FFT layer
         push!(operations, FFTOp(
             Symbol("fft", radix),
@@ -52,7 +52,7 @@ function create_radix_2_plan(n::Int)
             remaining_n,
             eo
         ))
-        
+
         # Update for next iteration
         remaining_n = remaining_n ÷ radix
         current_stride *= radix
@@ -65,21 +65,21 @@ end
 
 function create_radix_3_plan(n::Int)
     operations = FFTOp[]
-    
+
     # Determine the sequence of radix operations
     remaining_n = n
     current_stride = 1
     input_buffer = :x
     output_buffer = :y
     eo = false
-    
+
     while remaining_n > 1
         if remaining_n % 9 == 0 && remaining_n ≥ 9
             radix = 9
         else
             radix = 3
         end
-        
+
         # Add FFT layer
         push!(operations, FFTOp(
             Symbol("fft", radix),
@@ -89,7 +89,7 @@ function create_radix_3_plan(n::Int)
             remaining_n,
             eo
         ))
-        
+
         # Update for next iteration
         remaining_n = remaining_n ÷ radix
         current_stride *= radix
@@ -100,19 +100,19 @@ function create_radix_3_plan(n::Int)
     RadixPlan(operations, n)
 end
 
-# Simple universal planner for basic modulo radix planning 
+# Simple universal planner for basic modulo radix planning
 function create_radix_plan(n::Int, radix::Int)
     operations = FFTOp[]
-    
+
     # Determine the sequence of radix operations
     remaining_n = n
     current_stride = 1
     input_buffer = :x
     output_buffer = :y
     eo = false
-    
+
     while remaining_n > 1
-        
+
         # Add FFT layer
         push!(operations, FFTOp(
             Symbol("fft", radix),
@@ -122,7 +122,7 @@ function create_radix_plan(n::Int, radix::Int)
             remaining_n,
             eo
         ))
-        
+
         # Update for next iteration
         remaining_n = remaining_n ÷ radix
         current_stride *= radix

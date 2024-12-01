@@ -1,5 +1,5 @@
 module radix2_family
-using LoopVectorization, SIMD
+using LoopVectorization
 
 const INV_SQRT2 = 0.7071067811865475
 const Cp_3_8 = 0.3826834323650898 # cospi(3/8)

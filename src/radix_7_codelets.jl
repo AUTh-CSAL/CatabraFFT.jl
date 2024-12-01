@@ -63,7 +63,7 @@ end
             x1, y1 = a + bpg*Cp1 - cpf*Cp2 - dpe*Cp3, im*(-bmg*Sp1 - cmf*Sp2 - dme*Sp3)
             x2, y2 = a - bpg*Cp2 - cpf*Cp3 + dpe*Cp1, im*(-bmg*Sp2 + cmf*Sp3 + dme*Sp1)
             x3, y3 = a - bpg*Cp3 + cpf*Cp1 - dpe*Cp2, im*(-bmg*Sp3 + cmf*Sp1 - dme*Sp2)
-            
+
             y[q + s*7p] = a + bpg + cpf + dpe
             y[q + s*(7p + 1)] = w1p * (x1 + y1)
             y[q + s*(7p + 2)] = w2p * (x2 + y2)
