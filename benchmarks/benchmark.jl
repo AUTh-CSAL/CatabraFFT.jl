@@ -1,56 +1,10 @@
 using CatabraFFT
-using Test, BenchmarkTools, FFTW, Plots, LinearAlgebra
+using BenchmarkTools, FFTW, LinearAlgebra
+using Plots
 
 # Bencharks CatabraFFT.jl compared to FFTW.jl plots the results.
 
-function plot_complex_signal(data::Vector{ComplexF64}, fftgen_result::Vector{ComplexF64}, fftw_result::Vector{ComplexF64}, title_str::String = "DSP")
-    n = length(data)
-
-    real_part = real.(data)
-    imag_part = imag.(data)
-
-    real_fftgen = real.(fftgen_result)
-    imag_fftgen = imag.(fftgen_result)
-
-    real_fftw = real.(fftw_result)
-    imag_fftw = imag.(fftw_result)
-
-
-    p = plot(layout = (3, 1), size = (800, 600), title=title_str)
-    plot!(1:n, real_part, seriestype = :line, title="Real Part", subplot=1)
-    plot!(1:n, imag_part, seriestype = :line, title="Imaginary Part", subplot=1)
-
-    plot!(1:n, real_fftw, seriestype = :line, title="Real Part of FFTW", subplot=2)
-    plot!(1:n, imag_fftw, seriestype = :line, title="Imaginary Part of FFTW", subplot=2)
-
-    plot!(1:n, real_fftgen, seriestype = :line, title="Real Part of FFTGEN", subplot=3)
-    plot!(1:n, imag_fftgen, seriestype = :line, title="Imaginary Part of FFTGEN", subplot=3)
-    display(p)
-end
-
-function relative_error(x::Vector{ComplexF64}, y::Vector{ComplexF64})
-    return norm(x - y) / norm(y)
-end
-
-function test(n::Int, plot::Bool=false)
-    #x = randn(ComplexF64, n)
-    x = ComplexF64[4i + 5im*i for i in 1:n]
-
-    result = CatabraFFT.FFT(x) # run once to compile
-
-    println("Catabra FFT time:")
-    @time result = CatabraFFT.FFT(x)
-    #@time FFT!(result, x)
-
-    println("FFTW time:")
-    @time y = FFTW.fft(x)
-    n < 32 && @show result y
-    rel_err = relative_error(y, result)
-    println("Cached-in functions: $(keys(F_cache))")
-    println("Relative Error: $rel_err")
-    if plot plot_complex_signal(x, result, y) end
-    @assert rel_err < 1e-10
-end
+relative_error(x, y) = norm(x - y) / norm(y)
 
 
 function bench(n::Int, fftw_time::Vector, mixed_radix_time::Vector, fftw_mem::Vector, mixed_radix_mem::Vector)
@@ -61,7 +15,6 @@ function bench(n::Int, fftw_time::Vector, mixed_radix_time::Vector, fftw_mem::Ve
     FFT!(y_mixed, x)
     @show rel_err = relative_error(y_mixed, fftw_result)
     @assert rel_err < 1e-10
-
 
     # Benchmark FFTW
     t_fftw = @benchmark FFTW.fft($x) seconds = 0.01
@@ -82,8 +35,8 @@ function benchmark_fft_over_range(xs::Vector)
     mixed_radix_mem = []
 
     # Precompute all function before benchmarking
-    for i in xs
-        test(i, false)
+    for n in xs
+        CatabraFFT.FFT(rand(ComplexF64, n))
     end
 
     for n in xs
@@ -101,22 +54,19 @@ function benchmark_fft_over_range(xs::Vector)
 
     display(p_time)
 
-    p_mem = plot(log2.(xs), fftw_mem, label="FFTW (memory)", markershape=:square, markercolor=:red, legend=:topleft)
+    p_mem = plot(log2.(xs), fftw_mem, label="FFTW (memory)", markershape=:square, markercolor=:red, legend=:topleft, reuse=false)
     plot!(p_mem,log2.(xs), mixed_radix_mem, label="MIXED-RADIX FFT (memory)", markershape=:circle, markercolor=:orange)
 
     xlabel!(p_mem, "log2(Input length)")
     ylabel!(p_mem, "log10(Memory (KB))")
     title!(p_mem, "FFT Performance Comparison: Memory Allocation")
 
-    #display(p_mem)
+    # display(p_mem)
 end
 
-
-n = 3^7
-test(n, true)
-
-#xs = 2 .^ collect(2:1:27)
-xs = collect(2:1:120)
-#xs = 3 .^ collect(1:1:17)
+# n = 3^7
+# test(n, true)
+xs = 2 .^ (2:27)
+# xs = sort(vcat([2 .^(2:24), 3 .^(2:15), 5 .^(2:10), 7 .^(2:8), 10 .^(2:7)]...))
 benchmark_fft_over_range(xs)
 println("Done!")
