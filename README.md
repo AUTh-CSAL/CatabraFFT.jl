@@ -10,33 +10,37 @@
 ![Alt text](./svgs/radix-2-bench.svg)
 ![Alt text](./svgs/120_prime_power_on.svg)
 
-CATABRA is a tool that auto-generates FFT kernels for any arbitrart size. It makes use of hardware resources to run FFT kernels calibrated for each special features such as
-SIMD-friendly instructions using metaprogramming features of the Julia compiler. The performance of CATABRA rivals that of FFTW.
+CatabraFFT.jl is a tool that auto-generates C2C FFT kernels for any arbitrary size. It makes use of hardware resources to produce FFT kernels calibrated for SIMD-friendly instructions using the metaprogramming features of the Julia compiler.
 
-The Catabra project, proposes a framework of
-producing auto-generated high-performance FFT kernels as codelet segments combined together as boosted
+The performance of CatabraFFT.jl rivals that of FFTW.jl.
+
+The CatabraFFT.jl project, proposes a framework of producing auto-generated high-performance FFT kernels as codelet segments combined together as boosted
 functions, all written using only the Julia programming language.
-It is separated in two stages; The first stage is the on of pre-complication where, given the signal length,
-a plan of symbolic instruction is generated. In this stage, given only the length of the signal. Depending on the signal length n integer,
-the first criterion of the code creator is whether n belogns to the domain of values ```2^a``` , ```3^b``` ```5^c``` or ```7^d``` . The powers
-of these single digit primes have to do that there are already hand-written codelets of given radix-n size that
-can be properly placed to construct unrolled linear function deduced by dynamic programming methods,
-especially accelerated via explicit SIMD commands.
 
-If ```n = 2^a ∗ 3^b ∗ 5^c ∗ 7^d``` then the mixed-radix where input
+It is separated in two stages; The first stage is pre-complication where, given the signal length, a plan of symbolic instructions is generated. After a symbolic representation of the chosen function is set, called the plan of the function, the plan is converted to actual pre-written code segments that make a part of the final optimal function CatabraFFT.jl designed to use.
+
+Depending on the signal length ```n``` integer, the first criterion of the code creator is whether n belongs to the domain of values ```2^a``` , ```3^b``` ```5^c``` or ```7^d``` . The powers of these single digit primes are accelerated since there are already hand-written codelets of given radix-n size that
+can be properly placed to construct unrolled linear functions.
+
+If ```n = 2^a ∗ 3^b ∗ 5^c ∗ 7^d``` then the mixed-radix formulation is applied where input
 size n is broken down to the greates common divisor (gcd), ```n = n_1 ∗ n_2``` . This way, since we know that ```n_1 ∪ n_2 ∈
-{2^a , 3^b , 5^c , 7^d }``` the family of accelerated codelets fits to the two sub-lengths. In the case of a higher non-prime
-integer legnth a previously deduced recursive apprach of the mixed-radix formulation is applied, breaking
-down the initial n length down cached-in precomputed codelet fits, or a prime length sub-problem. Finally, in
-the case of prime inputs we apply Rader’s FFT algorithms for prime signal sizes.
+{2^a , 3^b , 5^c , 7^d }``` the family of accelerated codelets fits to the two sub-lengths.
 
-The second stage consists of using all pre-computed assets and create actually competitive runtime fitness
-scores with peak vendor-specific FFT libraries.
+In the case of the set of other non-prime integers, a previously deduced recursive apprach of the mixed-radix formulation is applied, breaking
+down the initial ```n``` length down to cached-in precomputed codelet fits, or just prime length sub-problems.
+
+Finally, in the case of prime-sized input signals, we apply Rader’s FFT algorithm for prime signal sizes.
+
+The second stage consists of using all pre-computed assets and create actually competitive benchmark scores with peak  FFT libraries like FFTW.
 
 ## Run Code
 
-In ```/src/main.jl```, call the ```test(n)``` function for any integer ```n```.
+You can ```git clone``` the current working repo 
 
-Run  ```benchmark_fft_over_range(xs)``` to benchmark a range of values ```xs```. This will produce a plot of time and memory graph.
+or you can install the (upcoming) package with
+```Pkg> add CatabraFFT```
 
-You can view the plots by installing the VS Code Julia Extention.
+In ```/src/Catabra.jl```, is the main ```CatabraFFT.FFT(x)``` function for any integer ```n```.
+
+There are bencharking tools in ```/test/runtests.jl``` that pair the benchmarks of CatabraFFT.jl with FFTW.jl.
+You can view time plots by installing the VS Code Julia Extention.
