@@ -25,9 +25,9 @@ especially accelerated via explicit SIMD commands.
 
 If ```n = 2^a ∗ 3^b ∗ 5^c ∗ 7^d``` then the mixed-radix where input
 size n is broken down to the greates common divisor (gcd), ```n = n_1 ∗ n_2``` . This way, since we know that ```n_1 ∪ n_2 ∈
-{2^a , 3^b , 5^c , 7^d }``` the family of accelerated codelets fits to the two sub-lenghts. In the case of a higher non-prime
+{2^a , 3^b , 5^c , 7^d }``` the family of accelerated codelets fits to the two sub-lengths. In the case of a higher non-prime
 integer legnth a previously deduced recursive apprach of the mixed-radix formulation is applied, breaking
-down the initial n length down cached-in precomputed codelet fits, or a prime lenght sub-problem. Finally, in
+down the initial n length down cached-in precomputed codelet fits, or a prime length sub-problem. Finally, in
 the case of prime inputs we apply Rader’s FFT algorithms for prime signal sizes.
 
 The second stage consists of using all pre-computed assets and create actually competitive runtime fitness

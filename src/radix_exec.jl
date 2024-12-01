@@ -11,11 +11,9 @@ include("radix_3_codelets.jl")
 include("radix_5_codelets.jl")
 include("radix_7_codelets.jl")
 
-export generate_execute_function!, radix2_family, radix3_family
+export generate_execute_function!
 
 using LoopVectorization, SIMD 
-
-current_fft_function::Union{Nothing, Function} = nothing
 
 function generate_safe_execute_function!(plan::RadixPlan)
     current_input = :x
@@ -111,22 +109,25 @@ function generate_safe_execute_function!(plan::RadixPlan)
     
 
     function_body = Expr(:block, ops...)
+    #=
     # Create module first
+
     mod = Module(:FFTTempModule)
     
-    # Add necessary imports to the module - using proper symbol syntax
-    #Core.eval(mod, :(using LoopVectorization))
-    #Core.eval(mod, :(using SIMD))
+    #Add necessary imports to the module - using proper symbol syntax
+    Core.eval(mod, :(using LoopVectorization))
+    Core.eval(mod, :(using SIMD))
     
-    # Get the parent module name as a symbol
-    #parent_mod_name = Symbol(parentmodule(Radix_Execute))
-    #Core.eval(mod, :(using .$parent_mod_name))
+    #Get the parent module name as a symbol
+    parent_mod_name = Symbol(parentmodule(Radix_Execute))
+    Core.eval(mod, :(using .$parent_mod_name))
     
-    # Make radix families available directly
+    #Make radix families available directly
     Core.eval(mod, :(const radix2_family = $radix2_family))
     Core.eval(mod, :(const radix3_family = $radix3_family))
     Core.eval(mod, :(const radix5_family = $radix5_family))
     Core.eval(mod, :(const radix7_family = $radix7_family))
+    =#
     
     # Combine all operations into a single function
     ex = :(function execute_fft_linear!(y::AbstractVector{ComplexF64}, x::AbstractVector{ComplexF64})
