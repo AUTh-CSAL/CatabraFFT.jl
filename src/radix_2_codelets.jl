@@ -1,9 +1,10 @@
 module radix2_family
 using LoopVectorization
 
-const INV_SQRT2 = 0.7071067811865475
-const Cp_3_8 = 0.3826834323650898 # cospi(3/8)
-const Sp_3_8 = 0.9238795325112867 # sinpi(3/8)
+const INV_SQRT2_DEFAULT = 0.7071067811865475
+const Cp_3_8_DEFAULT = 0.3826834323650898 # cospi(3/8)
+const Sp_3_8_DEFAULT = 0.9238795325112867 # sinpi(3/8)
+
 
 # Core FFT codelets
 @inline function fft16_shell_layered!(y::AbstractVector{ComplexF64}, x::AbstractVector{ComplexF64}, s::Int, n1::Int, theta::Float64)
@@ -132,8 +133,10 @@ end
     end
 end
 
-@inline function fft8_shell_layered_theta_1_8!(y::AbstractVector{ComplexF64}, x::AbstractVector{ComplexF64}, s::Int, n1::Int)
-
+@inline function fft8_shell_layered_theta_1_8!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}, s::Int, n1::Int) where T<:AbstractFloat
+    INV_SQRT2 = T(INV_SQRT2_DEFAULT)
+    Cp_3_8 = T(Cp_3_8_DEFAULT)
+    Sp_3_8 = T(Sp_3_8_DEFAULT)
     @inbounds @simd for q in 1:s
         t13, t14 = x[q] + x[q+s*4n1], x[q] - x[q+s*4n1]
         t15, t16 = (x[q+s*2n1] + x[q+s*6n1]), -im * (x[q+s*2n1] - x[q+s*6n1])
@@ -168,7 +171,8 @@ end
     end
 end
 
-@inline function fft8_shell_layered!(y::AbstractVector{ComplexF64}, x::AbstractVector{ComplexF64}, s::Int, n1::Int, theta::Float64)
+@inline function fft8_shell_layered!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}, s::Int, n1::Int, theta::Float64) where T <: AbstractFloat
+    INV_SQRT2 = T(INV_SQRT2_DEFAULT)
 
     @inbounds @simd for q in 1:s
         t13, t14 = x[q] + x[q+s*4n1], x[q] - x[q+s*4n1]
@@ -188,7 +192,7 @@ end
     end
 
     @inbounds @simd for p in 1:(n1-1)
-        w1p = cispi(-p * theta)
+        w1p = cispi(T(-p * theta))
         w2p = w1p * w1p
         w3p = w1p * w2p
         w4p = w2p * w2p
@@ -214,7 +218,8 @@ end
     end
 end
 
-@inline function fft8_shell!(y::AbstractVector{ComplexF64}, x::AbstractVector{ComplexF64}, s::Int)
+@inline function fft8_shell!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}, s::Int) where T <: AbstractFloat
+    INV_SQRT2 = T(INV_SQRT2_DEFAULT)
     @inbounds @simd for q in 1:s
         t13, t14 = x[q] + x[q+4s], x[q] - x[q+4s]
         t15, t16 = (x[q+2s] + x[q+6s]), -im * (x[q+2s] - x[q+6s])
@@ -233,7 +238,8 @@ end
     end
 end
 
-@inline function fft8_shell_y!(y::AbstractVector{ComplexF64}, s::Int)
+@inline function fft8_shell_y!(y::AbstractVector{Complex{T}}, s::Int) where T <: AbstractFloat
+    INV_SQRT2 = T(INV_SQRT2_DEFAULT)
     @inbounds @simd for q in 1:s
         t13, t14 = y[q] + y[q+4s], y[q] - y[q+4s]
         t15, t16 = (y[q+2s] + y[q+6s]), -im * (y[q+2s] - y[q+6s])
@@ -252,7 +258,7 @@ end
     end
 end
 
-@inline function fft4_shell!(y::AbstractVector{ComplexF64}, x::AbstractVector{ComplexF64}, s::Int)
+@inline function fft4_shell!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}, s::Int) where T <: AbstractFloat
     @inbounds @simd for q in 1:s
         t1, t2 = x[q] + x[q+2s], x[q] - x[q+2s]
         t3, t4 = (x[q+s] + x[q+3s]), -im * (x[q+s] - x[q+3s])
@@ -261,7 +267,7 @@ end
     end
 end
 
-@inline function fft4_shell_y!(y::AbstractVector{ComplexF64}, s::Int)
+@inline function fft4_shell_y!(y::AbstractVector{Complex{T}}, s::Int) where T <: AbstractFloat
     @inbounds @simd for q in 1:s
         t1, t2 = y[q] + y[q+2s], y[q] - y[q+2s]
         t3, t4 = (y[q+s] + y[q+3s]), -im * (y[q+s] - y[q+3s])
@@ -271,7 +277,7 @@ end
 end
 
 
-@inline function fft2_shell!(y::AbstractVector{ComplexF64}, x::AbstractVector{ComplexF64}, s::Int)
+@inline function fft2_shell!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}, s::Int) where T <: AbstractFloat
     @inbounds @simd for q in 1:s
         a, b = x[q], x[q+s]
         y[q] = a + b
@@ -279,7 +285,7 @@ end
     end
 end
 
-@inline function fft2_shell_y!(y::AbstractVector{ComplexF64}, s::Int)
+@inline function fft2_shell_y!(y::AbstractVector{Complex{T}}, s::Int) where T <: AbstractFloat
     @inbounds @simd for q in 1:s
         a, b = y[q], y[q+s]
         y[q] = a + b

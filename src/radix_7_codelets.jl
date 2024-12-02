@@ -1,12 +1,14 @@
 module radix7_family
 
-const Cp1, Sp1 = 0.6234898018587336, 0.7818314824680298
-const Cp2, Sp2 = 0.22252093395631448, 0.9749279121818236
-const Cp3, Sp3 = 0.9009688679024191, 0.4338837391175581
+const Cp1_DEFAULT, Sp1_DEFAULT = 0.6234898018587336, 0.7818314824680298
+const Cp2_DEFAULT, Sp2_DEFAULT = 0.22252093395631448, 0.9749279121818236
+const Cp3_DEFAULT, Sp3_DEFAULT = 0.9009688679024191, 0.4338837391175581
 
-@inline function fft7_shell!(y::AbstractVector{ComplexF64}, x::AbstractVector{ComplexF64}, s::Int)
+@inline function fft7_shell!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}, s::Int) where {T <: AbstractFloat}
+    Cp1, Sp1 = T(Cp1_DEFAULT), T(Sp1_DEFAULT)
+    Cp2, Sp2 = T(Cp2_DEFAULT), T(Sp2_DEFAULT)
+    Cp3, Sp3 = T(Cp3_DEFAULT), T(Sp3_DEFAULT)
     @inbounds @simd for q in 1:s
-
         a, b, c, d, e, f, g = x[q], x[q + s], x[q + 2s], x[q + 3s], x[q + 4s], x[q + 5s], x[q + 6s]
 
         bpg, cpf, dpe = b + g, c + f, d + e
@@ -25,7 +27,10 @@ const Cp3, Sp3 = 0.9009688679024191, 0.4338837391175581
     end
 end
 
-@inline function fft7_shell_y!(y::AbstractVector{ComplexF64}, s::Int)
+@inline function fft7_shell_y!(y::AbstractVector{Complex{T}}, s::Int) where {T <: AbstractFloat}
+    Cp1, Sp1 = T(Cp1_DEFAULT), T(Sp1_DEFAULT)
+    Cp2, Sp2 = T(Cp2_DEFAULT), T(Sp2_DEFAULT)
+    Cp3, Sp3 = T(Cp3_DEFAULT), T(Sp3_DEFAULT)
     @inbounds @simd for q in 1:s
 
         a, b, c, d, e, f, g = y[q], y[q + s], y[q + 2s], y[q + 3s], y[q + 4s], y[q + 5s], y[q + 6s]
@@ -46,9 +51,12 @@ end
     end
 end
 
-@inline function fft7_shell_layered!(y::AbstractVector{ComplexF64}, x::AbstractVector{ComplexF64}, s::Int, n1::Int, theta::Float64)
+@inline function fft7_shell_layered!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}, s::Int, n1::Int, theta::Float64) where {T<: AbstractFloat}
+    Cp1, Sp1 = T(Cp1_DEFAULT), T(Sp1_DEFAULT)
+    Cp2, Sp2 = T(Cp2_DEFAULT), T(Sp2_DEFAULT)
+    Cp3, Sp3 = T(Cp3_DEFAULT), T(Sp3_DEFAULT)
     @inbounds @simd for p in 0:(n1 - 1)
-            w1p = cispi(-p * theta)
+            w1p = cispi(T(-p * theta))
             w2p = w1p * w1p
             w3p = w2p * w1p
             w4p = w3p * w1p

@@ -5,13 +5,13 @@ include("kron.jl")
 __precompile__()
 GC.gc()
 
-export FFT!, F_cache
+#export fft!
 
 # Non-mutating wrapper that reuses preallocated workspace
-struct FFTWorkspace
-    x_work::Vector{ComplexF64}
-    function FFTWorkspace(n::Int)
-        new(Vector{ComplexF64}(undef, n))
+struct FFTWorkspace{T<:AbstractFloat}
+    x_work::Vector{Complex{T}}
+    function FFTWorkspace(n::Int, ::Type{T}) where {T<:AbstractFloat}
+        new{T}(Vector{Complex{T}}(undef, n))
     end
 end
 
@@ -19,19 +19,19 @@ end
 const WORKSPACE = Dict{Int, FFTWorkspace}()
 
 # Get or create workspace for a given size
-@inline function get_workspace(n::Int)
+@inline function get_workspace(n::Int, ::Type{T})::FFTWorkspace where {T<:AbstractFloat}
     get!(WORKSPACE, n) do
-        FFTWorkspace(n)
+        FFTWorkspace(n, T)
     end
 end
 
 # Non-mutating FFT that reuses workspace
-@inline function FFT(x::Vector{ComplexF64})
+@inline function fft(x::AbstractVector{Complex{T}})::AbstractVector{Complex{T}} where {T<:AbstractFloat}
     n = length(x)
-    workspace = get_workspace(n)
+    workspace = get_workspace(n, T)
     copyto!(workspace.x_work, x)  # Fast copy into preallocated space
     y = similar(x)
-    FFT!(y, workspace.x_work)
+    fft!(y, workspace.x_work)
     return y
 end
 end

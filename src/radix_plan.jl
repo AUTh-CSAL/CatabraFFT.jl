@@ -1,7 +1,7 @@
 module Radix_Plan
 
 #include("radix2_family.jl")
-using LoopVectorization
+using LoopVectorization, AbstractFFTs
 
 export FFTOp, TwiddleOp, RadixPlan, create_radix2s_plan, execute_plan!
 
@@ -16,12 +16,12 @@ struct FFTOp
 end
 
 # Struct to hold the complete FFT plan
-struct RadixPlan
+struct RadixPlan{T<:AbstractFloat} <: AbstractFFTs.Plan{T}
     operations::Vector{FFTOp}
     n::Int
 end
 
-function create_radix_2_plan(n::Int)
+function create_radix_2_plan(n::Int, ::Type{T}) where T <: AbstractFloat
     operations = FFTOp[]
 
     # Determine the sequence of radix operations
@@ -32,9 +32,7 @@ function create_radix_2_plan(n::Int)
     eo = false
 
     while remaining_n > 1
-        # Choose largest possible radix (16, 4, or 2)
-        #if remaining_n % 16 == 0 && remaining_n ≥ 16
-            #radix = 16
+        # Choose largest possible radix (8, 4, or 2)
         if remaining_n % 8 == 0 && remaining_n ≥ 8
             radix = 8
         elseif remaining_n % 4 == 0 && remaining_n ≥ 4
@@ -60,10 +58,10 @@ function create_radix_2_plan(n::Int)
         input_buffer, output_buffer = output_buffer, input_buffer
     end
 
-    RadixPlan(operations, n)
+    RadixPlan{T}(operations, n)
 end
 
-function create_radix_3_plan(n::Int)
+function create_radix_3_plan(n::Int, ::Type{T}) where T <: AbstractFloat
     operations = FFTOp[]
 
     # Determine the sequence of radix operations
@@ -97,11 +95,11 @@ function create_radix_3_plan(n::Int)
         input_buffer, output_buffer = output_buffer, input_buffer
     end
 
-    RadixPlan(operations, n)
+    RadixPlan{T}(operations, n)
 end
 
 # Simple universal planner for basic modulo radix planning
-function create_radix_plan(n::Int, radix::Int)
+function create_radix_plan(n::Int, radix::Int, ::Type{T}) where T <: AbstractFloat
     operations = FFTOp[]
 
     # Determine the sequence of radix operations
@@ -130,7 +128,7 @@ function create_radix_plan(n::Int, radix::Int)
         input_buffer, output_buffer = output_buffer, input_buffer
     end
 
-    RadixPlan(operations, n)
+    RadixPlan{T}(operations, n)
 end
 
 end

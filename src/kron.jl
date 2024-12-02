@@ -4,10 +4,10 @@ include("radix_plan.jl")
 include("radix_exec.jl")
 
 if !@isdefined(MixedRadixFFT)
-struct MixedRadixFFT
+struct MixedRadixFFT{T<:AbstractFloat}
     p::Int
     m::Int
-    W::Matrix
+    W::Matrix{Complex{T}}
     Fm::Function  # Row-wise FFT function
     Fp::Function  # Column-wise FFT function
 end
@@ -20,17 +20,17 @@ if !@isdefined(F_cache)
 const F_cache = Dict{Int,Function}()
 end
 
-@inline function generate_and_cache_fft!(n::Int)
+@inline function generate_and_cache_fft!(n::Int, ::Type{T})::Function where {T<:AbstractFloat}
     haskey(F_cache, n) && return F_cache[n]
 
     if is_power_of(n, 2) || is_power_of(n, 3) || is_power_of(n, 5) || is_power_of(n, 7)
-        fft_func = call_radix_families(n)
+        fft_func = call_radix_families(n, T)
     elseif isprime(n)
-        fft_func = generate_prime_fft_raders(n)
+        fft_func = generate_prime_fft_raders(n, T)
     else
         p, m = find_closest_factors(n)
-        plan = MixedRadixFFT(p, m)
-        fft_func = generate_formulation_fft(plan)
+        plan = MixedRadixFFT(p, m, T)
+        fft_func = generate_formulation_fft(plan, T)
     end
 
     #Cache-in
@@ -38,24 +38,24 @@ end
     return fft_func
 end
 
-@inline function FFT!(y::AbstractVector{ComplexF64}, x::AbstractVector{ComplexF64})
+@inline function fft!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}) where {T<:AbstractFloat}
     n = length(x)
-    fft_func = generate_and_cache_fft!(n)
+    fft_func = generate_and_cache_fft!(n, T)
     fft_func(y, x)
     return y
 end
 
-function MixedRadixFFT(p::Int, m::Int)
+function MixedRadixFFT(p::Int, m::Int, ::Type{T}) where {T<:AbstractFloat}
     key = (p, m)
     if haskey(plan_cache, key)
         return plan_cache[key]
     end
 
-    W = D(p, m)
-    Fm = recursive_F(m)
-    Fp = recursive_F(p)
-    plan_cache[key] = MixedRadixFFT(p, m, W, Fm, Fp)
-    MixedRadixFFT(p, m, W, Fm, Fp)
+    W = D(p, m, T)
+    Fm = recursive_F(m, T)
+    Fp = recursive_F(p, T)
+    plan_cache[key] = MixedRadixFFT{T}(p, m, W, Fm, Fp)
+    MixedRadixFFT{T}(p, m, W, Fm, Fp)
 end
 
 function is_power_of(n::Int, p::Int)
@@ -68,25 +68,25 @@ function is_power_of(n::Int, p::Int)
     return true
 end
 
-function call_radix_families(n::Int)
+function call_radix_families(n::Int, ::Type{T}) where {T<:AbstractFloat}
     @assert (is_power_of(n, 2) || is_power_of(n, 3) || is_power_of(n, 5) || is_power_of(n, 7)) "n: $n is not divisible by 2, 3, 5, or 7"
 
     haskey(F_cache, n) && return F_cache[n]
 
     family_func = if is_power_of(n,2)
-            Radix_Execute.generate_safe_execute_function!(Radix_Plan.create_radix_2_plan(n))
+            Radix_Execute.generate_safe_execute_function!(Radix_Plan.create_radix_2_plan(n, T))
         elseif is_power_of(n, 3)
-            Radix_Execute.generate_safe_execute_function!(Radix_Plan.create_radix_3_plan(n))
+            Radix_Execute.generate_safe_execute_function!(Radix_Plan.create_radix_3_plan(n, T))
         elseif is_power_of(n, 5)
-            Radix_Execute.generate_safe_execute_function!(Radix_Plan.create_radix_plan(n, 5))
+            Radix_Execute.generate_safe_execute_function!(Radix_Plan.create_radix_plan(n, 5, T))
         elseif is_power_of(n, 7)
-            Radix_Execute.generate_safe_execute_function!(Radix_Plan.create_radix_plan(n, 7))
+            Radix_Execute.generate_safe_execute_function!(Radix_Plan.create_radix_plan(n, 7, T))
     end
 
     return family_func
 end
 
-function generate_prime_fft_raders(n::Int)
+function generate_prime_fft_raders(n::Int, ::Type{T}) where {T<:AbstractFloat}
     @assert isprime(n) "Input length must be prime for Rader's FFT"
 
     # Find primitive root
@@ -117,13 +117,13 @@ function generate_prime_fft_raders(n::Int)
     inv_seq = [powermod(inv_gen, i, n) for i in 0:(n-2)]
 
     # Precompute twiddle factors
-    ω = cispi(2/n)
+    ω = cispi(T(2/n))
     W = [ω^(-inv_seq[i]) for i in 1:(n-1)]
 
     # Get FFT for length n-1
-    F = recursive_F(n-1)
+    F = recursive_F(n-1, T)
 
-    return function (y::AbstractVector{ComplexF64}, x::AbstractVector{ComplexF64})
+    return function (y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}) where {T<:AbstractFloat}
         @assert length(x) == n && length(y) == n "Input and output vectors must have length n"
 
         # Preallocate two buffers
@@ -212,9 +212,9 @@ function find_closest_factors(n::Int, prime_powers_preference=true)
     return p, div(n, p)
 end
 
-@inline function D(p,m)::Matrix
-  w = cispi.(-2/(p*m) * collect(1:m-1))
-  d = zeros(ComplexF64,(p-1)*(m-1))
+@inline function D(p,m, ::Type{T})::Matrix where {T<:AbstractFloat}
+  w = cispi.(T(-2/(p*m)) * collect(1:m-1))
+  d = zeros(Complex{T},(p-1)*(m-1))
 
   @inbounds d[1:m-1] .= w
 
@@ -226,18 +226,17 @@ end
 end
 
 # vec(transpose(F(m)*(W.*(Xmp*F(p))))) ≈ y
-function generate_formulation_fft(plan::MixedRadixFFT)
+function generate_formulation_fft(plan::MixedRadixFFT, ::Type{T})::Function where {T<:AbstractFloat}
     p, m = plan.p, plan.m
-    #W = reshape(D(p,m), m-1, p-1)
-    W = D(p,m)
+    W = D(p,m, T)
 
-    Ypm = Matrix{ComplexF64}(undef, p, m)
-    Xpm = Matrix{ComplexF64}(undef, p, m)
+    Ypm = Matrix{Complex{T}}(undef, p, m)
+    Xpm = Matrix{Complex{T}}(undef, p, m)
 
-    return @inline function (y::AbstractVector{ComplexF64}, x::AbstractVector{ComplexF64})
+    return @inline function (y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}})
 
         Xpm .= reshape(x, p, m)
-        Ypm .= zero(ComplexF64)
+        Ypm .= zero(Complex{T})
 
         @inbounds @simd for i in 1:p
             plan.Fm(@view(Ypm[i, :]), @view(Xpm[i, :]))
@@ -263,28 +262,12 @@ function generate_formulation_fft(plan::MixedRadixFFT)
 end
 
 # Update the recursive_F function to use the new generator
-function recursive_F(n::Int)::Function
-    if haskey(F_cache, n)
-        return F_cache[n]
-    end
-    fft_func = generate_and_cache_fft!(n)
+function recursive_F(n::Int, ::Type{T})::Function where {T<:AbstractFloat}
+    haskey(F_cache, n) && F_cache[n]
+
+    fft_func = generate_and_cache_fft!(n, T)
     return fft_func
 end
-
-@inline function multiply_D!(Xpm::AbstractMatrix{ComplexF64}, p::Int, m::Int)
-    base_w = cispi(-2 / (p * m))  # Precompute base rotation factor
-
-    # First column remains unchanged
-    @inbounds @simd for j in 1:p-1
-        w = base_w^j  # Efficient power computation
-        @inbounds @simd for i in 1:m-1
-            Xpm[j+1, i+1] *= w^i
-        end
-    end
-
-    return nothing
-end
-
 
 ## NOTE
 #=

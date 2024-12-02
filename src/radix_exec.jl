@@ -21,19 +21,7 @@ function generate_safe_execute_function!(plan::RadixPlan)
     ops = []
 
     for (i, op) in enumerate(plan.operations)
-        if op.op_type == :fft16
-                if op === last(plan.operations)
-                    if op.eo
-                        push!(ops, :(radix2_family.fft16_shell_y!($(current_input), $(op.stride))))
-                    else
-                    push!(ops, :(radix2_family.fft16_shell!($(current_output), $(current_input), $(op.stride))))
-                end
-                else
-                    n1 = op.n_groups >> 4
-                    theta = 2 / op.n_groups
-                    push!(ops, :(radix2_family.fft16_shell_layered!($(current_output), $(current_input), $(op.stride), $n1, $theta)))
-                end
-            elseif op.op_type == :fft9
+        if op.op_type == :fft9
                 if op === last(plan.operations)
                     if op.eo
                         push!(ops,  :(radix3_family.fft9_shell_y!($(current_input), $(op.stride))))
@@ -109,27 +97,9 @@ function generate_safe_execute_function!(plan::RadixPlan)
 
 
     function_body = Expr(:block, ops...)
-    #=
-    # Create module first
-
-    mod = Module(:FFTTempModule)
-
-    #Add necessary imports to the module - using proper symbol syntax
-    Core.eval(mod, :(using LoopVectorization))
-
-    #Get the parent module name as a symbol
-    parent_mod_name = Symbol(parentmodule(Radix_Execute))
-    Core.eval(mod, :(using .$parent_mod_name))
-
-    #Make radix families available directly
-    Core.eval(mod, :(const radix2_family = $radix2_family))
-    Core.eval(mod, :(const radix3_family = $radix3_family))
-    Core.eval(mod, :(const radix5_family = $radix5_family))
-    Core.eval(mod, :(const radix7_family = $radix7_family))
-    =#
 
     # Combine all operations into a single function
-    ex = :(function execute_fft_linear!(y::AbstractVector{ComplexF64}, x::AbstractVector{ComplexF64})
+    ex = :(function execute_fft_linear!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}) where T <: AbstractFloat
         $function_body
         return nothing
     end)
@@ -138,8 +108,6 @@ function generate_safe_execute_function!(plan::RadixPlan)
 
     runtime_generated_function = @RuntimeGeneratedFunction(ex)
 
-    #Core.eval(mod, expr)
-    #new_func = Core.eval(mod, :execute_fft_linear!)
     return runtime_generated_function
 end
 

@@ -1,10 +1,10 @@
 using CatabraFFT, FFTW, Test
 
-for CType in [ComplexF64] # , ComplexF32]
+for CType in [ComplexF32, ComplexF64] #ComplexF16
     @testset "Mixed-Radix $CType" begin
         for n in 10 .^ (1:7)
             x = randn(CType, n)
-            result = CatabraFFT.FFT(x)
+            result = CatabraFFT.fft(x)
             @test result ≈ FFTW.fft(x)
         end
     end
@@ -12,7 +12,7 @@ for CType in [ComplexF64] # , ComplexF32]
     @testset "Rader's FFT $CType" begin
         for n in [11, 13, 17, 19, 43, 89, 1721]
             x = randn(CType, n)
-            result = CatabraFFT.FFT(x)
+            result = CatabraFFT.fft(x)
             @test result ≈ FFTW.fft(x)
         end
     end
@@ -21,7 +21,7 @@ for CType in [ComplexF64] # , ComplexF32]
         @testset "Radix-$b $CType" begin
             for n in b .^ (1:maxexp)
                 x = randn(CType, n)
-                result = CatabraFFT.FFT(x)
+                result = CatabraFFT.fft(x)
                 @test result ≈ FFTW.fft(x)
             end
         end
