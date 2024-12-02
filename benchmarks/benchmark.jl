@@ -8,24 +8,24 @@ relative_error(x, y) = norm(x - y) / norm(y)
 
 
 function bench(n::Int, fftw_time::Vector, mixed_radix_time::Vector, fftw_mem::Vector, mixed_radix_mem::Vector)
-    x = ComplexF64[i + im * i for i in 1:n]
+    x = randn(ComplexF64,n)
+    F = FFTW.plan_fft(x; flags=FFTW.PATIENT, timelimit=Inf)
 
-    fftw_result = FFTW.fft(x)
+    fftw_result = F*x
+    # Benchmark FFTW
+    t_fftw = @benchmark ($F*$x) 
+    push!(fftw_time, log10(median(t_fftw).time / 10^9))
+    push!(fftw_mem, log10(median(t_fftw).memory / 1024))
+
     y_mixed = similar(x)
     FFT!(y_mixed, x)
     @show rel_err = relative_error(y_mixed, fftw_result)
     @assert rel_err < 1e-10
 
-    # Benchmark FFTW
-    t_fftw = @benchmark FFTW.fft($x) seconds = 0.01
-    push!(fftw_time, log10(median(t_fftw).time / 10^9))
-    push!(fftw_mem, log10(median(t_fftw).memory / 1024))
-
     # Run custom FFT benchmark
-    t_mixed = @benchmark FFT!($y_mixed, $x) seconds=0.01
+    t_mixed = @benchmark FFT!($y_mixed, $x) 
     push!(mixed_radix_time, log10(median(t_mixed).time / 10^9))
     push!(mixed_radix_mem, log10(median(t_mixed).memory / 1024))
-
 end
 
 function benchmark_fft_over_range(xs::Vector)
@@ -64,9 +64,9 @@ function benchmark_fft_over_range(xs::Vector)
     # display(p_mem)
 end
 
-# n = 3^7
-# test(n, true)
-xs = 2 .^ (2:27)
-# xs = sort(vcat([2 .^(2:24), 3 .^(2:15), 5 .^(2:10), 7 .^(2:8), 10 .^(2:7)]...))
-benchmark_fft_over_range(xs)
-println("Done!")
+function main()
+    xs = 2 .^ (4:27)
+    # xs = sort(vcat([2 .^(2:24), 3 .^(2:15), 5 .^(2:10), 7 .^(2:8), 10 .^(2:7)]...))
+    benchmark_fft_over_range(xs)
+    println("Done!")
+end
