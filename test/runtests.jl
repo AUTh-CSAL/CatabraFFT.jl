@@ -16,6 +16,7 @@ for CType in [ComplexF32, ComplexF64] #ComplexF16
             @test result ≈ FFTW.fft(x)
         end
     end
+    
 
     for (b, maxexp) in [(2, 20), (3, 13), (5, 10), (7, 8)]
         @testset "Radix-$b $CType" begin
