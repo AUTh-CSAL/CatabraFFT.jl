@@ -80,11 +80,11 @@ end
         x1, y1 = a + bpe*Cp2 - dpc*Cp1, im*(-bme*Sp2 + dmc*Sp1)
         x2, y2 = a - bpe*Cp1 + dpc*Cp2, im*(bme*Sp1 + dmc*Sp2)
 
-        y[q + s*5p] = a + bpe + dpc
-        y[q + s*(5p + 1)] =x1 + y1
-        y[q + s*(5p + 2)] =x2 - y2
-        y[q + s*(5p + 3)] =x2 + y2
-        y[q + s*(5p + 4)] =x1 - y1
+        y[q] = a + bpe + dpc
+        y[q + 1s] =x1 + y1
+        y[q + 2s] =x2 - y2
+        y[q + 3s] =x2 + y2
+        y[q + 4s] =x1 - y1
     end
 
     

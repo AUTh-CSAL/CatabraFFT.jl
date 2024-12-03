@@ -4,7 +4,7 @@ include("radix_plan.jl")
 include("radix_exec.jl")
 
 if !@isdefined(MixedRadixFFT)
-struct MixedRadixFFT{T<:AbstractFloat}
+struct MixedRadixFFT{T <: AbstractFloat}
     p::Int
     m::Int
     W::Matrix{Complex{T}}
@@ -14,14 +14,16 @@ end
 end
 
 if !@isdefined(plan_cache)
-const plan_cache = Dict{Tuple{Int, Int}, MixedRadixFFT}()
-end
-if !@isdefined(F_cache)
-const F_cache = Dict{Int,Function}()
+    const plan_cache = Dict{Tuple{Int, Int, DataType}, MixedRadixFFT}() 
 end
 
-@inline function generate_and_cache_fft!(n::Int, ::Type{T})::Function where {T<:AbstractFloat}
-    haskey(F_cache, n) && return F_cache[n]
+if !@isdefined(F_cache)
+    const F_cache = Dict{Tuple{Int, DataType}, Function}() #where {T <: AbstractFloat}
+end
+
+@inline function generate_and_cache_fft!(n::Int, ::Type{T})::Function where {T <: AbstractFloat}
+    key = (n, T)
+    haskey(F_cache, key) && return F_cache[key]
 
     if is_power_of(n, 2) || is_power_of(n, 3) || is_power_of(n, 5) || is_power_of(n, 7)
         fft_func = call_radix_families(n, T)
@@ -34,22 +36,20 @@ end
     end
 
     #Cache-in
-    F_cache[n] = fft_func
+    F_cache[key] = fft_func
     return fft_func
 end
 
-@inline function fft!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}) where {T<:AbstractFloat}
+@inline function fft!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}) where {T <: AbstractFloat}
     n = length(x)
     fft_func = generate_and_cache_fft!(n, T)
     fft_func(y, x)
     return y
 end
 
-function MixedRadixFFT(p::Int, m::Int, ::Type{T}) where {T<:AbstractFloat}
-    key = (p, m)
-    if haskey(plan_cache, key)
-        return plan_cache[key]
-    end
+function MixedRadixFFT(p::Int, m::Int, ::Type{T})::MixedRadixFFT where {T<:AbstractFloat}
+    key = (p, m, T)
+    haskey(plan_cache, key) && return plan_cache[key]
 
     W = D(p, m, T)
     Fm = recursive_F(m, T)
@@ -68,10 +68,11 @@ function is_power_of(n::Int, p::Int)
     return true
 end
 
-function call_radix_families(n::Int, ::Type{T}) where {T<:AbstractFloat}
+function call_radix_families(n::Int, ::Type{T})::Function where {T<:AbstractFloat}
     @assert (is_power_of(n, 2) || is_power_of(n, 3) || is_power_of(n, 5) || is_power_of(n, 7)) "n: $n is not divisible by 2, 3, 5, or 7"
 
-    haskey(F_cache, n) && return F_cache[n]
+    key = (n, T)
+    haskey(F_cache, key) && return F_cache[key]
 
     family_func = if is_power_of(n,2)
             Radix_Execute.generate_safe_execute_function!(Radix_Plan.create_radix_2_plan(n, T))
@@ -86,7 +87,7 @@ function call_radix_families(n::Int, ::Type{T}) where {T<:AbstractFloat}
     return family_func
 end
 
-function generate_prime_fft_raders(n::Int, ::Type{T}) where {T<:AbstractFloat}
+function generate_prime_fft_raders(n::Int, ::Type{T})::Function where {T<:AbstractFloat}
     @assert isprime(n) "Input length must be prime for Rader's FFT"
 
     # Find primitive root

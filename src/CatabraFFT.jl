@@ -16,17 +16,18 @@ struct FFTWorkspace{T<:AbstractFloat}
 end
 
 # Thread-local workspace to avoid allocations in parallel code
-const WORKSPACE = Dict{Int, FFTWorkspace}()
+const WORKSPACE = Dict{Tuple{Int, DataType}, FFTWorkspace}()
 
 # Get or create workspace for a given size
-@inline function get_workspace(n::Int, ::Type{T})::FFTWorkspace where {T<:AbstractFloat}
-    get!(WORKSPACE, n) do
+@inline function get_workspace(n::Int, ::Type{T})::FFTWorkspace where {T <: AbstractFloat}
+    key = (n, T)
+    get!(WORKSPACE, key) do
         FFTWorkspace(n, T)
     end
 end
 
 # Non-mutating FFT that reuses workspace
-@inline function fft(x::AbstractVector{Complex{T}})::AbstractVector{Complex{T}} where {T<:AbstractFloat}
+@inline function fft(x::AbstractVector{Complex{T}})::AbstractVector{Complex{T}} where {T <: AbstractFloat}
     n = length(x)
     workspace = get_workspace(n, T)
     copyto!(workspace.x_work, x)  # Fast copy into preallocated space
