@@ -5,7 +5,6 @@ const INV_SQRT2_DEFAULT = 0.7071067811865475
 const Cp_3_8_DEFAULT = 0.3826834323650898 # cospi(3/8)
 const Sp_3_8_DEFAULT = 0.9238795325112867 # sinpi(3/8)
 
-
 # Core FFT codelets
 @inline function fft16_shell_layered!(y::AbstractVector{ComplexF64}, x::AbstractVector{ComplexF64}, s::Int, n1::Int, theta::Float64)
     @inbounds @simd for p in 0:(n1-1)

@@ -1,6 +1,6 @@
 using CatabraFFT, FFTW, Test
 
-for CType in [ComplexF32, ComplexF64] #ComplexF16
+for CType in [ComplexF64, ComplexF32] #ComplexF16
     @testset "Mixed-Radix $CType" begin
         for n in 10 .^ (1:7)
             x = randn(CType, n)

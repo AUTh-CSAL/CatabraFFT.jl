@@ -18,14 +18,16 @@ if !@isdefined(plan_cache)
 end
 
 if !@isdefined(F_cache)
-    const F_cache = Dict{Tuple{Int, DataType}, Function}() #where {T <: AbstractFloat}
+    const F_cache = Dict{Tuple{Int, DataType}, Function}() 
 end
 
 @inline function generate_and_cache_fft!(n::Int, ::Type{T})::Function where {T <: AbstractFloat}
     key = (n, T)
     haskey(F_cache, key) && return F_cache[key]
 
-    if is_power_of(n, 2) || is_power_of(n, 3) || is_power_of(n, 5) || is_power_of(n, 7)
+    if n == 1
+        fft_func = (y, x) -> (y .= x)
+    elseif is_power_of(n, 2) || is_power_of(n, 3) || is_power_of(n, 5) || is_power_of(n, 7)
         fft_func = call_radix_families(n, T)
     elseif isprime(n)
         fft_func = generate_prime_fft_raders(n, T)

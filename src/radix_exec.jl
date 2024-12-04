@@ -11,7 +11,6 @@ include("radix_3_codelets.jl")
 include("radix_5_codelets.jl")
 include("radix_7_codelets.jl")
 
-export generate_execute_function!
 
 using LoopVectorization
 
@@ -71,7 +70,7 @@ function generate_safe_execute_function!(plan::RadixPlan)
             else
                     n1 = op.n_groups ÷ 5
                     theta = 2 / op.n_groups
-                    push!(ops,  :(radix5_family.fft5_shell_layered_2!($(current_output), $(current_input), $(op.stride), $n1, $theta)))
+                    push!(ops,  :(radix5_family.fft5_shell_layered!($(current_output), $(current_input), $(op.stride), $n1, $theta)))
             end
             elseif op.op_type == :fft4
                 if op.eo

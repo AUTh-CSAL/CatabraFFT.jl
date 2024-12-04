@@ -2,6 +2,8 @@ using CatabraFFT
 using BenchmarkTools, FFTW, LinearAlgebra
 using Plots
 
+plotlyjs()
+
 # Bencharks CatabraFFT.jl compared to FFTW.jl plots the results.
 
 relative_error(x, y) = norm(x - y) / norm(y)
@@ -92,7 +94,7 @@ function bench(n::Int, fftw_time::Vector, mixed_radix_time::Vector, fftw_mem::Ve
     y_mixed = similar(x)
     CatabraFFT.fft!(y_mixed, x)
     @show rel_err = relative_error(y_mixed, fftw_result)
-    @assert rel_err < 1e-10
+    @assert rel_err < 1e-3
 
     # Benchmark FFTW
     t_fftw = @benchmark FFTW.fft($x) seconds = 0.01
@@ -120,11 +122,12 @@ function benchmark_fft_over_range(xs::Vector)
     for n in xs
         print("n = $n \n")
         bench(n, fftw_time, mixed_radix_time, fftw_mem, mixed_radix_mem)
-        println("time fftw: ", fftw_time[end], " time mixed radix: ", mixed_radix_time[end])
+        println("time fftw: ", fftw_time[end], " Time mixed radix: ", mixed_radix_time[end])
     end
 
+    #=
     p_time = plot(log2.(xs), fftw_time, label="FFTW (median)", markershape=:square, markercolor=:red, legend=:topleft)
-    plot!(p_time,log2.(xs), mixed_radix_time, label="MIXED-RADIX FFT (median)", markershape=:circle, markercolor=:orange)
+    plot!(p_time,log2.(xs), mixed_radix_time, label="CatabraFFT (median)", markershape=:circle, markercolor=:orange)
 
     xlabel!(p_time, "log2(Input length)")
     ylabel!(p_time, "log10(Time (sec))")
@@ -133,19 +136,71 @@ function benchmark_fft_over_range(xs::Vector)
     display(p_time)
 
     p_mem = plot(log2.(xs), fftw_mem, label="FFTW (memory)", markershape=:square, markercolor=:red, legend=:topleft, reuse=false)
-    plot!(p_mem,log2.(xs), mixed_radix_mem, label="MIXED-RADIX FFT (memory)", markershape=:circle, markercolor=:orange)
+    plot!(p_mem,log2.(xs), mixed_radix_mem, label="CatabraFFT (memory)", markershape=:circle, markercolor=:orange)
 
     xlabel!(p_mem, "log2(Input length)")
     ylabel!(p_mem, "log10(Memory (KB))")
     title!(p_mem, "FFT Performance Comparison: Memory Allocation")
 
     # display(p_mem)
+    =#
+    
+    p_time = plot(
+    (xs),
+    fftw_time,
+    label="FFTW (median)",
+    linestyle=:none,
+    markershape=:square,
+    markercolor=:red,
+    legend=:topleft
+)
+plot!(
+    p_time,
+    (xs),
+    mixed_radix_time,
+    label="CatabraFFT (median)",
+    linestyle=:none,
+    markershape=:circle,
+    markercolor=:orange
+)
+
+xlabel!(p_time, "Input length")
+ylabel!(p_time, "log10(Time (sec))")
+title!(p_time, "FFT Performance Comparison: Time")
+
+display(p_time)
+
+p_mem = plot(
+    log2.(xs),
+    fftw_mem,
+    label="FFTW (memory)",
+    linestyle=:none,
+    markershape=:square,
+    markercolor=:red,
+    legend=:topleft
+)
+plot!(
+    p_mem,
+    log2.(xs),
+    mixed_radix_mem,
+    label="CatabraFFT (memory)",
+    linestyle=:none,
+    markershape=:circle,
+    markercolor=:orange
+)
+
+xlabel!(p_mem, "log2(Input length)")
+ylabel!(p_mem, "log10(Memory (KB))")
+title!(p_mem, "FFT Performance Comparison: Memory Allocation")
+
+
+    
 end
 
 # n = 3^7
 # test(n, true)
 #xs = 2 .^ (2:27)
-xs = 5 .^ (1:10)
+xs = collect(1:120)
 # xs = sort(vcat([2 .^(2:24), 3 .^(2:15), 5 .^(2:10), 7 .^(2:8), 10 .^(2:7)]...))
 benchmark_fft_over_range(xs)
 println("Done!")

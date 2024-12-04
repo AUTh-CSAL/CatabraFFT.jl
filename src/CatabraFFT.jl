@@ -5,7 +5,6 @@ include("kron.jl")
 __precompile__()
 GC.gc()
 
-#export fft!
 
 # Non-mutating wrapper that reuses preallocated workspace
 struct FFTWorkspace{T<:AbstractFloat}
@@ -26,7 +25,7 @@ const WORKSPACE = Dict{Tuple{Int, DataType}, FFTWorkspace}()
     end
 end
 
-@doc """
+"""
     fft(x::AbstractVector{Complex{T}})::AbstractVector{Complex{T}} where {T <: AbstractFloat}
 
 Compute the 1-dimensional C2C Fast Fourier Transform (FFT) of the input vector.
@@ -50,7 +49,7 @@ X = fft(x)
 end
 
 
-@doc """
+"""
     ifft(x::AbstractVector{Complex{T}})::AbstractVector{Complex{T}} where {T <: AbstractFloat}
 
 Compute the 1-dimensional C2C Inverse Fast Fourier Transform (IFFT) of the input vector.

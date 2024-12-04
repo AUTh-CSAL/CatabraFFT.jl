@@ -1,9 +1,8 @@
 module Radix_Plan
 
-#include("radix2_family.jl")
 using LoopVectorization, AbstractFFTs
 
-export FFTOp, TwiddleOp, RadixPlan, create_radix2s_plan, execute_plan!
+export RadixPlan
 
 # Struct to hold a single FFT operation
 struct FFTOp
