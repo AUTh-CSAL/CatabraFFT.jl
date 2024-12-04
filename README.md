@@ -38,9 +38,10 @@ The second stage consists of using all pre-computed assets and create actually c
 You can ```git clone``` the current working repo 
 
 or you can install the (upcoming) package with
-```Pkg> add CatabraFFT```
-
-In ```/src/Catabra.jl```, is the main ```CatabraFFT.FFT(x)``` function for any integer ```n```.
+```Pkg] add CatabraFFT```
+```using CatabraFFT```
+```y = CatabraFFT.fft(x)```
+```x = CatabraFFT.ifft(Y)```
 
 There are bencharking tools in ```/test/runtests.jl``` that pair the benchmarks of CatabraFFT.jl with FFTW.jl.
 You can view time plots by installing the VS Code Julia Extention.

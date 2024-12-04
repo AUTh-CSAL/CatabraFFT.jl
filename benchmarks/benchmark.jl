@@ -2,8 +2,6 @@ using CatabraFFT
 using BenchmarkTools, FFTW, LinearAlgebra
 using Plots
 
-plotlyjs()
-
 # Bencharks CatabraFFT.jl compared to FFTW.jl plots the results.
 
 relative_error(x, y) = norm(x - y) / norm(y)
@@ -146,7 +144,7 @@ function benchmark_fft_over_range(xs::Vector)
     =#
     
     p_time = plot(
-    (xs),
+    log2.(xs),
     fftw_time,
     label="FFTW (median)",
     linestyle=:none,
@@ -156,7 +154,7 @@ function benchmark_fft_over_range(xs::Vector)
 )
 plot!(
     p_time,
-    (xs),
+    log2.(xs),
     mixed_radix_time,
     label="CatabraFFT (median)",
     linestyle=:none,
@@ -199,8 +197,8 @@ end
 
 # n = 3^7
 # test(n, true)
-#xs = 2 .^ (2:27)
-xs = collect(1:120)
+xs = 2 .^ (2:27)
+#xs = collect(1:120)
 # xs = sort(vcat([2 .^(2:24), 3 .^(2:15), 5 .^(2:10), 7 .^(2:8), 10 .^(2:7)]...))
 benchmark_fft_over_range(xs)
 println("Done!")
