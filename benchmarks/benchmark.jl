@@ -2,6 +2,8 @@ using CatabraFFT
 using BenchmarkTools, FFTW, LinearAlgebra
 using Plots
 
+plotlyjs()
+
 # Bencharks CatabraFFT.jl compared to FFTW.jl plots the results.
 
 relative_error(x, y) = norm(x - y) / norm(y)
@@ -96,17 +98,19 @@ function bench(n::Int, fftw_time::Vector, mixed_radix_time::Vector, fftw_mem::Ve
 
     # Benchmark FFTW
     t_fftw = @benchmark FFTW.fft($x) seconds = 0.01
-    push!(fftw_time, log10(median(t_fftw).time / 10^9))
-    push!(fftw_mem, log10(median(t_fftw).memory / 1024))
+    push!(fftw_time,(median(t_fftw).time / 10^9))
+    push!(fftw_mem,(median(t_fftw).memory / 1024))
 
     # Run custom FFT benchmark
     t_mixed = @benchmark CatabraFFT.fft!($y_mixed, $x) seconds=0.01
-    push!(mixed_radix_time, log10(median(t_mixed).time / 10^9))
-    push!(mixed_radix_mem, log10(median(t_mixed).memory / 1024))
+    push!(mixed_radix_time,(median(t_mixed).time / 10^9))
+    push!(mixed_radix_mem,(median(t_mixed).memory / 1024))
 
 end
 
 function benchmark_fft_over_range(xs::Vector)
+    gflops_catabra = []
+    gflops_fftw = []
     fftw_time = []
     mixed_radix_time = []
     fftw_mem = []
@@ -121,6 +125,9 @@ function benchmark_fft_over_range(xs::Vector)
         print("n = $n \n")
         bench(n, fftw_time, mixed_radix_time, fftw_mem, mixed_radix_mem)
         println("time fftw: ", fftw_time[end], " Time mixed radix: ", mixed_radix_time[end])
+
+        push!(gflops_catabra, (5 * n * log2(n) * 10^(-9)) / mixed_radix_time[end])
+        push!(gflops_fftw, (5 * n * log2(n) * 10^(-9)) / fftw_time[end])
     end
 
     #=
@@ -167,6 +174,32 @@ ylabel!(p_time, "log10(Time (sec))")
 title!(p_time, "FFT Performance Comparison: Time")
 
 display(p_time)
+
+    
+    p_gflops = plot(
+    log2.(xs),
+    gflops_fftw,
+    label="FFTW GFLOPS (median)",
+    linestyle=:none,
+    markershape=:square,
+    markercolor=:red,
+    legend=:topleft
+)
+plot!(
+    p_gflops,
+    log2.(xs),
+    gflops_catabra,
+    label="CatabraFFT GFLOPS (median)",
+    linestyle=:none,
+    markershape=:circle,
+    markercolor=:orange
+)
+
+xlabel!(p_gflops, "log2(Input length)")
+ylabel!(p_gflops, "GFLOPS")
+title!(p_gflops, "FFT Performance Comparison: GFLOPS")
+
+display(p_gflops)
 
 p_mem = plot(
     log2.(xs),
