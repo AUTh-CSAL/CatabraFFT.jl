@@ -46,3 +46,8 @@ z = CatabraFFT.ifft(y)
 
 There are bencharks in `benchmark/benchmarks.jl` that compare the performance of `CatabraFFT.jl` with [`FFTW`](https://github.com/FFTW/fftw3) library via the Julia bindings provided by [`FFTW.jl`](https://github.com/JuliaMath/FFTW.jl).
 
+```julia
+using Pkg
+Pkg.activate("benchmarks")
+include("benchmarks/benchmark.jl")
+```
