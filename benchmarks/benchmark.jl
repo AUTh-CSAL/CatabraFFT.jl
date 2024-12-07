@@ -15,7 +15,7 @@ function bench(n::Int, fftw_time::Vector, mixed_radix_time::Vector, fftw_mem::Ve
 
     fftw_result = F * x
     y_mixed = similar(x)
-    CatabraFFT.fft!(y_mixed, x) 
+    y_mixed = CatabraFFT.fft(x) 
     @show rel_err = relative_error(y_mixed, fftw_result)
     @assert y_mixed ≈ fftw_result
 
@@ -25,7 +25,7 @@ function bench(n::Int, fftw_time::Vector, mixed_radix_time::Vector, fftw_mem::Ve
     push!(fftw_mem, (median(t_fftw).memory / 1024))
 
     # Run custom FFT benchmark
-    t_mixed = @benchmark CatabraFFT.fft!($y_mixed, x) setup=(x = randn($ctype,$n))
+    t_mixed = @benchmark $y_mixed = CatabraFFT.fft(x) setup=(x = randn($ctype,$n))
     push!(mixed_radix_time, (median(t_mixed).time / 10^9))
     push!(mixed_radix_mem, (median(t_mixed).memory / 1024))
 
