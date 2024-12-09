@@ -67,7 +67,7 @@ function benchmark_fft_over_range(xs::Vector; ctype=ComplexF64, plan_type=FFTW.M
     display(p_reltime)
 
     p_time = plot(
-        log2.(xs), log10.(fftw_time), label="$plan_type (median)", 
+        log2.(xs), log10.(fftw_time), label="$plan_type", 
         linestyle=:solid, markershape=:square, markercolor=:red, legend=:bottomright)
     plot!(p_time,
         log2.(xs), log10.(mixed_radix_time), label="CatabraFFT",
