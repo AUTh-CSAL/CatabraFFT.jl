@@ -54,7 +54,7 @@ function benchmark_fft_over_range(xs::Vector; ctype=ComplexF64, plan_type=FFTW.M
     end
 
     info = Sys.cpu_info()[1]
-    cpu = "$(info.model)@$(info.speed)GHz"
+    cpu = "$(info.model)@$(info.speed) Julia $(VERSION)"
 
     p_reltime = bar(
         log2.(xs), fftw_time ./ mixed_radix_time, label="", 
@@ -62,7 +62,7 @@ function benchmark_fft_over_range(xs::Vector; ctype=ComplexF64, plan_type=FFTW.M
     
     xlabel!(p_reltime, "log2(n)")
     ylabel!(p_reltime, "Relative Time (FFTW / CatabraFFT)")
-    title!(p_reltime, "$ctype FFT: Speedup ($cpu)")
+    title!(p_reltime, "$ctype FFT Speedup ($cpu)")
 
     display(p_reltime)
 
@@ -70,25 +70,25 @@ function benchmark_fft_over_range(xs::Vector; ctype=ComplexF64, plan_type=FFTW.M
         log2.(xs), log10.(fftw_time), label="$plan_type (median)", 
         linestyle=:solid, markershape=:square, markercolor=:red, legend=:bottomright)
     plot!(p_time,
-        log2.(xs), log10.(mixed_radix_time), label="CatabraFFT (median)",
+        log2.(xs), log10.(mixed_radix_time), label="CatabraFFT",
         linestyle=:solid, markershape=:circle, markercolor=:orange)
 
     xlabel!(p_time, "log2(n)")
     ylabel!(p_time, "log10(Time (sec))")
-    title!(p_time, "$ctype FFT: Time ($cpu)")
+    title!(p_time, "$ctype FFT Time ($cpu)")
 
     display(p_time)
 
     p_gflops = plot(
-        log2.(xs), gflops_fftw, label="$plan_type GFLOPS (median)",
+        log2.(xs), gflops_fftw, label="$plan_type GFLOPS",
         linestyle=:solid, markershape=:square, markercolor=:red, legend=:bottom)
     plot!(p_gflops,
-        log2.(xs), gflops_catabra, label="CatabraFFT GFLOPS (median)",
+        log2.(xs), gflops_catabra, label="CatabraFFT GFLOPS",
         linestyle=:solid, markershape=:circle, markercolor=:orange)
 
     xlabel!(p_gflops, "log2(Input length)")
     ylabel!(p_gflops, "GFLOPS")
-    title!(p_gflops, "$ctype FFT: GFLOPS ($cpu)")
+    title!(p_gflops, "$ctype FFT GFLOPS ($cpu)")
 
     display(p_gflops)
 

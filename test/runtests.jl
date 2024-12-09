@@ -35,3 +35,12 @@ for (transformFunction, referenceTransform, transformationType) in
         end
     end
 end
+
+for CType in [ComplexF64, ComplexF32, ComplexF16]
+    @testset "$CType FFT selftest" begin
+        for n in [89, 121, 2^10, 2^11, 3^7, 5^6, 10^4]
+            x = randn(CType, n)
+            @test x ≈ CatabraFFT.ifft(CatabraFFT.fft(x))
+        end
+    end
+end
