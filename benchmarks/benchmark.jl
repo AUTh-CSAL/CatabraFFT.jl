@@ -8,6 +8,18 @@ plotlyjs()
 
 relative_error(x, y) = norm(x - y) / norm(y)
 
+function fftwplantype2str(plantype)
+    if plantype == FFTW.ESTIMATE
+        return "FFTW ESTIMATE"
+    elseif plantype == FFTW.MEASURE
+        return "FFTW MEASURE"
+    elseif plantype == FFTW.PATIENT
+        return "FFTW PATIENT"
+    else
+        return "*** Unknown FFTW Plan Type ***"
+    end
+end
+
 function bench(n::Int, fftw_time::Vector, mixed_radix_time::Vector, fftw_mem::Vector, mixed_radix_mem::Vector; ctype=ComplexF64, plan_type=FFTW.MEASURE)
 
     F = FFTW.plan_fft(randn(ctype, n); flags=plan_type, timelimit=Inf)
@@ -67,7 +79,7 @@ function benchmark_fft_over_range(xs::Vector; ctype=ComplexF64, plan_type=FFTW.M
     display(p_reltime)
 
     p_time = plot(
-        log2.(xs), log10.(fftw_time), label="$plan_type", 
+        log2.(xs), log10.(fftw_time), label="$(fftwplantype2str(plan_type))", 
         linestyle=:solid, markershape=:square, markercolor=:red, legend=:bottomright)
     plot!(p_time,
         log2.(xs), log10.(mixed_radix_time), label="CatabraFFT",
@@ -80,7 +92,7 @@ function benchmark_fft_over_range(xs::Vector; ctype=ComplexF64, plan_type=FFTW.M
     display(p_time)
 
     p_gflops = plot(
-        log2.(xs), gflops_fftw, label="$plan_type GFLOPS",
+        log2.(xs), gflops_fftw, label="$(fftwplantype2str(plan_type)) GFLOPS",
         linestyle=:solid, markershape=:square, markercolor=:red, legend=:bottom)
     plot!(p_gflops,
         log2.(xs), gflops_catabra, label="CatabraFFT GFLOPS",
