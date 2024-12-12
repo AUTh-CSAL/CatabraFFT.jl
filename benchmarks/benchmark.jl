@@ -45,7 +45,7 @@ function bench(n::Int, fftw_time::Vector, mixed_radix_time::Vector, fftw_mem::Ve
 
 end
 
-function benchmark_fft_over_range(xs::Vector; ctype=ComplexF64, plan_type=FFTW.MEASURE)
+function benchmark_fft_over_range(xs::Vector; ctype=ComplexF64, plan_type=FFTW.MEASURE, save=false)
     gflops_catabra = []
     gflops_fftw = []
     fftw_time = []
@@ -69,6 +69,7 @@ function benchmark_fft_over_range(xs::Vector; ctype=ComplexF64, plan_type=FFTW.M
 
     info = Sys.cpu_info()[1]
     cpu = "$(info.model)@$(info.speed) Julia $(VERSION)"
+    ptype = fftwplantype2str(plan_type)
 
     p_reltime = bar(
         log2.(xs), fftw_time ./ mixed_radix_time, label="", 
@@ -79,9 +80,10 @@ function benchmark_fft_over_range(xs::Vector; ctype=ComplexF64, plan_type=FFTW.M
     title!(p_reltime, "$ctype FFT Speedup ($cpu)")
 
     display(p_reltime)
+    save && savefig(p_reltime, "svgs/speedup-$ctype-$ptype-$cpu.svg")
 
     p_time = plot(
-        log2.(xs), log10.(fftw_time), label="$(fftwplantype2str(plan_type))", 
+        log2.(xs), log10.(fftw_time), label="$ptype", 
         linestyle=:solid, markershape=:square, markercolor=:red, legend=:bottomright)
     plot!(p_time,
         log2.(xs), log10.(mixed_radix_time), label="CatabraFFT",
@@ -92,6 +94,7 @@ function benchmark_fft_over_range(xs::Vector; ctype=ComplexF64, plan_type=FFTW.M
     title!(p_time, "$ctype FFT Time ($cpu)")
 
     display(p_time)
+    save && savefig(p_time, "svgs/time-$ctype-$ptype-$cpu.svg")
 
     p_gflops = plot(
         log2.(xs), gflops_fftw, label="$(fftwplantype2str(plan_type)) GFLOPS",
@@ -105,6 +108,7 @@ function benchmark_fft_over_range(xs::Vector; ctype=ComplexF64, plan_type=FFTW.M
     title!(p_gflops, "$ctype FFT GFLOPS ($cpu)")
 
     display(p_gflops)
+    save && savefig(p_gflops, "svgs/gflops-$ctype-$ptype-$cpu.svg")
 
     # p_mem = plot(
     #     log2.(xs), log10.(fftw_mem), label="FFTW (memory)",
