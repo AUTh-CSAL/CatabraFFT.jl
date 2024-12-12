@@ -15,6 +15,8 @@ function fftwplantype2str(plantype)
         return "FFTW MEASURE"
     elseif plantype == FFTW.PATIENT
         return "FFTW PATIENT"
+    elseif plantype == FFTW.EXHAUSTIVE
+        return "FFTW EXHAUSTIVE"
     else
         return "*** Unknown FFTW Plan Type ***"
     end
