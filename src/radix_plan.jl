@@ -23,9 +23,6 @@ end
 function create_radix_2_plan(n::Int, ::Type{T}) where T <: AbstractFloat
     operations = FFTOp[]
 
-    use_radix16 = n < 2^15 ? true : false
-
-
     # Determine the sequence of radix operations
     remaining_n = n
     current_stride = 1
@@ -34,12 +31,9 @@ function create_radix_2_plan(n::Int, ::Type{T}) where T <: AbstractFloat
     eo = false
 
     while remaining_n > 1
-        if use_radix16
-            if remaining_n % 16 == 0 && remaining_n ≥ 16
-                radix = 16
-            end
-        end
         # Choose largest possible radix (8, 4, or 2)
+        #if remaining_n % 16 == 0 && remaining_n ≥ 16
+        #    radix = 16
         if remaining_n % 8 == 0 && remaining_n ≥ 8
             radix = 8
         elseif remaining_n % 4 == 0 && remaining_n ≥ 4

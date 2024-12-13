@@ -20,7 +20,19 @@ function generate_safe_execute_function!(plan::RadixPlan)
     ops = []
 
     for (i, op) in enumerate(plan.operations)
-        if op.op_type == :fft9
+        if op.op_type == :fft16
+            if op === last(plan.operations)
+                if op.eo
+                    push!(ops, :(radix2_family.fft16_shell_y!($(current_input), $(op.stride))))
+                else
+                    push!(ops, :(radix2_family.fft16_shell!($(current_output), $(current_input), $(op.stride))))
+                end
+            else
+                n1 = op.n_groups ÷ 16
+                theta = 2 / op.n_groups
+                push!(ops, :(radix2_family.fft16_shell_layered!($(current_output), $(current_input), $(op.stride), $n1, $theta)))
+            end
+            elseif op.op_type == :fft9
                 if op === last(plan.operations)
                     if op.eo
                         push!(ops,  :(radix3_family.fft9_shell_y!($(current_input), $(op.stride))))
@@ -73,6 +85,7 @@ function generate_safe_execute_function!(plan::RadixPlan)
                     push!(ops,  :(radix5_family.fft5_shell_layered!($(current_output), $(current_input), $(op.stride), $n1, $theta)))
             end
             elseif op.op_type == :fft4
+
                 if op.eo
                     push!(ops, :(radix2_family.fft4_shell_y!($(current_input), $(op.stride))))
                 else
@@ -103,7 +116,7 @@ function generate_safe_execute_function!(plan::RadixPlan)
         return nothing
     end)
 
-    #@show ex
+    @show ex
 
     runtime_generated_function = @RuntimeGeneratedFunction(ex)
 
