@@ -44,10 +44,19 @@ y = CatabraFFT.fft(x)
 z = CatabraFFT.ifft(y)
 ```
 
-There are bencharks in `benchmark/benchmarks.jl` that compare the performance of `CatabraFFT.jl` with [`FFTW`](https://github.com/FFTW/fftw3) library via the Julia bindings provided by [`FFTW.jl`](https://github.com/JuliaMath/FFTW.jl).
+## Benchmarks
+
+There are bencharks in `benchmark/benchmarks.jl` that compare the performance of `CatabraFFT.jl` with [`FFTW`](https://github.com/FFTW/fftw3) library via the Julia bindings provided by [`FFTW.jl`](https://github.com/JuliaMath/FFTW.jl). If you want to run the benchmarks, clone the repository 
+issuing 
+```shell
+git clone https://github.com/AUTh-CSAL/CatabraFFT.jl.git
+cd CatabraFFT.jl
+julia --threads=1
+``` 
+press `]` to enter the package manager and backspace to exit it, and run the following commands in the Julia REPL:
 
 ```julia
-using Pkg
-Pkg.activate("benchmarks")
+] activate benchmarks
+] develop .
 include("benchmarks/benchmark.jl")
 ```
