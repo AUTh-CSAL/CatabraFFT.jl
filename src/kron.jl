@@ -42,6 +42,21 @@ end
     return fft_func
 end
 
+"""
+    fft!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}})::AbstractVector{Complex{T}} where {T <: AbstractFloat}
+
+Compute the 1-dimensional C2C Fast Fourier Transform (FFT).
+
+# Arguments
+- `y`: Complex vector to store the result
+- `x`: Input complex vector to be transformed
+
+# Returns
+- A vector containing the Fourier transform of the input
+
+# Example
+ fft!(y,x)
+"""
 @inline function fft!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}) where {T <: AbstractFloat}
     n = length(x)
     fft_func = generate_and_cache_fft!(n, T)
