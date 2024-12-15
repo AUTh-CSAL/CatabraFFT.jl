@@ -112,7 +112,7 @@ function benchmark_fft_over_range(xs::Vector; ctype=ComplexF64, plan_type=FFTW.M
 end
 
 fftwplan = FFTW.MEASURE
-save = false
+save = true
 twoexp = 27
 for b in [2 3 5 7 10]
     xs = b .^ (2:Int64(floor(twoexp / log2(b))))
