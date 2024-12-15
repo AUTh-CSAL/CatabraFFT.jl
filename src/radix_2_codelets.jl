@@ -1,5 +1,5 @@
 module radix2_family
-using LoopVectorization
+using LoopVectorization, SIMD
 
 const INV_SQRT2_DEFAULT = 0.7071067811865475
 const Cp_3_8_DEFAULT = 0.3826834323650898 # cospi(3/8)
@@ -334,3 +334,504 @@ end
     end
 end
 end
+
+module radix2_simd_family
+
+using LoopVectorization, SIMD
+const INV_SQRT2_DEFAULT = 0.7071067811865475
+const Cp_3_8_DEFAULT = 0.3826834323650898 # cospi(3/8)
+const Sp_3_8_DEFAULT = 0.9238795325112867 # sinpi(3/8)
+
+# HW explicit for AVX2 - 256 bits / 2 ComplexF64 => 4 Float64
+@inline function fft2_shell_y!(y::AbstractVector{Complex{T}}, s::Int) where T <: AbstractFloat
+    ptr = pointer(reinterpret(T, y))
+    FLOAT_SIZE = sizeof(Complex{T})
+
+    @inbounds @simd for q in 0:s-1
+        x_idx1, x_idx2 = ptr + q * FLOAT_SIZE, ptr + (q + s) * FLOAT_SIZE
+        # Load 2 complex numbers (256 bits) from each half
+        a = vload(Vec{2, T}, x_idx1)
+        b = vload(Vec{2, T}, x_idx2)
+
+        sum = a + b
+        diff = a - b
+
+        vstore(sum, x_idx1)
+        vstore(diff, x_idx2)
+    end
+    return nothing
+end
+
+@inline function fft2_shell!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}, s::Int) where T <: AbstractFloat
+    x_ptr = pointer(reinterpret(T, x))
+    y_ptr = pointer(reinterpret(T, y))
+    FLOAT_SIZE = sizeof(Complex{T})
+
+    @inbounds @simd for q in 0:s-1
+        x_idx1, x_idx2 = x_ptr + q * FLOAT_SIZE, x_ptr + (q + s) * FLOAT_SIZE
+        y_idx1, y_idx2 = y_ptr + q * FLOAT_SIZE, y_ptr + (q + s) * FLOAT_SIZE
+        # Load 2 complex numbers (256 bits) from each half
+        a = vload(Vec{2, T}, x_idx1)
+        b = vload(Vec{2, T}, x_idx2)
+
+        sum = a + b
+        diff = a - b
+
+        vstore(sum, y_idx1)
+        vstore(diff, y_idx2)
+    end
+    return nothing
+end
+
+@inline function fft4_shell_y!(y::AbstractVector{Complex{T}}, s::Int) where T <: AbstractFloat
+    ptr = pointer(reinterpret(T, y))
+    FLOAT_SIZE = sizeof(Complex{T})
+
+    @inbounds @simd for q in 0:s-1
+        # Pointers to real/imag parts of complex numbers (stored as Float64)
+        x_idx1 = ptr + q * FLOAT_SIZE
+        x_idx2 = ptr + (q + s) * FLOAT_SIZE
+        x_idx3 = ptr + (q + 2s) * FLOAT_SIZE
+        x_idx4 = ptr + (q + 3s) * FLOAT_SIZE
+
+        a = vload(Vec{2, T}, x_idx1)
+        b = vload(Vec{2, T}, x_idx2)
+        c = vload(Vec{2, T}, x_idx3)
+        d = vload(Vec{2, T}, x_idx4)
+
+        t1 = a + c
+        t2 = a - c
+        t3 = b + d
+        t4 = Vec(b[2] - d[2] , -b[1] + d[1])
+
+        # Store the results back
+        vstore(t1 + t3, x_idx1)
+        vstore(t2 + t4, x_idx2)
+        vstore(t1 - t3, x_idx3)
+        vstore(t2 - t4, x_idx4)
+    end
+    return nothing
+end
+
+@inline function fft4_shell!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}, s::Int) where T <: AbstractFloat
+    x_ptr = pointer(reinterpret(T, x))
+    y_ptr = pointer(reinterpret(T, y))
+    FLOAT_SIZE = sizeof(Complex{T})
+
+    @inbounds @simd for q in 0:s-1
+        x_idx1 = x_ptr + q * FLOAT_SIZE
+        x_idx2 = x_ptr + (q + s) * FLOAT_SIZE
+        x_idx3 = x_ptr + (q + 2s) * FLOAT_SIZE
+        x_idx4 = x_ptr + (q + 3s) * FLOAT_SIZE
+
+        y_idx1 = y_ptr + q * FLOAT_SIZE
+        y_idx2 = y_ptr + (q + s) * FLOAT_SIZE
+        y_idx3 = y_ptr + (q + 2s) * FLOAT_SIZE
+        y_idx4 = y_ptr + (q + 3s) * FLOAT_SIZE
+
+        a = vload(Vec{2, T}, x_idx1)
+        b = vload(Vec{2, T}, x_idx2)
+        c = vload(Vec{2, T}, x_idx3)
+        d = vload(Vec{2, T}, x_idx4)
+
+        t1 = a + c
+        t2 = a - c
+        t3 = b + d
+        t4 = Vec(b[2] - d[2] , -b[1] + d[1])
+
+        vstore(t1 + t3, y_idx1)
+        vstore(t2 + t4, y_idx2)
+        vstore(t1 - t3, y_idx3)
+        vstore(t2 - t4, y_idx4)
+    end
+    return nothing
+end
+
+@inline function fft8_shell_y!(y::AbstractVector{Complex{T}}, s::Int) where T <: AbstractFloat
+    ptr = pointer(reinterpret(T, y))
+    FLOAT_SIZE = sizeof(Complex{T})
+    INV_SQRT2 = T(INV_SQRT2_DEFAULT)
+
+    @inbounds @simd for q in 0:s-1
+        x_idx1 = ptr + (q) * FLOAT_SIZE
+        x_idx2 = ptr + (q + s) * FLOAT_SIZE
+        x_idx3 = ptr + (q + 2s) * FLOAT_SIZE
+        x_idx4 = ptr + (q + 3s) * FLOAT_SIZE
+        x_idx5 = ptr + (q + 4s) * FLOAT_SIZE
+        x_idx6 = ptr + (q + 5s) * FLOAT_SIZE
+        x_idx7 = ptr + (q + 6s) * FLOAT_SIZE
+        x_idx8 = ptr + (q + 7s) * FLOAT_SIZE
+
+        a = vload(Vec{2, T}, x_idx1)
+        b = vload(Vec{2, T}, x_idx2)
+        c = vload(Vec{2, T}, x_idx3)
+        d = vload(Vec{2, T}, x_idx4)
+        e = vload(Vec{2, T}, x_idx5)
+        f = vload(Vec{2, T}, x_idx6)
+        g = vload(Vec{2, T}, x_idx7)
+        h = vload(Vec{2, T}, x_idx8)
+
+        t13 = a + e
+        t14 = a - e
+        t15 = c + g
+        t17 = b + f
+        t18 = b - f
+        t19 = d + h
+        t16 = Vec(c[2] - g[2], -c[1] + g[1])
+
+        t5 = t13 + t15
+        t6 = t14 + t16
+        t7 = t13 - t15
+        t8 = t14 - t16
+        t9 = t17 + t19
+
+        t20 = Vec(d[2] - h[2], -d[1] + h[1])
+        t10_real = INV_SQRT2 * (t18[1] + t20[1] - t18[2] - t20[2])
+        t10 = Vec(t10_real, -t10_real)
+        t11 = Vec(t17[2] - t19[2], -t17[1] + t19[1])
+        t12_real = t18[2] - t20[2] - t18[1] + t20[1]
+        t12_imag = -t18[1] + t20[1] - t18[1] + t20[2]
+        t12 = INV_SQRT2 * Vec(t12_real, t12_imag)
+
+        vstore(t5 + t9, x_idx1)
+        vstore(t6 + t10, x_idx2)
+        vstore(t7 + t11, x_idx3)
+        vstore(t8 + t12, x_idx4)
+
+        vstore(t5 - t9, x_idx5)
+        vstore(t6 - t10, x_idx6)
+        vstore(t7 - t11, x_idx7)
+        vstore(t8 - t12, x_idx8)
+    end
+    return nothing
+end
+
+
+@inline function fft8_shell!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}, s::Int) where T <: AbstractFloat
+    x_ptr = pointer(reinterpret(T, x))  # Get pointer to the start of the array
+    y_ptr = pointer(reinterpret(T, y))
+    FLOAT_SIZE = sizeof(Complex{T})
+    INV_SQRT2 = T(INV_SQRT2_DEFAULT)
+
+    @inbounds @simd for q in 0:s-1
+        # Load data for 8 complex numbers from x
+        x_idx1 = x_ptr + (q) * FLOAT_SIZE
+        x_idx2 = x_ptr + (q + s) * FLOAT_SIZE
+        x_idx3 = x_ptr + (q + 2s) * FLOAT_SIZE
+        x_idx4 = x_ptr + (q + 3s) * FLOAT_SIZE
+        x_idx5 = x_ptr + (q + 4s) * FLOAT_SIZE
+        x_idx6 = x_ptr + (q + 5s) * FLOAT_SIZE
+        x_idx7 = x_ptr + (q + 6s) * FLOAT_SIZE
+        x_idx8 = x_ptr + (q + 7s) * FLOAT_SIZE
+
+        y_idx1 = y_ptr + (q) * FLOAT_SIZE
+        y_idx2 = y_ptr + (q + s) * FLOAT_SIZE
+        y_idx3 = y_ptr + (q + 2s) * FLOAT_SIZE
+        y_idx4 = y_ptr + (q + 3s) * FLOAT_SIZE
+        y_idx5 = y_ptr + (q + 4s) * FLOAT_SIZE
+        y_idx6 = y_ptr + (q + 5s) * FLOAT_SIZE
+        y_idx7 = y_ptr + (q + 6s) * FLOAT_SIZE
+        y_idx8 = y_ptr + (q + 7s) * FLOAT_SIZE
+
+        a = vload(Vec{2, T}, x_idx1)
+        b = vload(Vec{2, T}, x_idx2)
+        c = vload(Vec{2, T}, x_idx3)
+        d = vload(Vec{2, T}, x_idx4)
+        e = vload(Vec{2, T}, x_idx5)
+        f = vload(Vec{2, T}, x_idx6)
+        g = vload(Vec{2, T}, x_idx7)
+        h = vload(Vec{2, T}, x_idx8)
+
+        t13 = a + e
+        t14 = a - e
+        t15 = c + g
+        t17 = b + f
+        t18 = b - f
+        t19 = d + h
+        t16 = Vec(c[2] - g[2], -c[1] + g[1])
+
+        t5 = t13 + t15
+        t6 = t14 + t16
+        t7 = t13 - t15
+        t8 = t14 - t16
+        t9 = t17 + t19
+
+        t20 = Vec(d[2] - h[2], -d[1] + h[1])
+        t10_real = INV_SQRT2 * (t18[1] + t20[1] - t18[2] - t20[2])
+        t10 = Vec(t10_real, -t10_real)
+        t11 = Vec(t17[2] - t19[2], -t17[1] + t19[1])
+        t12_real = t18[2] - t20[2] - t18[1] + t20[1]
+        t12_imag = -t18[1] + t20[1] - t18[1] + t20[2]
+        t12 = INV_SQRT2 * Vec(t12_real, t12_imag)
+
+        vstore(t5 + t9, y_idx1)
+        vstore(t6 + t10, y_idx2)
+        vstore(t7 + t11, y_idx3)
+        vstore(t8 + t12, y_idx4)
+
+        vstore(t5 - t9, y_idx5)
+        vstore(t6 - t10, y_idx6)
+        vstore(t7 - t11, y_idx7)
+        vstore(t8 - t12, y_idx8)
+    end
+    return nothing
+end
+
+@inline function fft16_shell_y!(y::AbstractVector{Complex{T}}, s::Int) where T <: AbstractFloat
+    x_ptr = pointer(reinterpret(T, y))
+    FLOAT_SIZE = sizeof(Complex{T})
+    INV_SQRT2 = T(INV_SQRT2_DEFAULT)
+    Cp_3_8 = T(Cp_3_8_DEFAULT)
+    Sp_3_8 = T(Sp_3_8_DEFAULT)
+
+    @inbounds @simd for q in 0:s-1
+        x_idx1 = x_ptr + (q) * FLOAT_SIZE
+        x_idx2 = x_ptr + (q + s) * FLOAT_SIZE
+        x_idx3 = x_ptr + (q + 2s) * FLOAT_SIZE
+        x_idx4 = x_ptr + (q + 3s) * FLOAT_SIZE
+        x_idx5 = x_ptr + (q + 4s) * FLOAT_SIZE
+        x_idx6 = x_ptr + (q + 5s) * FLOAT_SIZE
+        x_idx7 = x_ptr + (q + 6s) * FLOAT_SIZE
+        x_idx8 = x_ptr + (q + 7s) * FLOAT_SIZE
+        x_idx9 = x_ptr + (q + 8s) * FLOAT_SIZE
+        x_idx10 = x_ptr + (q + 9s) * FLOAT_SIZE
+        x_idx11 = x_ptr + (q + 10s) * FLOAT_SIZE
+        x_idx12 = x_ptr + (q + 11s) * FLOAT_SIZE
+        x_idx13 = x_ptr + (q + 12s) * FLOAT_SIZE
+        x_idx14 = x_ptr + (q + 13s) * FLOAT_SIZE
+        x_idx15 = x_ptr + (q + 14s) * FLOAT_SIZE
+        x_idx16 = x_ptr + (q + 15s) * FLOAT_SIZE
+
+        a = vload(Vec{2, T}, x_idx1)
+        b = vload(Vec{2, T}, x_idx2)
+        c = vload(Vec{2, T}, x_idx3)
+        d = vload(Vec{2, T}, x_idx4)
+        e = vload(Vec{2, T}, x_idx5)
+        f = vload(Vec{2, T}, x_idx6)
+        g = vload(Vec{2, T}, x_idx7)
+        h = vload(Vec{2, T}, x_idx8)
+        i = vload(Vec{2, T}, x_idx9)
+        j = vload(Vec{2, T}, x_idx10)
+        k = vload(Vec{2, T}, x_idx11)
+        l = vload(Vec{2, T}, x_idx12)
+        m = vload(Vec{2, T}, x_idx13)
+        n = vload(Vec{2, T}, x_idx14)
+        o = vload(Vec{2, T}, x_idx15)
+        p = vload(Vec{2, T}, x_idx16)
+
+        t45, t46 = a + i, a - i
+        t47 = e + m
+        t48 = Vec(e[2] - m[2], -e[1] + m[1])
+        t37, t38 = t45 + t47, t46 + t48
+        t39, t40 = t45 - t47, t46 - t48
+
+        t49, t50 = c + k, c - k
+        t51 = g + o
+        t52 = Vec(g[2] - o[2], -g[1] + m[1])
+        t41 = t49 + t51
+        t42_real = INV_SQRT2 * (t50[1] + t52[1] - t50[2] - t52[2])
+        t42 = Vec(t42_real, -t42_real)
+        t43 = Vec(t49[2] - t51[2], -t49[1] + t51[1])
+        t44_real = INV_SQRT2 * (t50[2] - t52[2] - t50[1] + t52[1])
+        t44_imag = INV_SQRT2 * (-t50[1] + t52[1] - t50[2] + t52[2])
+        t44 = Vec(t44_real, t44_imag)
+
+        t21, t22, t23, t24 = t37 + t41, t38 + t42, t39 + t43, t40 + t44
+        t25, t26, t27, t28 = t37 - t41, t38 - t42, t39 - t43, t40 - t44
+
+        t61, t62 = b + j, b - j
+        t63, t64 = f + n, Vec(f[2] - n[2], -f[1] + n[1])
+        t53, t54 = t61 + t63, t62 + t64
+        t55, t56 = t61 - t63, t62 - t64
+
+        t65, t66 = d + l, d - l
+        t67, t68 = h + p, Vec(h[2] - p[2], -h[1] + p[1])
+        t57 = t65 + t67
+        t58_real = INV_SQRT2 * (t66[1] + t68[1] - t66[2] - t68[2])
+        t58 = Vec(t58_real, -t58_real)
+        t59 = Vec(t65[2] - t67[2], -t65[1] + t67[1])
+
+        t60_real = INV_SQRT2 * (t66[2] - t68[2] - t66[1] + t68[1])
+        t60_imag = INV_SQRT2 * (-t66[1] + t68[1] - t66[2] + t68[2])
+        t60 = Vec(t60_real, t60_imag)
+
+        t29 = t53 + t57
+        t_sum = t54 + t58
+        t30_real = Sp_3_8 * t_sum[1] + Cp_3_8 * t_sum[2]
+        t30_imag = Sp_3_8 * t_sum[2] + Cp_3_8 * t_sum[1] #t_diff[1]
+        t30 = Vec(t30_real, t30_imag)
+        t_sum = t55 + t59
+        t31_real = INV_SQRT2 * (t_sum[1] - t_sum[2])
+        t31_imag = INV_SQRT2 * (t_sum[1] + t_sum[2])
+        t31 = Vec(t31_real, t31_imag)
+        t_sum = t56 + t60
+        t32_real = Cp_3_8 * t_sum[1] + Sp_3_8 * t_sum[2]
+        t32_imag = Cp_3_8 * t_sum[2] - Sp_3_8 * t_sum[1]
+        t32 = Vec(t32_real, t32_imag)
+
+        t33 = Vec(t53[2] - t57[2], -t53[1] + t57[1])
+        t_diff = t54 - t58
+        t34_real = -Cp_3_8 * t_diff[1] - Sp_3_8 * t_diff[2]
+        t34_imag = -Cp_3_8 * t_diff[2] + Sp_3_8 * t_diff[1]
+        t34 = Vec(t34_real, t34_imag)
+        t_diff = t55 - t59
+        t35_real = -INV_SQRT2 * (t_diff[1] + t_diff[2])
+        t35_imag = -INV_SQRT2 * (t_diff[1] - t_diff[2])
+        t35 = Vec(t35_real, t35_imag)
+        t_diff = t56 - t60
+        t36_real = + Cp_3_8 * t_diff[1] - Sp_3_8 * t_diff[2]
+        t36_imag = - Cp_3_8 * t_diff[2] + Sp_3_8 * t_diff[1]
+        t36 = Vec(t36_real, t36_imag)
+
+        vstore(t21 + t29, x_idx1)
+        vstore(t22 + t30, x_idx2)
+        vstore(t23 + t31, x_idx3)
+        vstore(t24 + t32, x_idx4)
+        vstore(t25 + t33, x_idx5)
+        vstore(t26 + t34, x_idx6)
+        vstore(t27 + t35, x_idx7)
+        vstore(t28 + t36, x_idx8)
+
+        vstore(t21 - t29, x_idx9)
+        vstore(t22 - t30, x_idx10)
+        vstore(t23 - t31, x_idx11)
+        vstore(t24 - t32, x_idx12)
+        vstore(t25 - t33, x_idx13)
+        vstore(t26 - t34, x_idx14)
+        vstore(t27 - t35, x_idx15)
+        vstore(t28 - t36, x_idx16)
+    end
+    return nothing
+end
+
+@inline function fft16_shell!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}, s::Int) where T <: AbstractFloat 
+    x_ptr = pointer(reinterpret(T, x))
+    y_ptr = pointer(reinterpret(T, y))
+    FLOAT_SIZE = sizeof(Complex{T})
+    INV_SQRT2 = T(INV_SQRT2_DEFAULT)
+    Cp_3_8 = T(Cp_3_8_DEFAULT)
+    Sp_3_8 = T(Sp_3_8_DEFAULT)
+
+    @inbounds @simd for q in 0:s-1
+        x_idx1 = x_ptr + (q) * FLOAT_SIZE
+        x_idx2 = x_ptr + (q + s) * FLOAT_SIZE
+        x_idx3 = x_ptr + (q + 2s) * FLOAT_SIZE
+        x_idx4 = x_ptr + (q + 3s) * FLOAT_SIZE
+        x_idx5 = x_ptr + (q + 4s) * FLOAT_SIZE
+        x_idx6 = x_ptr + (q + 5s) * FLOAT_SIZE
+        x_idx7 = x_ptr + (q + 6s) * FLOAT_SIZE
+        x_idx8 = x_ptr + (q + 7s) * FLOAT_SIZE
+        x_idx9 = x_ptr + (q + 8s) * FLOAT_SIZE
+        x_idx10 = x_ptr + (q + 9s) * FLOAT_SIZE
+        x_idx11 = x_ptr + (q + 10s) * FLOAT_SIZE
+        x_idx12 = x_ptr + (q + 11s) * FLOAT_SIZE
+        x_idx13 = x_ptr + (q + 12s) * FLOAT_SIZE
+        x_idx14 = x_ptr + (q + 13s) * FLOAT_SIZE
+        x_idx15 = x_ptr + (q + 14s) * FLOAT_SIZE
+        x_idx16 = x_ptr + (q + 15s) * FLOAT_SIZE
+
+        # Load complex numbers using SIMD
+        a = vload(Vec{2, T}, x_idx1)
+        b = vload(Vec{2, T}, x_idx2)
+        c = vload(Vec{2, T}, x_idx3)
+        d = vload(Vec{2, T}, x_idx4)
+        e = vload(Vec{2, T}, x_idx5)
+        f = vload(Vec{2, T}, x_idx6)
+        g = vload(Vec{2, T}, x_idx7)
+        h = vload(Vec{2, T}, x_idx8)
+        i = vload(Vec{2, T}, x_idx9)
+        j = vload(Vec{2, T}, x_idx10)
+        k = vload(Vec{2, T}, x_idx11)
+        l = vload(Vec{2, T}, x_idx12)
+        m = vload(Vec{2, T}, x_idx13)
+        n = vload(Vec{2, T}, x_idx14)
+        o = vload(Vec{2, T}, x_idx15)
+        p = vload(Vec{2, T}, x_idx16)
+
+        t45, t46 = a + i, a - i
+        t47 = e + m
+        t48 = Vec(e[2] - m[2], -e[1] + m[1])
+        t37, t38 = t45 + t47, t46 + t48
+        t39, t40 = t45 - t47, t46 - t48
+
+        t49, t50 = c + k, c - k
+        t51 = g + o
+        t52 = Vec(g[2] - o[2], -g[1] + m[1])
+        t41 = t49 + t51
+        t42_real = INV_SQRT2 * (t50[1] + t52[1] - t50[2] - t52[2])
+        t42 = Vec(t42_real, -t42_real)
+        t43 = Vec(t49[2] - t51[2], -t49[1] + t51[1])
+        t44_real = INV_SQRT2 * (t50[2] - t52[2] - t50[1] + t52[1])
+        t44_imag = INV_SQRT2 * (-t50[1] + t52[1] - t50[2] + t52[2])
+        t44 = Vec(t44_real, t44_imag)
+
+        t21, t22, t23, t24 = t37 + t41, t38 + t42, t39 + t43, t40 + t44
+        t25, t26, t27, t28 = t37 - t41, t38 - t42, t39 - t43, t40 - t44
+
+        t61, t62 = b + j, b - j
+        t63, t64 = f + n, Vec(f[2] - n[2], -f[1] + n[1])
+        t53, t54 = t61 + t63, t62 + t64
+        t55, t56 = t61 - t63, t62 - t64
+
+        t65, t66 = d + l, d - l
+        t67, t68 = h + p, Vec(h[2] - p[2], -h[1] + p[1])
+        t57 = t65 + t67
+        t58_real = INV_SQRT2 * (t66[1] + t68[1] - t66[2] - t68[2])
+        t58 = Vec(t58_real, -t58_real)
+        t59 = Vec(t65[2] - t67[2], -t65[1] + t67[1])
+
+        t60_real = INV_SQRT2 * (t66[2] - t68[2] - t66[1] + t68[1])
+        t60_imag = INV_SQRT2 * (-t66[1] + t68[1] - t66[2] + t68[2])
+        t60 = Vec(t60_real, t60_imag)
+
+        t29 = t53 + t57
+        t_sum = t54 + t58
+        t30_real = Sp_3_8 * t_sum[1] + Cp_3_8 * t_sum[2]
+        t30_imag = Sp_3_8 * t_sum[2] + Cp_3_8 * t_sum[1] #t_diff[1]
+        t30 = Vec(t30_real, t30_imag)
+        t_sum = t55 + t59
+        t31_real = INV_SQRT2 * (t_sum[1] - t_sum[2])
+        t31_imag = INV_SQRT2 * (t_sum[1] + t_sum[2])
+        t31 = Vec(t31_real, t31_imag)
+        t_sum = t56 + t60
+        t32_real = Cp_3_8 * t_sum[1] + Sp_3_8 * t_sum[2]
+        t32_imag = Cp_3_8 * t_sum[2] - Sp_3_8 * t_sum[1]
+        t32 = Vec(t32_real, t32_imag)
+
+        t33 = Vec(t53[2] - t57[2], -t53[1] + t57[1])
+        t_diff = t54 - t58
+        t34_real = -Cp_3_8 * t_diff[1] - Sp_3_8 * t_diff[2]
+        t34_imag = -Cp_3_8 * t_diff[2] + Sp_3_8 * t_diff[1]
+        t34 = Vec(t34_real, t34_imag)
+        t_diff = t55 - t59
+        t35_real = -INV_SQRT2 * (t_diff[1] + t_diff[2])
+        t35_imag = -INV_SQRT2 * (t_diff[1] - t_diff[2])
+        t35 = Vec(t35_real, t35_imag)
+        t_diff = t56 - t60
+        t36_real = + Cp_3_8 * t_diff[1] - Sp_3_8 * t_diff[2]
+        t36_imag = - Cp_3_8 * t_diff[2] + Sp_3_8 * t_diff[1]
+        t36 = Vec(t36_real, t36_imag)
+
+        vstore(t21 + t29, y_idx1)
+        vstore(t22 + t30, y_idx2)
+        vstore(t23 + t31, y_idx3)
+        vstore(t24 + t32, y_idx4)
+        vstore(t25 + t33, y_idx5)
+        vstore(t26 + t34, y_idx6)
+        vstore(t27 + t35, y_idx7)
+        vstore(t28 + t36, y_idx8)
+
+        vstore(t21 - t29, y_idx9)
+        vstore(t22 - t30, y_idx10)
+        vstore(t23 - t31, y_idx11)
+        vstore(t24 - t32, y_idx12)
+        vstore(t25 - t33, y_idx13)
+        vstore(t26 - t34, y_idx14)
+        vstore(t27 - t35, y_idx15)
+        vstore(t28 - t36, y_idx16)
+    end
+    return nothing
+end
+
+end
+
