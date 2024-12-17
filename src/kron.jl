@@ -153,7 +153,7 @@ function generate_prime_fft_raders(n::Int, ::Type{T})::Function where {T<:Abstra
 
         x0 = x[1]
 
-        @inbounds @simd for i in 1:(n-1)
+        @inbounds @simd ivdep for i in 1:(n-1)
             buffer1[i] = x[gen_seq[i] + 1]
         end
 
@@ -163,19 +163,19 @@ function generate_prime_fft_raders(n::Int, ::Type{T})::Function where {T<:Abstra
         F(buffer1, W)        # FFT of twiddle factors -> buffer1
 
         # Multiply in frequency domain (reuse buffer1 or buffer2 as needed)
-        @inbounds @simd for i in 1:(n-1)
+        @inbounds @simd ivdep for i in 1:(n-1)
             buffer2[i] *= buffer1[i]
         end
 
         # Inverse FFT (reuse buffer1 for the result)
         F(buffer1, conj.(buffer2))
 
-        @inbounds @simd for i in 1:(n-1)
+        @inbounds @simd ivdep for i in 1:(n-1)
             buffer1[i] = conj(buffer1[i]) / (n-1)
         end
 
         # Step 5: Place remaining terms
-        @inbounds @simd for j in 1:(n-1)
+        @inbounds @simd ivdep for j in 1:(n-1)
             y[inv_seq[j] + 1] = x0 + buffer1[j]
         end
 
@@ -236,7 +236,7 @@ end
 
   @inbounds d[1:m-1] .= w
 
-  @inbounds @simd for j in 2:p-1
+  @inbounds @simd ivdep for j in 2:p-1
         @views d[(j-1)*(m-1)+1:j*(m-1)] .= w .* view(d, (j-2)*(m-1)+1:(j-1)*(m-1))
   end
 
@@ -256,19 +256,19 @@ function generate_formulation_fft(plan::MixedRadixFFT, ::Type{T})::Function wher
         Xpm .= reshape(x, p, m)
         Ypm .= zero(Complex{T})
 
-        @inbounds @simd for i in 1:p
+        @inbounds @simd ivdep for i in 1:p
             plan.Fm(@view(Ypm[i, :]), @view(Xpm[i, :]))
         end
 
-        @inbounds @simd for i in 1:p-1
-            @inbounds @simd for j in 1:m-1
+        @inbounds @simd ivdep for i in 1:p-1
+            @inbounds @simd ivdep for j in 1:m-1
                 Ypm[i + 1, j + 1] *= W[j,i]
             end
         end
 
         # Step 3: Transpose the result and apply Fp column-wise
         # (W^T (X_pm Fm))^T Fp
-        @inbounds @simd for j in 1:m
+        @inbounds @simd ivdep for j in 1:m
             plan.Fp(@view(Xpm[:, j]), @view(Ypm[:, j]))
         end
 
