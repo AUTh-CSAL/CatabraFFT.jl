@@ -276,7 +276,7 @@ end
     end
 end
 
-@inline function fft8_shell_layered_theta_1_8_ivdep!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}, s::Int, n1::Int) where T<:AbstractFloat
+@inline function fft8_shell_layered_theta_1_8_ivdep!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}, s::Int, n1::Int, theta::Float64=0.125) where T<:AbstractFloat
     INV_SQRT2 = T(INV_SQRT2_DEFAULT)
     Cp_3_8 = T(Cp_3_8_DEFAULT)
     Sp_3_8 = T(Sp_3_8_DEFAULT)
@@ -314,7 +314,7 @@ end
     end
 end
 
-@inline function fft8_shell_layered_theta_1_8!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}, s::Int, n1::Int) where T<:AbstractFloat
+@inline function fft8_shell_layered_theta_1_8!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}, s::Int, n1::Int, theta::Float64=0.125) where T<:AbstractFloat
     INV_SQRT2 = T(INV_SQRT2_DEFAULT)
     Cp_3_8 = T(Cp_3_8_DEFAULT)
     Sp_3_8 = T(Sp_3_8_DEFAULT)

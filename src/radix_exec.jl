@@ -3,7 +3,7 @@ module Radix_Execute
 using Core.Compiler: Core, return_type
 using RuntimeGeneratedFunctions
 using ..Radix_Plan
-using Statistics
+using BenchmarkTools
 
 RuntimeGeneratedFunctions.init(Radix_Execute)
 
@@ -14,11 +14,12 @@ include("radix_7_codelets.jl")
 
 
 
-function generate_safe_execute_function!(plan::RadixPlan, show_function=false, check_ivdep=true)
+function generate_safe_execute_function!(plan::RadixPlan, show_function=true, check_ivdep=true, str="")
     current_input = :x
     current_output = :y
     ops = []
-    ivdep = true
+    ivdep = false
+    ivdep_change_exists = false
 
     # Helper to get the radix family module and function reference
     function get_radix_family(op_type::Symbol)
@@ -61,11 +62,7 @@ function generate_safe_execute_function!(plan::RadixPlan, show_function=false, c
         func_ref = get_function_reference(radix_family, function_name)
 
         if op === last(plan.operations)
-            if op.eo
-                push!(ops, Expr(:call, func_ref, current_input, op.stride))
-            else
-                push!(ops, Expr(:call, func_ref, current_output, current_input, op.stride))
-            end
+            op.eo ? push!(ops, Expr(:call, func_ref, current_input, op.stride)) : push!(ops, Expr(:call, func_ref, current_output, current_input, op.stride))
         else
             n1 = op.n_groups ÷ get_radix_divisor(op.op_type)
             theta = 2 / op.n_groups
@@ -93,7 +90,9 @@ function generate_safe_execute_function!(plan::RadixPlan, show_function=false, c
                 std_func_ref = get_function_reference(radix_family, std_func_name)
                 ivdep_func_ref = get_function_reference(radix_family, ivdep_func_name)
                 ivdep = determine_ivdep_threshold(std_func_ref, ivdep_func_ref, op, is_layered, show_function)
-
+                if ivdep
+                    ivdep_change_exists = true
+                end
             end
             push_operation!(ops, op, current_input, current_output, ivdep)
         else
@@ -110,15 +109,66 @@ function generate_safe_execute_function!(plan::RadixPlan, show_function=false, c
         $function_body
         return nothing
     end)
-
-    show_function && @show ex
-
+    
     runtime_generated_function = @RuntimeGeneratedFunction(ex)
+    if check_ivdep && ivdep_change_exists
+        # Create a similar function with ivdep turned off to compare
+        clean_generated_function = generate_safe_execute_function!(plan, true, false, "CLEAN")
+        
+        if benchmark_functions_performance(clean_generated_function, runtime_generated_function , plan.n, show_function)
+            show_function && println("NON-IVDEP FUNCTION IS BETTER")
+            runtime_generated_function = clean_generated_function
+        end
+    end
+    show_function && @show runtime_generated_function
     return runtime_generated_function
 end
 
+# Helper function to process the entire function expression
+function process_execute_function!(ex::Expr)
+    @assert ex.head === :function "Expression must be a function definition"
+    
+    # Process the function body
+    function_body = ex.args[2]
+    if function_body isa Expr
+        remove_ivdep_suffix!(function_body)
+    end
+    
+    return ex
+end
+
+function benchmark_functions_performance(fft_standard!, fft_ivdep!, N::Int, show_function=true)
+    
+    x = randn(ComplexF64, N)
+    
+    # Warm-up runs
+    fft_standard!(x, x) # Recycle random data, I don't care
+    fft_ivdep!(x, x)
+    
+    # Benchmark standard version
+    standard_bench = @benchmark $fft_standard!($x, $x) samples = 10
+    
+    # Benchmark ivdep version
+    ivdep_bench = @benchmark $fft_ivdep!($x, $x) samples = 10
+
+    standard_time = minimum(standard_bench.times)
+    ivdep_time = minimum(ivdep_bench.times)
+
+    # Calculate speedup ratio
+    speedup_ratio = standard_time / ivdep_time
+
+    # Determine if IVDEP is consistently beneficial
+    is_ivdep_beneficial = speedup_ratio > 1.05  # 5% speedup threshold
+    
+    if show_function
+        println("Final Function Mean Speedup: $(speedup_ratio*100) %")
+        println("Final Function IVDEP Beneficial: $is_ivdep_beneficial")
+    end
+    
+    return is_ivdep_beneficial
+end
+
 function benchmark_ivdep_performance(fft_standard!, fft_ivdep!, op, is_layered)
-    ivdep_speedup_ratios = []
     n = op.n_groups
     s = op.stride
     eo = op.eo
@@ -134,18 +184,10 @@ function benchmark_ivdep_performance(fft_standard!, fft_ivdep!, op, is_layered)
         fft_ivdep!(x, x, s, n1, theta)
     
         # Benchmark standard version
-        standard_time = @elapsed begin
-        for _ in 1:10
-            fft_standard!(x, x, s, n1, theta)
-        end
-        end
+        standard_bench = @benchmark $fft_standard!($x, $x, $s, $n1, $theta) samples=10 
     
         # Benchmark ivdep version
-        ivdep_time = @elapsed begin
-        for _ in 1:10
-            fft_ivdep!(x, x, s, n1, theta)
-        end
-        end
+        ivdep_bench = @benchmark $fft_ivdep!($x, $x, $s, $n1, $theta) samples=10 
 
     else
         if eo
@@ -153,62 +195,41 @@ function benchmark_ivdep_performance(fft_standard!, fft_ivdep!, op, is_layered)
         fft_standard!(x, s) # Recycle random data, I don't care
         fft_ivdep!(x, s)
         
-        
         # Benchmark standard version
-        standard_time = @elapsed begin
-            for _ in 1:10
-                fft_standard!(x, s)
-            end
-        end
+        standard_bench = @benchmark $fft_standard!($x, $s) samples=10 
         
         # Benchmark ivdep version
-        ivdep_time = @elapsed begin
-            for _ in 1:10
-                fft_ivdep!(x, s)
-            end
-        end
+        ivdep_bench = @benchmark $fft_ivdep!($x, $s) samples=10
     else
+        # Warm-up runs
+        fft_standard!(x, x, s) # Recycle random data, I don't care
+        fft_ivdep!(x, x, s)
         
-    # Warm-up runs
-    fft_standard!(x, x, s) # Recycle random data, I don't care
-    fft_ivdep!(x, x, s)
-    
-    
-    # Benchmark standard version
-    standard_time = @elapsed begin
-        for _ in 1:10
-            fft_standard!(x, x, s)
-        end
-    end
-    
-    # Benchmark ivdep version
-    ivdep_time = @elapsed begin
-        for _ in 1:10
-            fft_ivdep!(x, x, s)
-        end
+        # Benchmark standard version
+        standard_bench = @benchmark $fft_standard!($x, $x, $s) samples=10
+        
+        # Benchmark ivdep version
+        ivdep_bench = @benchmark $fft_ivdep!($x, $x, $s) samples=10
     end
 end
-end
-    
+
+    standard_time = minimum(standard_bench.times)
+    ivdep_time = minimum(ivdep_bench.times)
     # Calculate speedup ratio
     speedup_ratio = standard_time / ivdep_time
-    push!(ivdep_speedup_ratios, speedup_ratio)
     
-    return ivdep_speedup_ratios
+    return speedup_ratio
 end
 
 function determine_ivdep_threshold(fft_standard!, fft_ivdep!, op, is_layered, show_function)
-    speedup_ratios = benchmark_ivdep_performance(fft_standard!, fft_ivdep!, op, is_layered)
-    
-    # Calculate mean speedup and standard deviation
-    mean_speedup = mean(speedup_ratios)
+    speedup_ratio = benchmark_ivdep_performance(fft_standard!, fft_ivdep!, op, is_layered)
     
     # Determine if IVDEP is consistently beneficial
-    is_ivdep_beneficial = mean_speedup > 1.05  # 5% speedup threshold
+    is_ivdep_beneficial = speedup_ratio > 1.05  # 5% speedup threshold
     
     if show_function
-    println("Mean Speedup: $(mean_speedup*100) %")
-    println("IVDEP Beneficial: $is_ivdep_beneficial")
+        println("-> Shell $(op.op_type) Mean Speedup: $(speedup_ratio*100) %")
+        println("-> Shell $(op.op_type) IVDEP Beneficial: $is_ivdep_beneficial")
     end
     
     return is_ivdep_beneficial
