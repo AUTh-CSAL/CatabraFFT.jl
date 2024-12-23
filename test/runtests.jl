@@ -32,6 +32,19 @@ for (transformFunction, referenceTransform, transformationType) in
                 end
             end
 
+            println("CLEANING CACHED-IN FUNCTIONS FOR NEW IVDEP FUNCTION")
+            CatabraFFT.empty_cache()
+
+            for (b, maxexp) in [(2, 20), (3, 13), (5, 10), (7, 8)]
+                @testset "Radix-$b IVDEP $transformationType FFT $CType" begin
+                    for n in b .^ (1:maxexp)
+                        x = randn(CType, n)
+                        result = transformFunction(x, true)
+                        @test result ≈ referenceTransform(x)
+                    end
+                end
+            end
+
         end
     end
 end

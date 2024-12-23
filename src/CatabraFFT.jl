@@ -5,7 +5,6 @@ include("kron.jl")
 __precompile__()
 GC.gc()
 
-
 # Non-mutating wrapper that reuses preallocated workspace
 struct FFTWorkspace{T<:AbstractFloat}
     x_work::Vector{Complex{T}}
@@ -16,6 +15,7 @@ end
 
 # Thread-local workspace to avoid allocations in parallel code
 const WORKSPACE = Dict{Tuple{Int, DataType}, FFTWorkspace}()
+const F_cache = Dict{Tuple{Int, DataType}, Function}()  # Example cache for FFT computations
 
 # Get or create workspace for a given size
 @inline function get_workspace(n::Int, ::Type{T})::FFTWorkspace where {T <: AbstractFloat}
@@ -23,6 +23,20 @@ const WORKSPACE = Dict{Tuple{Int, DataType}, FFTWorkspace}()
     get!(WORKSPACE, key) do
         FFTWorkspace(n, T)
     end
+end
+
+"""
+Clear all internal caches used in CatabraFFT.
+
+This empties caches like WORKSPACE and F_cache, which store preallocated
+workspaces and cached FFT computations, to free up memory.
+
+# Example
+empty_cache()
+"""
+function empty_cache()
+    empty!(WORKSPACE)
+    empty!(F_cache)
 end
 
 """
@@ -39,15 +53,14 @@ Compute the 1-dimensional C2C Fast Fourier Transform (FFT) of the input vector.
 # Example
 X = fft(x)
 """
-@inline function fft(x::AbstractVector{Complex{T}})::AbstractVector{Complex{T}} where {T <: AbstractFloat}
+@inline function fft(x::AbstractVector{Complex{T}}, use_ivdep::Bool=false)::AbstractVector{Complex{T}} where {T <: AbstractFloat}
     n = length(x)
     workspace = get_workspace(n, T)
     copyto!(workspace.x_work, x)  # Fast copy into preallocated space
     y = similar(x)
-    fft!(y, workspace.x_work)
+    fft!(y, workspace.x_work, use_ivdep)
     return y
 end
-
 
 """
     ifft(x::AbstractVector{Complex{T}})::AbstractVector{Complex{T}} where {T <: AbstractFloat}
@@ -63,7 +76,7 @@ Compute the 1-dimensional C2C Inverse Fast Fourier Transform (IFFT) of the input
 # Example
 x = fft(X)
 """
-@inline function ifft(x::AbstractVector{Complex{T}})::AbstractVector{Complex{T}} where {T <: AbstractFloat}
+@inline function ifft(x::AbstractVector{Complex{T}}, use_ivdep::Bool=false)::AbstractVector{Complex{T}} where {T <: AbstractFloat}
     n = length(x)
     workspace = get_workspace(n, T)
     copyto!(workspace.x_work, x)  # Fast copy into preallocated space
@@ -71,7 +84,7 @@ x = fft(X)
     
     # IFFT using the FFT with complex conjugate and normalization
     conj!(workspace.x_work)
-    fft!(y, workspace.x_work)
+    fft!(y, workspace.x_work, use_ivdep)
     conj!(y)
     y ./= n
     

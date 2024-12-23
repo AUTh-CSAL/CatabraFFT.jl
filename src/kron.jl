@@ -21,19 +21,19 @@ if !@isdefined(F_cache)
     const F_cache = Dict{Tuple{Int, DataType}, Function}() 
 end
 
-@inline function generate_and_cache_fft!(n::Int, ::Type{T})::Function where {T <: AbstractFloat}
+@inline function generate_and_cache_fft!(n::Int, ::Type{T}, use_ivdep::Bool)::Function where {T <: AbstractFloat}
     key = (n, T)
     haskey(F_cache, key) && return F_cache[key]
 
     if n == 1
         fft_func = (y, x) -> (y .= x)
     elseif is_power_of(n, 2) || is_power_of(n, 3) || is_power_of(n, 5) || is_power_of(n, 7)
-        fft_func = call_radix_families(n, T)
+        fft_func = call_radix_families(n, T, use_ivdep)
     elseif isprime(n)
-        fft_func = generate_prime_fft_raders(n, T)
+        fft_func = generate_prime_fft_raders(n, T, use_ivdep)
     else
         p, m = find_closest_factors(n)
-        plan = MixedRadixFFT(p, m, T)
+        plan = MixedRadixFFT(p, m, T, use_ivdep)
         fft_func = generate_formulation_fft(plan, T)
     end
 
@@ -57,20 +57,20 @@ Compute the 1-dimensional C2C Fast Fourier Transform (FFT).
 # Example
  fft!(y,x)
 """
-@inline function fft!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}) where {T <: AbstractFloat}
+@inline function fft!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}, use_ivdep::Bool=false) where {T <: AbstractFloat}
     n = length(x)
-    fft_func = generate_and_cache_fft!(n, T)
+    fft_func = generate_and_cache_fft!(n, T, use_ivdep)
     fft_func(y, x)
     return y
 end
 
-function MixedRadixFFT(p::Int, m::Int, ::Type{T})::MixedRadixFFT where {T<:AbstractFloat}
+function MixedRadixFFT(p::Int, m::Int, ::Type{T}, use_ivdep::Bool)::MixedRadixFFT where {T<:AbstractFloat}
     key = (p, m, T)
     haskey(plan_cache, key) && return plan_cache[key]
 
     W = D(p, m, T)
-    Fm = recursive_F(m, T)
-    Fp = recursive_F(p, T)
+    Fm = recursive_F(m, T, use_ivdep)
+    Fp = recursive_F(p, T, use_ivdep)
     plan_cache[key] = MixedRadixFFT{T}(p, m, W, Fm, Fp)
     MixedRadixFFT{T}(p, m, W, Fm, Fp)
 end
@@ -85,26 +85,32 @@ function is_power_of(n::Int, p::Int)
     return true
 end
 
-function call_radix_families(n::Int, ::Type{T})::Function where {T<:AbstractFloat}
+function call_radix_families(n::Int, ::Type{T}, use_ivdep::Bool)::Function where {T<:AbstractFloat}
     @assert (is_power_of(n, 2) || is_power_of(n, 3) || is_power_of(n, 5) || is_power_of(n, 7)) "n: $n is not divisible by 2, 3, 5, or 7"
 
     key = (n, T)
     haskey(F_cache, key) && return F_cache[key]
+    show_function = false
+    ivdep = false
+    if use_ivdep
+        show_function = true
+        ivdep = true
+    end
 
     family_func = if is_power_of(n,2)
-            Radix_Execute.generate_safe_execute_function!(Radix_Plan.create_radix_2_plan(n, T))
+            Radix_Execute.generate_safe_execute_function!(Radix_Plan.create_radix_2_plan(n, T), show_function, ivdep)
         elseif is_power_of(n, 3)
-            Radix_Execute.generate_safe_execute_function!(Radix_Plan.create_radix_3_plan(n, T))
+            Radix_Execute.generate_safe_execute_function!(Radix_Plan.create_radix_3_plan(n, T), show_function, ivdep)
         elseif is_power_of(n, 5)
-            Radix_Execute.generate_safe_execute_function!(Radix_Plan.create_radix_plan(n, 5, T))
+            Radix_Execute.generate_safe_execute_function!(Radix_Plan.create_radix_plan(n, 5, T), show_function, ivdep)
         elseif is_power_of(n, 7)
-            Radix_Execute.generate_safe_execute_function!(Radix_Plan.create_radix_plan(n, 7, T))
+            Radix_Execute.generate_safe_execute_function!(Radix_Plan.create_radix_plan(n, 7, T), show_function, ivdep)
     end
 
     return family_func
 end
 
-function generate_prime_fft_raders(n::Int, ::Type{T})::Function where {T<:AbstractFloat}
+function generate_prime_fft_raders(n::Int, ::Type{T}, use_ivdep::Bool=false)::Function where {T<:AbstractFloat}
     @assert isprime(n) "Input length must be prime for Rader's FFT"
 
     # Find primitive root
@@ -139,7 +145,7 @@ function generate_prime_fft_raders(n::Int, ::Type{T})::Function where {T<:Abstra
     W = [ω^(-inv_seq[i]) for i in 1:(n-1)]
 
     # Get FFT for length n-1
-    F = recursive_F(n-1, T)
+    F = recursive_F(n-1, T, use_ivdep)
 
     return function (y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}) where {T<:AbstractFloat}
         @assert length(x) == n && length(y) == n "Input and output vectors must have length n"
@@ -280,10 +286,10 @@ function generate_formulation_fft(plan::MixedRadixFFT, ::Type{T})::Function wher
 end
 
 # Update the recursive_F function to use the new generator
-function recursive_F(n::Int, ::Type{T})::Function where {T<:AbstractFloat}
+function recursive_F(n::Int, ::Type{T}, use_ivdep::Bool)::Function where {T<:AbstractFloat}
     haskey(F_cache, n) && F_cache[n]
 
-    fft_func = generate_and_cache_fft!(n, T)
+    fft_func = generate_and_cache_fft!(n, T, use_ivdep)
     return fft_func
 end
 
