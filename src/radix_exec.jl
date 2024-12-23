@@ -12,8 +12,6 @@ include("radix_3_codelets.jl")
 include("radix_5_codelets.jl")
 include("radix_7_codelets.jl")
 
-
-
 function generate_safe_execute_function!(plan::RadixPlan, show_function=true, check_ivdep=true, str="")
     current_input = :x
     current_output = :y
@@ -89,7 +87,7 @@ function generate_safe_execute_function!(plan::RadixPlan, show_function=true, ch
                 ivdep_func_name = Symbol(String(op.op_type), "_", String(suffix), "_ivdep!")
                 std_func_ref = get_function_reference(radix_family, std_func_name)
                 ivdep_func_ref = get_function_reference(radix_family, ivdep_func_name)
-                ivdep = determine_ivdep_threshold(std_func_ref, ivdep_func_ref, op, is_layered, show_function)
+                ivdep = determine_ivdep_threshold(std_func_ref, ivdep_func_ref, op, is_layered, typeof(plan).parameters[1] , show_function)
                 if ivdep
                     ivdep_change_exists = true
                 end
@@ -115,12 +113,14 @@ function generate_safe_execute_function!(plan::RadixPlan, show_function=true, ch
         # Create a similar function with ivdep turned off to compare
         clean_generated_function = generate_safe_execute_function!(plan, true, false, "CLEAN")
         
-        if benchmark_functions_performance(clean_generated_function, runtime_generated_function , plan.n, show_function)
+        if !benchmark_functions_performance(clean_generated_function, runtime_generated_function , plan.n, typeof(plan).parameters[1], show_function)
             show_function && println("NON-IVDEP FUNCTION IS BETTER")
             runtime_generated_function = clean_generated_function
         end
     end
-    show_function && @show runtime_generated_function
+    if show_function && str==""
+        @show runtime_generated_function
+    end
     return runtime_generated_function
 end
 
@@ -137,19 +137,21 @@ function process_execute_function!(ex::Expr)
     return ex
 end
 
-function benchmark_functions_performance(fft_standard!, fft_ivdep!, N::Int, show_function=true)
+function benchmark_functions_performance(fft_standard!, fft_ivdep!, N::Int, type, show_function=true)
     
-    x = randn(ComplexF64, N)
+    x = randn(Complex{type}, N)
+    println("FFT STANDARD AND FFT IVDEP:")
+    @show fft_standard!, fft_ivdep!
     
     # Warm-up runs
     fft_standard!(x, x) # Recycle random data, I don't care
     fft_ivdep!(x, x)
     
     # Benchmark standard version
-    standard_bench = @benchmark $fft_standard!($x, $x) samples = 10
+    standard_bench = @benchmark $fft_standard!($x, $x) 
     
     # Benchmark ivdep version
-    ivdep_bench = @benchmark $fft_ivdep!($x, $x) samples = 10
+    ivdep_bench = @benchmark $fft_ivdep!($x, $x) 
 
     standard_time = minimum(standard_bench.times)
     ivdep_time = minimum(ivdep_bench.times)
@@ -158,7 +160,7 @@ function benchmark_functions_performance(fft_standard!, fft_ivdep!, N::Int, show
     speedup_ratio = standard_time / ivdep_time
 
     # Determine if IVDEP is consistently beneficial
-    is_ivdep_beneficial = speedup_ratio > 1.05  # 5% speedup threshold
+    is_ivdep_beneficial = speedup_ratio > 1.03  # 3% speedup threshold for final functions
     
     if show_function
         println("Final Function Mean Speedup: $(speedup_ratio*100) %")
@@ -168,12 +170,12 @@ function benchmark_functions_performance(fft_standard!, fft_ivdep!, N::Int, show
     return is_ivdep_beneficial
 end
 
-function benchmark_ivdep_performance(fft_standard!, fft_ivdep!, op, is_layered)
+function benchmark_ivdep_performance(fft_standard!, fft_ivdep!, op, is_layered, type)
     n = op.n_groups
     s = op.stride
     eo = op.eo
     
-    x = randn(ComplexF64, n*s)
+    x = randn(Complex{type}, n*s)
     
     if is_layered
         n1 = n ÷ get_radix_divisor(op.op_type)
@@ -184,10 +186,10 @@ function benchmark_ivdep_performance(fft_standard!, fft_ivdep!, op, is_layered)
         fft_ivdep!(x, x, s, n1, theta)
     
         # Benchmark standard version
-        standard_bench = @benchmark $fft_standard!($x, $x, $s, $n1, $theta) samples=10 
+        standard_bench = @benchmark $fft_standard!($x, $x, $s, $n1, $theta) 
     
         # Benchmark ivdep version
-        ivdep_bench = @benchmark $fft_ivdep!($x, $x, $s, $n1, $theta) samples=10 
+        ivdep_bench = @benchmark $fft_ivdep!($x, $x, $s, $n1, $theta) 
 
     else
         if eo
@@ -196,20 +198,20 @@ function benchmark_ivdep_performance(fft_standard!, fft_ivdep!, op, is_layered)
         fft_ivdep!(x, s)
         
         # Benchmark standard version
-        standard_bench = @benchmark $fft_standard!($x, $s) samples=10 
+        standard_bench = @benchmark $fft_standard!($x, $s) 
         
         # Benchmark ivdep version
-        ivdep_bench = @benchmark $fft_ivdep!($x, $s) samples=10
+        ivdep_bench = @benchmark $fft_ivdep!($x, $s) 
     else
         # Warm-up runs
         fft_standard!(x, x, s) # Recycle random data, I don't care
         fft_ivdep!(x, x, s)
         
         # Benchmark standard version
-        standard_bench = @benchmark $fft_standard!($x, $x, $s) samples=10
+        standard_bench = @benchmark $fft_standard!($x, $x, $s) 
         
         # Benchmark ivdep version
-        ivdep_bench = @benchmark $fft_ivdep!($x, $x, $s) samples=10
+        ivdep_bench = @benchmark $fft_ivdep!($x, $x, $s) 
     end
 end
 
@@ -221,11 +223,11 @@ end
     return speedup_ratio
 end
 
-function determine_ivdep_threshold(fft_standard!, fft_ivdep!, op, is_layered, show_function)
-    speedup_ratio = benchmark_ivdep_performance(fft_standard!, fft_ivdep!, op, is_layered)
+function determine_ivdep_threshold(fft_standard!, fft_ivdep!, op, is_layered, type, show_function)
+    speedup_ratio = benchmark_ivdep_performance(fft_standard!, fft_ivdep!, op, is_layered, type)
     
     # Determine if IVDEP is consistently beneficial
-    is_ivdep_beneficial = speedup_ratio > 1.05  # 5% speedup threshold
+    is_ivdep_beneficial = speedup_ratio > 1.05  # 5% speedup threshold for single codelets
     
     if show_function
         println("-> Shell $(op.op_type) Mean Speedup: $(speedup_ratio*100) %")
