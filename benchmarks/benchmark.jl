@@ -22,14 +22,14 @@ function fftwplantype2str(plantype)
     end
 end
 
-function bench(n::Int, fftw_time::Vector, mixed_radix_time::Vector, fftw_mem::Vector, mixed_radix_mem::Vector; ctype=ComplexF64, plan_type=FFTW.MEASURE, use_ivdep::Bool)
+function bench(n::Int, fftw_time::Vector, mixed_radix_time::Vector, fftw_mem::Vector, mixed_radix_mem::Vector; ctype=ComplexF64, plan_type=FFTW.MEASURE)
 
     F = FFTW.plan_fft(randn(ctype, n); flags=plan_type, timelimit=Inf)
     x = randn(ctype, n)
 
     fftw_result = F * x
     y_mixed = similar(x)
-    y_mixed = use_ivdep ? CatabraFFT.fft(x, true) : CatabraFFT.fft(x)
+    y_mixed = CatabraFFT.fft(x)
     @show rel_err = relative_error(y_mixed, fftw_result)
     @assert y_mixed ≈ fftw_result
 
@@ -39,28 +39,28 @@ function bench(n::Int, fftw_time::Vector, mixed_radix_time::Vector, fftw_mem::Ve
     push!(fftw_mem, (median(t_fftw).memory / 1024))
 
     # Run custom FFT benchmark
-    if use_ivdep
-        t_mixed = @benchmark $y_mixed = CatabraFFT.fft(x, true) setup = (x = randn($ctype, $n))
-    else
-        t_mixed = @benchmark $y_mixed = CatabraFFT.fft(x) setup = (x = randn($ctype, $n))
-    end
+    t_mixed = @benchmark $y_mixed = CatabraFFT.fft(x) setup = (x = randn($ctype, $n))
     push!(mixed_radix_time, (median(t_mixed).time / 10^9))
     push!(mixed_radix_mem, (median(t_mixed).memory / 1024))
+end
 
+function bench_ivdep(n::Int, ivdep_time::Vector, ivdep_mem::Vector; ctype=ComplexF64, plan_type=FFTW.MEASURE)
+
+    x = randn(ctype, n)
+
+    y_mixed = similar(x)
+    y_mixed = CatabraFFT.fft(x, true)
+
+    # Run custom FFT benchmark
+    t_mixed = @benchmark $y_mixed = CatabraFFT.fft(x, true) setup = (x = randn($ctype, $n))
+    push!(ivdep_time, (median(t_mixed).time / 10^9))
+    push!(ivdep_mem, (median(t_mixed).memory / 1024))
 end
 
 function benchmark_fft_over_range(xs::Vector; ctype=ComplexF64, plan_type=FFTW.MEASURE, save=false, msg="", use_ivdep::Bool)
-    gflops_catabra = []
-    gflops_fftw = []
-    gflops_ivdep = []
-    fftw_time = []
-    dummy_fftw_time = []
-    mixed_radix_time = []
-    ivdep_time = []
-    fftw_mem = []
-    dummy_fftw_mem = []
-    mixed_radix_mem = []
-    ivdep_mem = []
+    gflops_catabra, gflops_fftw, gflops_ivdep  = [], [], []
+    fftw_time, mixed_radix_time, ivdep_time  = [], [], []
+    fftw_mem, mixed_radix_mem, ivdep_mem  = [], [], []
 
     # Precompute all function before benchmarking
     for n in xs
@@ -69,7 +69,7 @@ function benchmark_fft_over_range(xs::Vector; ctype=ComplexF64, plan_type=FFTW.M
 
     for n in xs
         print("n = $n \n")
-        bench(n, fftw_time, mixed_radix_time, fftw_mem, mixed_radix_mem; ctype, plan_type, use_ivdep)
+        bench(n, fftw_time, mixed_radix_time, fftw_mem, mixed_radix_mem; ctype, plan_type)
         println("time fftw: ", fftw_time[end], " Time mixed radix: ", mixed_radix_time[end])
 
         push!(gflops_catabra, (5 * n * log2(n) * 10^(-9)) / mixed_radix_time[end])
@@ -84,8 +84,8 @@ function benchmark_fft_over_range(xs::Vector; ctype=ComplexF64, plan_type=FFTW.M
 
         for n in xs
             print("n = $n \n")
-            bench(n, dummy_fftw_time, ivdep_time, dummy_fftw_mem, ivdep_mem; ctype, plan_type, use_ivdep)
-            println("time fftw: ", dummy_fftw_time[end], " Time mixed radix: ", ivdep_time[end])
+            bench_ivdep(n, ivdep_time, ivdep_mem; ctype, plan_type)
+            println(" Time mixed radix: ", ivdep_time[end])
             push!(gflops_ivdep, (5 * n * log2(n) * 10^(-9)) / ivdep_time[end])
         end
     end
@@ -146,7 +146,7 @@ end
 
 fftwplan = FFTW.MEASURE
 save = false
-twoexp = 27
+twoexp = 10
 # IVDEP IS VERY SLOW, UNPREDICTABLE AND EXPRERIMENTAL
 use_ivdep = true
 for b in [2 3 5 7 10]
