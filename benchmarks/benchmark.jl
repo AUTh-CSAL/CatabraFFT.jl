@@ -52,20 +52,19 @@ end
 function benchmark_fft_over_range(xs::Vector; ctype=ComplexF64, plan_type=FFTW.MEASURE, save=false, msg="", use_ivdep::Bool)
     gflops_catabra = []
     gflops_fftw = []
+    gflops_ivdep = []
     fftw_time = []
+    dummy_fftw_time = []
     mixed_radix_time = []
+    ivdep_time = []
     fftw_mem = []
+    dummy_fftw_mem = []
     mixed_radix_mem = []
+    ivdep_mem = []
 
     # Precompute all function before benchmarking
-    if use_ivdep
-        for n in xs
-            CatabraFFT.fft(rand(ctype, n), true)
-        end
-    else
-        for n in xs
-            CatabraFFT.fft(rand(ctype, n))
-        end
+    for n in xs
+        CatabraFFT.fft(rand(ctype, n))
     end
 
     for n in xs
@@ -77,13 +76,32 @@ function benchmark_fft_over_range(xs::Vector; ctype=ComplexF64, plan_type=FFTW.M
         push!(gflops_fftw, (5 * n * log2(n) * 10^(-9)) / fftw_time[end])
     end
 
+    if use_ivdep
+        CatabraFFT.empty_cache()
+        for n in xs
+            CatabraFFT.fft(rand(ctype, n), true)
+        end
+
+        for n in xs
+            print("n = $n \n")
+            bench(n, dummy_fftw_time, ivdep_time, dummy_fftw_mem, ivdep_mem; ctype, plan_type, use_ivdep)
+            println("time fftw: ", dummy_fftw_time[end], " Time mixed radix: ", ivdep_time[end])
+            push!(gflops_ivdep, (5 * n * log2(n) * 10^(-9)) / ivdep_time[end])
+        end
+    end
+
     info = Sys.cpu_info()[1]
     cpu = "$(info.model)@$(info.speed) Julia $(VERSION)"
     ptype = fftwplantype2str(plan_type)
 
     p_reltime = bar(
         log2.(xs), fftw_time ./ mixed_radix_time, label="",
-        linestyle=:none, markershape=:square, markercolor=:red, legend=:bottom)
+        linestyle=:none, markershape=:square, markercolor=:red, legend=:bottom, fillalpha=0.5)
+    if use_ivdep
+    bar!(p_reltime,
+    log2.(xs), fftw_time ./ ivdep_time, label="",
+    linestyle=:none, markershape=:square, markercolor=:purple, legend=:bottom, fillalpha=0.5)
+    end
 
     xlabel!(p_reltime, "log2(n)")
     ylabel!(p_reltime, "Relative Time (FFTW / CatabraFFT)")
@@ -112,6 +130,11 @@ function benchmark_fft_over_range(xs::Vector; ctype=ComplexF64, plan_type=FFTW.M
     plot!(p_gflops,
         log2.(xs), gflops_catabra, label="CatabraFFT GFLOPS",
         linestyle=:solid, markershape=:circle, markercolor=:orange)
+    if use_ivdep
+    plot!(p_gflops,
+        log2.(xs), gflops_ivdep, label="CatabraFFT IVDEP GFLOPS",
+        linestyle=:solid, markershape=:circle, markercolor=:purple)
+    end
 
     xlabel!(p_gflops, "log2(Input length)")
     ylabel!(p_gflops, "GFLOPS")
@@ -122,10 +145,10 @@ function benchmark_fft_over_range(xs::Vector; ctype=ComplexF64, plan_type=FFTW.M
 end
 
 fftwplan = FFTW.MEASURE
-save = true
+save = false
 twoexp = 27
 # IVDEP IS VERY SLOW, UNPREDICTABLE AND EXPRERIMENTAL
-use_ivdep = false
+use_ivdep = true
 for b in [2 3 5 7 10]
     xs = b .^ (2:Int64(floor(twoexp / log2(b))))
     for ctype in [ComplexF32, ComplexF64]

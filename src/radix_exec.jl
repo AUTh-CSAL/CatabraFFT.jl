@@ -118,9 +118,6 @@ function generate_safe_execute_function!(plan::RadixPlan, show_function=true, ch
             runtime_generated_function = clean_generated_function
         end
     end
-    if show_function && str==""
-        @show runtime_generated_function
-    end
     return runtime_generated_function
 end
 
@@ -140,8 +137,6 @@ end
 function benchmark_functions_performance(fft_standard!, fft_ivdep!, N::Int, type, show_function=true)
     
     x = randn(Complex{type}, N)
-    println("FFT STANDARD AND FFT IVDEP:")
-    @show fft_standard!, fft_ivdep!
     
     # Warm-up runs
     fft_standard!(x, x) # Recycle random data, I don't care
@@ -165,6 +160,7 @@ function benchmark_functions_performance(fft_standard!, fft_ivdep!, N::Int, type
     if show_function
         println("Final Function Mean Speedup: $(speedup_ratio*100) %")
         println("Final Function IVDEP Beneficial: $is_ivdep_beneficial")
+        println("+------------------------------------------------------------+")
     end
     
     return is_ivdep_beneficial
@@ -230,7 +226,7 @@ function determine_ivdep_threshold(fft_standard!, fft_ivdep!, op, is_layered, ty
     is_ivdep_beneficial = speedup_ratio > 1.05  # 5% speedup threshold for single codelets
     
     if show_function
-        println("-> Shell $(op.op_type) Mean Speedup: $(speedup_ratio*100) %")
+        println("-> Shell $(op.op_type) n = $(op.n_groups) s = $(op.stride) Mean Speedup: $(speedup_ratio*100) %")
         println("-> Shell $(op.op_type) IVDEP Beneficial: $is_ivdep_beneficial")
     end
     
