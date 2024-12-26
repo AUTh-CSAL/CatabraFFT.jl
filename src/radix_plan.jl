@@ -4,7 +4,7 @@ using LoopVectorization, AbstractFFTs
 
 export RadixPlan
 
-# Struct to hold a single FFT operation
+# Struct to hold a single FFT operation using Stockham notation
 struct FFTOp
     op_type::Symbol  # :fft16, :fft8, :fft4, :fft3,  :fft2
     input_buffer::Symbol  # :x or :y
@@ -14,12 +14,11 @@ struct FFTOp
     eo::Bool
 end
 
-# Struct to hold the complete FFT plan
+# Struct to hold the complete layered FFT plan
 struct RadixPlan{T<:AbstractFloat} <: AbstractFFTs.Plan{T}
     operations::Vector{FFTOp}
     n::Int
 end
-
 
 function create_radix_2_plan(n::Int, ::Type{T}) where T <: AbstractFloat
     operations = FFTOp[]

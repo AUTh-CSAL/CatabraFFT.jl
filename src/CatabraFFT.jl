@@ -1,9 +1,26 @@
 module CatabraFFT
 
-include("kron.jl")
+include("kernel.jl")
 
-__precompile__()
-GC.gc()
+import AbstractFFTs:Plan, ScaledPlan, fft, ifft, bfft, fft!, ifft!, bfft!,
+                    plan_fft, plan_ifft, plan_bfft, plan_fft!, plan_ifft!, plan_bfft!,
+                    rfft, irfft, brfft, plan_ffft, plan_irfft, plan_brfft,
+                    fftshift, ifftshift, rfft_output_size, brfft_output_size,
+                    plan_inv, normalization
+
+import Base: show, *, convert, unsafe_convert, size, strides, ndims, pointer
+import LinearAlgebra: mul!
+
+# Simple integer type for FFT direction
+const Direction = Int8
+
+# Constants for FFT directions
+const FORWARD = Direction(-1)  # Forward FFT 
+const BACKWARD = Direction(1)  # Inverse FFT
+
+const FLAG = Int8
+
+const ENCHANT = FLAG(1)
 
 # Non-mutating wrapper that reuses preallocated workspace
 struct FFTWorkspace{T<:AbstractFloat}
@@ -15,7 +32,6 @@ end
 
 # Thread-local workspace to avoid allocations in parallel code
 const WORKSPACE = Dict{Tuple{Int, DataType}, FFTWorkspace}()
-const F_cache = Dict{Tuple{Int, DataType}, Function}()  # Example cache for FFT computations
 
 # Get or create workspace for a given size
 @inline function get_workspace(n::Int, ::Type{T})::FFTWorkspace where {T <: AbstractFloat}
@@ -53,12 +69,12 @@ Compute the 1-dimensional C2C Fast Fourier Transform (FFT) of the input vector.
 # Example
 X = fft(x)
 """
-@inline function fft(x::AbstractVector{Complex{T}}, use_ivdep::Bool=false)::AbstractVector{Complex{T}} where {T <: AbstractFloat}
+@inline function fft(x::AbstractVector{Complex{T}})::AbstractVector{Complex{T}} where {T <: AbstractFloat}
     n = length(x)
     workspace = get_workspace(n, T)
     copyto!(workspace.x_work, x)  # Fast copy into preallocated space
     y = similar(x)
-    fft!(y, workspace.x_work, use_ivdep)
+    fft!(y, workspace.x_work)
     return y
 end
 
@@ -76,7 +92,7 @@ Compute the 1-dimensional C2C Inverse Fast Fourier Transform (IFFT) of the input
 # Example
 x = fft(X)
 """
-@inline function ifft(x::AbstractVector{Complex{T}}, use_ivdep::Bool=false)::AbstractVector{Complex{T}} where {T <: AbstractFloat}
+@inline function ifft(x::AbstractVector{Complex{T}})::AbstractVector{Complex{T}} where {T <: AbstractFloat}
     n = length(x)
     workspace = get_workspace(n, T)
     copyto!(workspace.x_work, x)  # Fast copy into preallocated space
@@ -84,11 +100,72 @@ x = fft(X)
     
     # IFFT using the FFT with complex conjugate and normalization
     conj!(workspace.x_work)
-    fft!(y, workspace.x_work, use_ivdep)
+    fft!(y, workspace.x_work)
     conj!(y)
     y ./= n
     
     return y
+end
+
+function AbstractFFTs.plan_fft(x::AbstractVector{Complex{T}}, region=1:1; kws...) where T <: AbstractFloat
+    p = Spell{T}(size(x), collect(region))
+    p.pinv[] = plan_fft(x, region;)
+    return p
+end
+
+function AbstractFFTs.plan_bfft(x::AbstractVector{Complex{T}}, region=1:1;) where T <: AbstractFloat
+    p = Spell{T}(size(x), collect(region))
+    p.pinv[] = plan_fft(x, region;)
+    return p
+end
+
+# Inverse plan caching
+function AbstractFFTs.plan_inv(p::Spell{T}) where T
+    p.pinv === nothing && (p.pinv = Spell(p))
+    return p.pinv
+end
+
+# Required mul! implementation
+function mul!(y::AbstractVector{Complex{T}}, p::Spell, x::AbstractVector{Complex{T}}) where T
+    copyto!(y, fft(x))
+    return y
+end
+
+# Required * operation
+function Base.:*(p::Spell, x::AbstractVector{Complex{T}}) where T
+    y = similar(x)
+    mul!(y, p, x)
+    return y
+end
+
+# Support for real FFTs
+function AbstractFFTs.plan_rfft(x::AbstractVector{T}, region=1:1;) where T<:AbstractFloat
+    n = length(x)
+    Spell{T}((n ÷ 2 + 1,), collect(region))
+end
+
+function AbstractFFTs.plan_brfft(x::AbstractVector{Complex{T}}, d::Integer, region=1:1;) where T<:AbstractFloat
+    p = Spell{T}((d,), collect(region))
+    p.pinv[] = plan_rfft(zeros(T, d), region;)
+    return p
+end
+
+# Adjoint support
+AbstractFFTs.AdjointStyle(::Type{<:Spell}) = AbstractFFTs.FFTAdjointStyle()
+
+function AbstractFFTs.adjoint_mul(y::AbstractVector{Complex{T}}, 
+                                p::Spell{T}, 
+                                x::AbstractVector{Complex{T}}) where T
+    # For standard FFT, adjoint is same as inverse up to scaling
+    plan_inv(p) * x
+end
+    
+
+AbstractFFTs.fftdims(p::Spell) = p.region
+Base.size(p::Spell) = p.size
+
+function (p::Spell{T})(x::AbstractVector{Complex{T}}) where T
+    fft(x)
 end
 
 end

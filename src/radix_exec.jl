@@ -143,10 +143,10 @@ function benchmark_functions_performance(fft_standard!, fft_ivdep!, N::Int, type
     fft_ivdep!(x, x)
     
     # Benchmark standard version
-    standard_bench = @benchmark $fft_standard!($x, $x) 
+    standard_bench = @benchmark $fft_standard!($x, $x) samples=100
     
     # Benchmark ivdep version
-    ivdep_bench = @benchmark $fft_ivdep!($x, $x) 
+    ivdep_bench = @benchmark $fft_ivdep!($x, $x) samples=100
 
     standard_time = minimum(standard_bench.times)
     ivdep_time = minimum(ivdep_bench.times)
@@ -182,10 +182,10 @@ function benchmark_ivdep_performance(fft_standard!, fft_ivdep!, op, is_layered, 
         fft_ivdep!(x, x, s, n1, theta)
     
         # Benchmark standard version
-        standard_bench = @benchmark $fft_standard!($x, $x, $s, $n1, $theta) 
+        standard_bench = @benchmark $fft_standard!($x, $x, $s, $n1, $theta) samples=100
     
         # Benchmark ivdep version
-        ivdep_bench = @benchmark $fft_ivdep!($x, $x, $s, $n1, $theta) 
+        ivdep_bench = @benchmark $fft_ivdep!($x, $x, $s, $n1, $theta) samples=100
 
     else
         if eo
@@ -194,20 +194,20 @@ function benchmark_ivdep_performance(fft_standard!, fft_ivdep!, op, is_layered, 
         fft_ivdep!(x, s)
         
         # Benchmark standard version
-        standard_bench = @benchmark $fft_standard!($x, $s) 
+        standard_bench = @benchmark $fft_standard!($x, $s) samples=100
         
         # Benchmark ivdep version
-        ivdep_bench = @benchmark $fft_ivdep!($x, $s) 
+        ivdep_bench = @benchmark $fft_ivdep!($x, $s) samples=100
     else
         # Warm-up runs
         fft_standard!(x, x, s) # Recycle random data, I don't care
         fft_ivdep!(x, x, s)
         
         # Benchmark standard version
-        standard_bench = @benchmark $fft_standard!($x, $x, $s) 
+        standard_bench = @benchmark $fft_standard!($x, $x, $s) samples=100
         
         # Benchmark ivdep version
-        ivdep_bench = @benchmark $fft_ivdep!($x, $x, $s) 
+        ivdep_bench = @benchmark $fft_ivdep!($x, $x, $s) samples=100
     end
 end
 
