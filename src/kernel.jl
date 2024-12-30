@@ -4,26 +4,32 @@ include("radix_plan.jl")
 include("radix_exec.jl")
 include("mixed_radix.jl")
 include("prime.jl")
+include("spells.jl")
 
+using .Radix_Plan 
 
+# Simple integer type for FFT direction
+const Direction = Int8
 
-using .Radix_Plan
+# Constants for FFT directions
+const FORWARD = Direction(-1)  # Forward FFT 
+const BACKWARD = Direction(1)  # Inverse FFT
+
+const FLAG = Int8
+
+const NO_SPELL = FLAG(0)
+const ENCHANT = FLAG(1)
+const PLANNER_DEFAULT = FLAG(2)
 
 if !@isdefined(F_cache)
     const F_cache = Dict{Tuple{Int, DataType}, Function}() 
 end
 
-struct Spell{T} <: AbstractFFTs.Plan{T} # Catabra's Plan
-    n::Int
-    mixed::Union{MixedRadixFFT{T}, Nothing}
-    radixplan::Union{Vector{RadixPlan}, Nothing}
-    ENCHANT::Bool
-    pinv::Union{Spell{T}, Nothing}
-end
-
 if !@isdefined(spell_cache)
     const spell_cache = Dict{Tuple{Int, DataType}, Spell}()
 end
+
+const SpellCache = Dict{Spell{T} where T <: AbstractFloat, Function}() 
 
 @inline function generate_and_cache_fft!(n::Int, ::Type{T})::Function where {T <: AbstractFloat}
     key = (n, T)
@@ -46,10 +52,38 @@ end
     return fft_func
 end
 
+@inline function generate_and_cache_spell!(n::Int, ::Type{T}, flag::FLAG)::Spell where {T <: AbstractFloat}
+    mixed = nothing
+    radixplan = nothing
+
+    key = (n, T, flag)
+    haskey(spell_cache, key) && return spell_cache[key]
+    
+    if n == 1
+        return Spell{T}(1, nothing, nothing, flag & ENCHANT != 0, nothing)
+    end
+
+    if is_power_of(n, 2) || is_power_of(n, 3) || is_power_of(n, 5) || is_power_of(n, 7)
+        call_radix_families(n, T)
+    elseif isprime(n)
+        generate_prime_fft_raders(n, T)
+    else
+        p, m = find_closest_factors(n)
+        plan = MixedRadixFFT(p, m, T)
+        generate_formulation_fft(plan, T)
+    end
+
+    # Cache-in
+    F_cache[key] = fft_func
+    return fft_func
+end
+
+
+
 """
     fft!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}})::AbstractVector{Complex{T}} where {T <: AbstractFloat}
 
-Compute the 1-dimensional C2C Fast Fourier Transform (FFT).
+Compute the 1-dimensional C2C FFT
 
 # Arguments
 - `y`: Complex vector to store the result
@@ -61,10 +95,11 @@ Compute the 1-dimensional C2C Fast Fourier Transform (FFT).
 # Example
  fft!(y,x)
 """
-@inline function fft!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}) where {T <: AbstractFloat}
+
+@inline function fft_kernel!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}) where {T <: AbstractFloat}
     n = length(x)
     fft_func = generate_and_cache_fft!(n, T)
-    fft_func(y, x)
+    fft_func(y, x) # FUNCTION EXECUTION
     return y
 end
 
@@ -87,16 +122,37 @@ function call_radix_families(n::Int, ::Type{T})::Function where {T<:AbstractFloa
     ivdep = false
 
     family_func = if is_power_of(n,2)
-            Radix_Execute.generate_safe_execute_function!(Radix_Plan.create_radix_2_plan(n, T), show_function, ivdep)
+            Radix_Execute.generate_safe_execute_function!(Radix_Plan.create_std_radix_plan(n, [16,8,4,2], T), show_function, ivdep)
         elseif is_power_of(n, 3)
-            Radix_Execute.generate_safe_execute_function!(Radix_Plan.create_radix_3_plan(n, T), show_function, ivdep)
+            Radix_Execute.generate_safe_execute_function!(Radix_Plan.create_std_radix_plan(n, [9,3], T), show_function, ivdep)
         elseif is_power_of(n, 5)
-            Radix_Execute.generate_safe_execute_function!(Radix_Plan.create_radix_plan(n, 5, T), show_function, ivdep)
+            Radix_Execute.generate_safe_execute_function!(Radix_Plan.create_std_radix_plan(n, [5], T), show_function, ivdep)
         elseif is_power_of(n, 7)
-            Radix_Execute.generate_safe_execute_function!(Radix_Plan.create_radix_plan(n, 7, T), show_function, ivdep)
+            Radix_Execute.generate_safe_execute_function!(Radix_Plan.create_std_radix_plan(n, [7], T), show_function, ivdep)
     end
 
     return family_func
+end
+
+function return_best_family_function(plans::Vector{RadixPlan{T}}) where {T <: AbstractFloat}
+    
+    best_time = Inf
+    best_func = nothing
+    
+    for plan in plans
+        test_func = Radix_Execute.generate_safe_execute_function!(plan)
+        
+        test_time = @time test_func(y, x)
+        
+        if test_time < best_time
+            best_func = test_func
+            best_time = test_time
+        end
+    
+    end
+    
+    return best_func
+
 end
 
 function return_sorted_prime_powers(n::Int)

@@ -11,17 +11,6 @@ import AbstractFFTs:Plan, ScaledPlan, fft, ifft, bfft, fft!, ifft!, bfft!,
 import Base: show, *, convert, unsafe_convert, size, strides, ndims, pointer
 import LinearAlgebra: mul!
 
-# Simple integer type for FFT direction
-const Direction = Int8
-
-# Constants for FFT directions
-const FORWARD = Direction(-1)  # Forward FFT 
-const BACKWARD = Direction(1)  # Inverse FFT
-
-const FLAG = Int8
-
-const ENCHANT = FLAG(1)
-
 # Non-mutating wrapper that reuses preallocated workspace
 struct FFTWorkspace{T<:AbstractFloat}
     x_work::Vector{Complex{T}}
@@ -53,7 +42,14 @@ empty_cache()
 function empty_cache()
     empty!(WORKSPACE)
     empty!(F_cache)
+    #empty!(spell_cache)
 end
+
+@inline function fft!(x::AbstractVector{Complex{T}}) where T <: AbstractFloat
+    fft_kernel!(y, x)
+    return y
+end
+
 
 """
     fft(x::AbstractVector{Complex{T}})::AbstractVector{Complex{T}} where {T <: AbstractFloat}
@@ -74,7 +70,7 @@ X = fft(x)
     workspace = get_workspace(n, T)
     copyto!(workspace.x_work, x)  # Fast copy into preallocated space
     y = similar(x)
-    fft!(y, workspace.x_work)
+    fft_kernel!(y, workspace.x_work)
     return y
 end
 
@@ -100,11 +96,41 @@ x = fft(X)
     
     # IFFT using the FFT with complex conjugate and normalization
     conj!(workspace.x_work)
-    fft!(y, workspace.x_work)
+    fft_kernel!(y, workspace.x_work)
     conj!(y)
     y ./= n
     
     return y
+end
+
+@inline function bfft(x::AbstractVector{Complex{T}})::AbstractVector{Complex{T}} where {T <: AbstractFloat}
+    n = length(x)
+    workspace = get_workspace(n, T)
+    copyto!(workspace.x_work, x)  # Fast copy into preallocated space
+    y = similar(x)
+    
+    # IFFT using the FFT with complex conjugate and NOT normalization (BFFT)
+    conj!(workspace.x_work)
+    fft_kernel!(y, workspace.x_work)
+    conj!(y)
+    
+    return y
+end
+
+"""
+    plan_fft(x::AbstractVector{Complex{T}}, flags::FLAG=PLANNER_DEFAULT) where {T<:AbstractFloat}
+
+Create a plan for computing FFT of a complex vector.
+"""
+function plan_fft(x::AbstractVector{Complex{T}}, region; flags::FLAG=PLANNER_DEFAULT) where {T<:AbstractFloat}
+    n = length(x)
+    
+    # Cache spell if ENCHANT is enabled
+    if flags & ENCHANT != 0
+        spell_cache[(n, T)] = spell
+    end
+    
+    spell
 end
 
 function AbstractFFTs.plan_fft(x::AbstractVector{Complex{T}}, region=1:1; kws...) where T <: AbstractFloat
