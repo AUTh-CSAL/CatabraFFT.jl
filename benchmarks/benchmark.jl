@@ -8,6 +8,18 @@ plotlyjs()
 
 relative_error(x, y) = norm(x - y) / norm(y)
 
+function catabraplantype2str(plantype)
+    if plantype == CatabraFFT.NO_FLAG
+        return "CatabraFFT.NO_FLAG" 
+    elseif plantype == CatabraFFT.MEASURE
+        return "CatabraFFT MEASURE"
+    elseif plantype == CatabraFFT.ENCHANT
+        return "CatabraFFT ENCHANT"
+    else
+        return "*** Unknown CatabraFFT Plan Type ***"
+    end
+end
+
 function fftwplantype2str(plantype)
     if plantype == FFTW.ESTIMATE
         return "FFTW ESTIMATE"
@@ -22,16 +34,16 @@ function fftwplantype2str(plantype)
     end
 end
 
-function bench(n::Int, fftw_time::Vector, mixed_radix_time::Vector, fftw_mem::Vector, mixed_radix_mem::Vector; ctype=ComplexF64, plan_type=FFTW.MEASURE)
+function bench(n::Int, fftw_time::Vector, catabra_time::Vector, fftw_mem::Vector, catabra_mem::Vector, ctype=ComplexF64, fftw_plan_type=FFTW.MEASURE, catabra_plan_type=CatabraFFT.NO_FLAG)
 
-    F = FFTW.plan_fft(randn(ctype, n); flags=plan_type, timelimit=Inf)
+    F = FFTW.plan_fft(randn(ctype, n); flags=fftw_plan_type, timelimit=Inf)
+    C = CatabraFFT.plan_fft(randn(ctype, n), catabra_plan_type)
     x = randn(ctype, n)
 
     fftw_result = F * x
-    y_mixed = similar(x)
-    y_mixed = CatabraFFT.fft(x)
-    @show rel_err = relative_error(y_mixed, fftw_result)
-    @assert y_mixed ≈ fftw_result
+    catabra_result = C * x
+    @show rel_err = relative_error(catabra_result, fftw_result)
+    @assert catabra_result ≈ fftw_result
 
     # Benchmark FFTW
     t_fftw = @benchmark $F * x setup = (x = randn($ctype, $n))
@@ -39,120 +51,105 @@ function bench(n::Int, fftw_time::Vector, mixed_radix_time::Vector, fftw_mem::Ve
     push!(fftw_mem, (median(t_fftw).memory / 1024))
 
     # Run custom FFT benchmark
-    t_mixed = @benchmark $y_mixed = CatabraFFT.fft(x) setup = (x = randn($ctype, $n))
-    push!(mixed_radix_time, (median(t_mixed).time / 10^9))
-    push!(mixed_radix_mem, (median(t_mixed).memory / 1024))
+    t_catabra = @benchmark $C * x setup = (x = randn($ctype, $n))
+    push!(catabra_time, (median(t_catabra).time / 10^9))
+    push!(catabra_mem, (median(t_catabra).memory / 1024))
 end
 
-function bench_ivdep(n::Int, ivdep_time::Vector, ivdep_mem::Vector; ctype=ComplexF64, plan_type=FFTW.MEASURE)
+function benchmark_fft_over_range(xs::Vector; ctype=ComplexF64, fftw_plan_type=FFTW.MEASURE, save=false, msg="")
+    # Initialize arrays for each plan type
+    catabraplans = [CatabraFFT.NO_FLAG, CatabraFFT.MEASURE, CatabraFFT.ENCHANT]
 
-    x = randn(ctype, n)
-
-    y_mixed = similar(x)
-    y_mixed = CatabraFFT.fft(x, true)
-
-    # Run custom FFT benchmark
-    t_mixed = @benchmark $y_mixed = CatabraFFT.fft(x, true) setup = (x = randn($ctype, $n))
-    push!(ivdep_time, (median(t_mixed).time / 10^9))
-    push!(ivdep_mem, (median(t_mixed).memory / 1024))
-end
-
-function benchmark_fft_over_range(xs::Vector; ctype=ComplexF64, plan_type=FFTW.MEASURE, save=false, msg="", use_ivdep::Bool)
-    gflops_catabra, gflops_fftw, gflops_ivdep  = [], [], []
-    fftw_time, mixed_radix_time, ivdep_time  = [], [], []
-    fftw_mem, mixed_radix_mem, ivdep_mem  = [], [], []
-
-    # Precompute all function before benchmarking
-    for n in xs
-        CatabraFFT.fft(rand(ctype, n))
-    end
-
-    for n in xs
-        print("n = $n \n")
-        bench(n, fftw_time, mixed_radix_time, fftw_mem, mixed_radix_mem; ctype, plan_type)
-        println("time fftw: ", fftw_time[end], " Time mixed radix: ", mixed_radix_time[end])
-
-        push!(gflops_catabra, (5 * n * log2(n) * 10^(-9)) / mixed_radix_time[end])
-        push!(gflops_fftw, (5 * n * log2(n) * 10^(-9)) / fftw_time[end])
-    end
-
-    if use_ivdep
-        CatabraFFT.empty_cache()
+    n_plans = length(catabraplans)  # Number of different Catabra plans
+    gflops_catabra = [Float64[] for _ in 1:n_plans]
+    gflops_fftw = [Float64[] for _ in 1:n_plans]
+    fftw_time = [Float64[] for _ in 1:n_plans]
+    catabra_time = [Float64[] for _ in 1:n_plans]
+    fftw_mem = Float64[]
+    catabra_mem = Float64[]
+    
+    
+    for (i, cat_plan) in enumerate(catabraplans)
+        # Precompute all functions before benchmarking
         for n in xs
-            CatabraFFT.fft(rand(ctype, n), true)
+            CatabraFFT.plan_fft(rand(ctype, n), cat_plan)
         end
-
+        
         for n in xs
             print("n = $n \n")
-            bench_ivdep(n, ivdep_time, ivdep_mem; ctype, plan_type)
-            println(" Time mixed radix: ", ivdep_time[end])
-            push!(gflops_ivdep, (5 * n * log2(n) * 10^(-9)) / ivdep_time[end])
+            bench(n, fftw_time[i], catabra_time[i], fftw_mem, catabra_mem, ctype, fftw_plan_type, cat_plan)
+            println("FFTW Time: ", fftw_time[i][end], "Catabra Time: ", catabra_time[i][end])
+            
+            # Calculate GFLOPS
+            push!(gflops_catabra[i], (5 * n * log2(n) * 10^(-9)) / catabra_time[i][end])
+            push!(gflops_fftw[i], (5 * n * log2(n) * 10^(-9)) / fftw_time[i][end])
         end
     end
-
+    
+    # System info
     info = Sys.cpu_info()[1]
     cpu = "$(info.model)@$(info.speed) Julia $(VERSION)"
-    ptype = fftwplantype2str(plan_type)
-
+    ptype = fftwplantype2str(fftw_plan_type)
+    
+    # Relative time plot
     p_reltime = bar(
-        log2.(xs), fftw_time ./ mixed_radix_time, label="",
-        linestyle=:none, markershape=:square, markercolor=:red, legend=:bottom, fillalpha=0.5)
-    if use_ivdep
-    bar!(p_reltime,
-    log2.(xs), fftw_time ./ ivdep_time, label="",
-    linestyle=:none, markershape=:square, markercolor=:purple, legend=:bottom, fillalpha=0.5)
-    end
-
+        log2.(xs), 
+        [fftw_time[1] ./ catabra_time[i] for i in 1:n_plans],
+        label="",
+        linestyle=:none,
+        markershape=:square,
+        markercolor=[:red, :blue, :green],
+        legend=:bottom,
+        fillalpha=0.5
+    )
+    
     xlabel!(p_reltime, "log2(n)")
     ylabel!(p_reltime, "Relative Time (FFTW / CatabraFFT)")
     title!(p_reltime, "$ctype $msg Speedup ($cpu)")
-
     display(p_reltime)
     save && savefig(p_reltime, "svgs/$msg-speedup-$ctype-$ptype-$cpu.svg")
-
-    # p_time = plot(
-    #     log2.(xs), log10.(fftw_time), label="$ptype",
-    #     linestyle=:solid, markershape=:square, markercolor=:red, legend=:bottomright)
-    # plot!(p_time,
-    #     log2.(xs), log10.(mixed_radix_time), label="CatabraFFT",
-    #     linestyle=:solid, markershape=:circle, markercolor=:orange)
-
-    # xlabel!(p_time, "log2(n)")
-    # ylabel!(p_time, "log10(Time (sec))")
-    # title!(p_time, "$ctype $msg Time ($cpu)")
-
-    # display(p_time)
-    # save && savefig(p_time, "svgs/$msg-time-$ctype-$ptype-$cpu.svg")
-
+    
+    # GFLOPS plot
     p_gflops = plot(
-        log2.(xs), gflops_fftw, label="$(fftwplantype2str(plan_type)) GFLOPS",
-        linestyle=:solid, markershape=:square, markercolor=:red, legend=:bottom)
-    plot!(p_gflops,
-        log2.(xs), gflops_catabra, label="CatabraFFT GFLOPS",
-        linestyle=:solid, markershape=:circle, markercolor=:orange)
-    if use_ivdep
-    plot!(p_gflops,
-        log2.(xs), gflops_ivdep, label="CatabraFFT IVDEP GFLOPS",
-        linestyle=:solid, markershape=:circle, markercolor=:purple)
+        log2.(xs),
+        gflops_fftw,
+        label="$(fftwplantype2str(fftw_plan_type)) GFLOPS",
+        linestyle=:solid,
+        markershape=:square,
+        markercolor=:red,
+        legend=:bottom
+    )
+    
+    plot_labels = ["NO FLAG", "MEASURE", "ENCHANT"]
+    plot_colors = [:orange, :blue, :green]
+    
+    for i in 1:n_plans
+        plot!(p_gflops,
+            log2.(xs),
+            gflops_catabra[i],
+            label="CatabraFFT $(plot_labels[i]) GFLOPS",
+            linestyle=:solid,
+            markershape=:circle,
+            markercolor=plot_colors[i]
+        )
     end
-
+    
     xlabel!(p_gflops, "log2(Input length)")
     ylabel!(p_gflops, "GFLOPS")
     title!(p_gflops, "$ctype $msg GFLOPS ($cpu)")
-
     display(p_gflops)
     save && savefig(p_gflops, "svgs/$msg-gflops-$ctype-$ptype-$cpu.svg")
 end
 
+
 fftwplan = FFTW.MEASURE
 save = false
 twoexp = 10
-# IVDEP IS VERY SLOW, UNPREDICTABLE AND EXPRERIMENTAL
-use_ivdep = true
 for b in [2 3 5 7 10]
     xs = b .^ (2:Int64(floor(twoexp / log2(b))))
     for ctype in [ComplexF32, ComplexF64]
-        benchmark_fft_over_range(xs; ctype, plan_type=fftwplan, save, msg="FFT-$b", use_ivdep)
+        benchmark_fft_over_range(xs; ctype, fftw_plan_type=fftwplan, save, msg="FFT-$b")
     end
 end
+
 println("Done!")

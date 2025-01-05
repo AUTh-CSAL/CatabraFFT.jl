@@ -2,6 +2,12 @@
 
 using .Radix_Plan
 
+const FLAG = Int8
+
+const NO_FLAG = FLAG(0)
+const MEASURE = FLAG(1)
+const ENCHANT = FLAG(2)
+
 """
 Represents a universal FFT computation strategy that can encode any FFT pattern:
 - Pure radix-a^s for a ∈ {2^a,3^b,5^c,7^d}
@@ -13,8 +19,31 @@ Represents a universal FFT computation strategy that can encode any FFT pattern:
 struct Spell{T} <: AbstractFFTs.Plan{T}
     # Core properties
     n::Int                    # Transform size
+    datatype::Type{T}        # Numeric type (Float16/Float32/Float64)
+    
+    # Optimization flags
+    flag::FLAG
+
+    # Inverse transform reference
+    inverse::Union{Nothing, Spell{T}}  # Reference to inverse transform plan
+end
+
+function Spell(n::Int, ::Type{T}, flag::FLAG) where T <: AbstractFloat
+    Spell{T}(
+        n,
+        T,
+        flag,
+        nothing
+    )
+end
+
+# EXPANDED SPELL SECTION
+#=
+struct Spell{T} <: AbstractFFTs.Plan{T}
+    # Core properties
+    n::Int                    # Transform size
     strategy::Symbol          # :radix, :mixed, :prime, or :trivial
-    datatype::Type{T}        # Numeric type (Float32/Float64)
+    datatype::Type{T}        # Numeric type (Float16/Float32/Float64)
     
     # Strategy-specific parameters
     parameters::Dict{Symbol, Any}  # Holds strategy-specific parameters
@@ -43,7 +72,7 @@ function Spell(n::Int, radix::Int, ::Type{T}) where T <: AbstractFloat
         :stages => Int(log(radix, n))
     )
     
-    components = create_radix_components(n, radix, T)
+    #components = create_radix_components(n, radix, T)
     
     flags = Dict{Symbol, Bool}(
         :inplace => true,
@@ -344,3 +373,5 @@ function encode_prime_rader(n::Int)
         SpellComponent[]
     )
 end
+
+=#

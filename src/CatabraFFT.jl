@@ -2,11 +2,8 @@ module CatabraFFT
 
 include("kernel.jl")
 
-import AbstractFFTs:Plan, ScaledPlan, fft, ifft, bfft, fft!, ifft!, bfft!,
-                    plan_fft, plan_ifft, plan_bfft, plan_fft!, plan_ifft!, plan_bfft!,
-                    rfft, irfft, brfft, plan_ffft, plan_irfft, plan_brfft,
-                    fftshift, ifftshift, rfft_output_size, brfft_output_size,
-                    plan_inv, normalization
+
+using AbstractFFTs
 
 import Base: show, *, convert, unsafe_convert, size, strides, ndims, pointer
 import LinearAlgebra: mul!
@@ -41,8 +38,8 @@ empty_cache()
 """
 function empty_cache()
     empty!(WORKSPACE)
-    empty!(F_cache)
-    #empty!(spell_cache)
+    empty!(F_cache.forward)
+    empty!(F_cache.backward)
 end
 
 @inline function fft!(x::AbstractVector{Complex{T}}) where T <: AbstractFloat
@@ -86,7 +83,7 @@ Compute the 1-dimensional C2C Inverse Fast Fourier Transform (IFFT) of the input
 - A vector containing the reverse Fourier transform of the input
 
 # Example
-x = fft(X)
+x = ifft(X)
 """
 @inline function ifft(x::AbstractVector{Complex{T}})::AbstractVector{Complex{T}} where {T <: AbstractFloat}
     n = length(x)
@@ -118,25 +115,61 @@ end
 end
 
 """
-    plan_fft(x::AbstractVector{Complex{T}}, flags::FLAG=PLANNER_DEFAULT) where {T<:AbstractFloat}
+    plan_fft(x::AbstractVector{Complex{T}}, region=1:1; flags::FLAG=PLANNER_DEFAULT) where T<:AbstractFloat
 
-Create a plan for computing FFT of a complex vector.
+Create a plan for computing FFT of a complex vector. Supports optimization flags:
+- ENCHANT: Enable special (technical) optimizations (similar to FFTW's PATIENT)
+- MEASURE: Checks out possible stategies and sticks with the quickers, similar to FFTW's MEASURE flag
+- PLANNER_DEFAULT: Default planning strategy
+
+Returns a Spell object that encapsulates the FFT plan.
+
+# Arguments
+- `x`: Input vector to plan FFT for
+- `region`: Dimensions to transform (default: 1:1)
+- `flags`: Planning flags for optimization level
+
+# Returns
+- A Spell object representing the FFT plan
+
+# Example
+```julia
+x = rand(Complex{Float64}, 1024)
+p = plan_fft(x, flags=ENCHANT)
+X = p * x
+```
 """
-function plan_fft(x::AbstractVector{Complex{T}}, region; flags::FLAG=PLANNER_DEFAULT) where {T<:AbstractFloat}
+#F_cache MONAD ?
+#=
+FFT --> Spell
+|        ↓
+↓        ↓
+IFFT --> ISpell
+=#
+function plan_fft(x::AbstractVector{Complex{T}}, flags::FLAG=NO_FLAG)::Spell{T} where T <: AbstractFloat
     n = length(x)
+    @show flags
+
+    # Create spell first if flags are specified
+    spell = Spell(n, T, flags) 
+
+    key = (n, T, spell)
     
-    # Cache spell if ENCHANT is enabled
-    if flags & ENCHANT != 0
-        spell_cache[(n, T)] = spell
+    # Check if we have a cached function for this configuration
+    if haskey(F_cache, key)
+        return spell # We can return the spell directly since it matches the cache key
     end
     
-    spell
+    # Generate new function and cache it with its spell
+    func = generate_and_cache_fft!(n, T, flags)
+    
+    # The generate_and_cache_fft! function will have cached the function with the spell
+    # We can return the spell we created, as it's now associated with the function
+    return get_spell_from_function(func)
 end
 
-function AbstractFFTs.plan_fft(x::AbstractVector{Complex{T}}, region=1:1; kws...) where T <: AbstractFloat
-    p = Spell{T}(size(x), collect(region))
-    p.pinv[] = plan_fft(x, region;)
-    return p
+function AbstractFFTs.plan_fft(x::AbstractVector{Complex{T}}, region=1:1; flags::FLAG=NO_FLAG) where T <: AbstractFloat
+    plan_fft(x, flags)
 end
 
 function AbstractFFTs.plan_bfft(x::AbstractVector{Complex{T}}, region=1:1;) where T <: AbstractFloat

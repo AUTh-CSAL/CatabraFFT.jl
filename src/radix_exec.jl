@@ -12,12 +12,13 @@ include("radix_3_codelets.jl")
 include("radix_5_codelets.jl")
 include("radix_7_codelets.jl")
 
-function generate_safe_execute_function!(plan::RadixPlan, show_function=true, check_ivdep=true, str="")
+function generate_safe_execute_function!(plan::RadixPlan, show_function=true, TECHNICAL_ACCELERATION=true, str="")
     current_input = :x
     current_output = :y
     ops = []
     ivdep = false
     ivdep_change_exists = false
+    check_ivdep = TECHNICAL_ACCELERATION
 
     # Helper to get the radix family module and function reference
     function get_radix_family(op_type::Symbol)
@@ -237,6 +238,39 @@ end
 function get_radix_divisor(op_type::Symbol)
     radix = parse(Int, String(op_type)[4:end])
     return radix
+end
+
+# Benchmarking different theoretical plans used by the MEASURE >= FLAGS
+
+#dummy function
+function return_best_family_function(plans::Vector{RadixPlan{T}}, show_function::Bool, TECHNICAL_ACCELERATION::Bool) where {T <: AbstractFloat}
+    
+    N = plans[1].n
+    best_time = Inf
+    best_func = nothing
+    #best_spell = nothing
+
+    x = randn(Complex{T}, N)
+    
+    for plan in plans
+        test_func = Radix_Execute.generate_safe_execute_function!(plan, false, TECHNICAL_ACCELERATION)
+        show_function && println("Testing function: $plan")
+
+        test_time = @elapsed test_func(x, x) # recycle same data, don't care
+        
+        println("Test time: $test_time")
+        
+        if test_time < best_time
+            best_func = test_func
+            best_time = test_time
+            #best_spell = plan
+        end
+    
+    end
+    
+    show_function && println("Best function: $best_func")
+    
+    return best_func
 end
 
 

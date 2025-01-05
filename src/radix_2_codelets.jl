@@ -527,6 +527,48 @@ end
     end
 end
 
+@inline function fft4_shell_layered_ivdep!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}, s::Int, n1::Int, theta::Float64) where T <: AbstractFloat
+    @inbounds @simd ivdep for q in 1:s
+        t1, t2 = x[q] + x[q+2s], x[q] - x[q+2s]
+        t3, t4 = (x[q+s] + x[q+3s]), -im * (x[q+s] - x[q+3s])
+        y[q], y[q+s] = t1 + t3, t2 + t4
+        y[q+2s], y[q+3s] = t1 - t3, t2 - t4
+    end
+
+    @inbounds @simd ivdep for p in 1:(n1 -1)
+        w1p = cispi(T(-p * theta))
+        w2p = w1p * w1p
+        w3p = w2p * w1p
+        @inbounds @simd ivdep for q in 1:s
+            t1, t2 = x[q + s*p] + x[q+ s*(p + 2n1)], x[q + s*p] - x[q+s*(p + 2n1)]
+            t3, t4 = (x[q+s*(p + n1)] + x[q+s*(p + 3n1)]), -im * (x[q+s*(p + n1)] - x[q+s*(p + 3n1)])
+            y[q], y[q+s] = t1 + t3, w1p*(t2 + t4)
+            y[q+2s], y[q+3s] = w2p*(t1 - t3), w3p*(t2 - t4)
+        end
+    end
+end
+
+@inline function fft4_shell_layered!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}, s::Int, n1::Int, theta::Float64) where T <: AbstractFloat
+    @inbounds @simd for q in 1:s
+        t1, t2 = x[q] + x[q+2s], x[q] - x[q+2s]
+        t3, t4 = (x[q+s] + x[q+3s]), -im * (x[q+s] - x[q+3s])
+        y[q], y[q+s] = t1 + t3, t2 + t4
+        y[q+2s], y[q+3s] = t1 - t3, t2 - t4
+    end
+
+    @inbounds @simd for p in 1:(n1 -1)
+        w1p = cispi(T(-p * theta))
+        w2p = w1p * w1p
+        w3p = w2p * w1p
+        @inbounds @simd for q in 1:s
+            t1, t2 = x[q + s*p] + x[q+ s*(p + 2n1)], x[q + s*p] - x[q+s*(p + 2n1)]
+            t3, t4 = (x[q+s*(p + n1)] + x[q+s*(p + 3n1)]), -im * (x[q+s*(p + n1)] - x[q+s*(p + 3n1)])
+            y[q], y[q+s] = t1 + t3, w1p*(t2 + t4)
+            y[q+2s], y[q+3s] = w2p*(t1 - t3), w3p*(t2 - t4)
+        end
+    end
+end
+
 @inline function fft4_shell_ivdep!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}, s::Int) where T <: AbstractFloat
     @inbounds @simd ivdep for q in 1:s
         t1, t2 = x[q] + x[q+2s], x[q] - x[q+2s]
@@ -560,6 +602,40 @@ end
         t3, t4 = (y[q+s] + y[q+3s]), -im * (y[q+s] - y[q+3s])
         y[q], y[q+s] = t1 + t3, t2 + t4
         y[q+2s], y[q+3s] = t1 - t3, t2 - t4
+    end
+end
+
+@inline function fft2_shell_layered_ivdep!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}, s::Int, n1::Int, theta::Float64) where T <: AbstractFloat
+    @inbounds @simd ivdep for q in 1:s
+        a, b = x[q], x[q+s]
+        y[q] = a + b
+        y[q+s] = a - b
+    end
+
+    @inbounds @simd ivdep for p in 1:(n1-1)
+        w1p = cispi(T(-p * theta))
+        @inbounds @simd ivdep for q in 1:s
+            a, b = x[q + s*p], x[q+s*(p + n1)]
+            y[q] = a + b
+            y[q+s] = w1p*(a - b)
+        end
+    end
+end
+
+@inline function fft2_shell_layered!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}, s::Int, n1::Int, theta::Float64) where T <: AbstractFloat
+    @inbounds @simd for q in 1:s
+        a, b = x[q], x[q+s]
+        y[q] = a + b
+        y[q+s] = a - b
+    end
+
+    @inbounds @simd for p in 1:(n1-1)
+        w1p = cispi(T(-p * theta))
+        @inbounds @simd for q in 1:s
+            a, b = x[q + s*p], x[q+s*(p + n1)]
+            y[q] = a + b
+            y[q+s] = w1p*(a - b)
+        end
     end
 end
 

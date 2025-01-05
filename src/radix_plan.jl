@@ -20,8 +20,8 @@ struct RadixPlan{T<:AbstractFloat} <: AbstractFFTs.Plan{T}
     n::Int
 end
 
-function create_all_radix_plans(n::Int, valid_radices::Array, ::Type{T}) where T <: AbstractVector
-    @assert all(n % radix == 0 for radix in valid_radices) "n must be divisible by all radices in valid_radices"
+function create_all_radix_plans(n::Int, valid_radices::Vector{Int}, ::Type{T}) where T <: AbstractFloat
+    if n > maximum(valid_radices) @assert all(n % radix == 0 for radix in valid_radices) "n must be divisible by all radices in valid_radices" end
     decompositions = Vector{Vector{Int}}()
     
     function backtrack(remaining::Int, current::Vector{Int}, last_radix::Int)

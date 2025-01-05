@@ -8,37 +8,66 @@ include("spells.jl")
 
 using .Radix_Plan 
 
-# Simple integer type for FFT direction
-const Direction = Int8
+# BiMap structure for FFT caching
+mutable struct FFTCacheMap{T}
+    forward::Dict{Tuple{Int, DataType, Union{Nothing, Spell}}, Function}
+    backward::Dict{Function, Tuple{Int, DataType, Union{Nothing, Spell}}}
 
-# Constants for FFT directions
-const FORWARD = Direction(-1)  # Forward FFT 
-const BACKWARD = Direction(1)  # Inverse FFT
+    FFTCacheMap{T}() where T = new{T}(Dict(), Dict())
+end
 
-const FLAG = Int8
-
-const NO_SPELL = FLAG(0)
-const ENCHANT = FLAG(1)
-const PLANNER_DEFAULT = FLAG(2)
-
+# Initialize the global cache if not already defined
 if !@isdefined(F_cache)
-    const F_cache = Dict{Tuple{Int, DataType}, Function}() 
+    const F_cache = FFTCacheMap{Function}()
 end
 
-if !@isdefined(spell_cache)
-    const spell_cache = Dict{Tuple{Int, DataType}, Spell}()
+# BiMap operations
+@inline function Base.haskey(cache::FFTCacheMap, key::Union{Tuple{Int, DataType, Union{Nothing, Spell}}, Function})
+    if key isa Tuple
+        haskey(cache.forward, key)
+    else
+        haskey(cache.backward, key)
+    end
 end
 
-const SpellCache = Dict{Spell{T} where T <: AbstractFloat, Function}() 
+@inline function Base.getindex(cache::FFTCacheMap, key::Union{Tuple{Int, DataType, Union{Nothing, Spell}}, Function})
+    if key isa Tuple
+        cache.forward[key]
+    else
+        cache.backward[key]
+    end
+end
 
-@inline function generate_and_cache_fft!(n::Int, ::Type{T})::Function where {T <: AbstractFloat}
-    key = (n, T)
-    haskey(F_cache, key) && return F_cache[key]
+@inline function Base.setindex!(cache::FFTCacheMap, value::Union{Function, Tuple{Int, DataType, Union{Nothing, Spell}}}, 
+                              key::Union{Tuple{Int, DataType, Union{Nothing, Spell}}, Function})
+    if key isa Tuple
+        cache.forward[key] = value
+        cache.backward[value] = key
+    else
+        cache.backward[key] = value
+        cache.forward[value] = key
+    end
+    value
+end
+
+# Lookup functions
+@inline function get_spell_from_function(func::Function)::Union{Nothing, Spell}
+    haskey(F_cache, func) ? F_cache[func][3] : nothing
+end
+
+@inline function get_cache_info_from_function(func::Function)::Union{Nothing, Tuple{Int, DataType, Union{Nothing, Spell}}}
+    haskey(F_cache, func) ? F_cache[func] : nothing
+end
+
+@inline function generate_and_cache_fft!(n::Int, ::Type{T}, flag::FLAG=NO_FLAG)::Function where {T <: AbstractFloat}
+    spell = Spell(n, T, flag)
+    key = (n, T, spell)
+    haskey(F_cache, key) && return F_cache[key] # Check out if these requieremts already have a cached-in solution
 
     fft_func = if n == 1
         (y, x) -> (y .= x)
     elseif is_power_of(n, 2) || is_power_of(n, 3) || is_power_of(n, 5) || is_power_of(n, 7)
-        call_radix_families(n, T)
+        call_radix_families(n, T, flag)
     elseif isprime(n)
         generate_prime_fft_raders(n, T)
     else
@@ -52,49 +81,6 @@ const SpellCache = Dict{Spell{T} where T <: AbstractFloat, Function}()
     return fft_func
 end
 
-@inline function generate_and_cache_spell!(n::Int, ::Type{T}, flag::FLAG)::Spell where {T <: AbstractFloat}
-    mixed = nothing
-    radixplan = nothing
-
-    key = (n, T, flag)
-    haskey(spell_cache, key) && return spell_cache[key]
-    
-    if n == 1
-        return Spell{T}(1, nothing, nothing, flag & ENCHANT != 0, nothing)
-    end
-
-    if is_power_of(n, 2) || is_power_of(n, 3) || is_power_of(n, 5) || is_power_of(n, 7)
-        call_radix_families(n, T)
-    elseif isprime(n)
-        generate_prime_fft_raders(n, T)
-    else
-        p, m = find_closest_factors(n)
-        plan = MixedRadixFFT(p, m, T)
-        generate_formulation_fft(plan, T)
-    end
-
-    # Cache-in
-    F_cache[key] = fft_func
-    return fft_func
-end
-
-
-
-"""
-    fft!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}})::AbstractVector{Complex{T}} where {T <: AbstractFloat}
-
-Compute the 1-dimensional C2C FFT
-
-# Arguments
-- `y`: Complex vector to store the result
-- `x`: Input complex vector to be transformed
-
-# Returns
-- A vector containing the Fourier transform of the input
-
-# Example
- fft!(y,x)
-"""
 
 @inline function fft_kernel!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}) where {T <: AbstractFloat}
     n = length(x)
@@ -113,47 +99,51 @@ function is_power_of(n::Int, p::Int)
     return true
 end
 
-function call_radix_families(n::Int, ::Type{T})::Function where {T<:AbstractFloat}
+function call_radix_families(n::Int, ::Type{T}, flag::FLAG=NO_FLAG)::Function where {T<:AbstractFloat}
     @assert (is_power_of(n, 2) || is_power_of(n, 3) || is_power_of(n, 5) || is_power_of(n, 7)) "n: $n is not divisible by 2, 3, 5, or 7"
+    
+    show_function = true
 
-    key = (n, T)
-    haskey(F_cache, key) && return F_cache[key]
-    show_function = false
     ivdep = false
-
-    family_func = if is_power_of(n,2)
-            Radix_Execute.generate_safe_execute_function!(Radix_Plan.create_std_radix_plan(n, [16,8,4,2], T), show_function, ivdep)
+    println("FLAG: $flag")
+    
+    family_func = if flag >= ENCHANT
+        ivdep = true
+        if is_power_of(n,2)
+            Radix_Execute.return_best_family_function(Radix_Plan.create_all_radix_plans(n, [16, 8, 4, 2], T), show_function, ivdep)
+        elseif is_power_of(n, 3)
+            Radix_Execute.return_best_family_function(Radix_Plan.create_all_radix_plans(n, [9, 3], T), show_function, ivdep)
+        elseif is_power_of(n, 5)
+            Radix_Execute.return_best_family_function(Radix_Plan.create_all_radix_plans(n, [5], T), show_function, ivdep)
+        elseif is_power_of(n, 7)
+            Radix_Execute.return_best_family_function(Radix_Plan.create_all_radix_plans(n, [7], T), show_function, ivdep)
+        end
+    elseif flag == MEASURE
+        if is_power_of(n,2)
+            Radix_Execute.return_best_family_function(Radix_Plan.create_all_radix_plans(n, [16, 8, 4, 2], T), show_function, ivdep)
+        elseif is_power_of(n, 3)
+            Radix_Execute.return_best_family_function(Radix_Plan.create_all_radix_plans(n, [9, 3], T), show_function, ivdep)
+        elseif is_power_of(n, 5)
+            Radix_Execute.return_best_family_function(Radix_Plan.create_all_radix_plans(n, [5], T), show_function, ivdep)
+        elseif is_power_of(n, 7)
+            Radix_Execute.return_best_family_function(Radix_Plan.create_all_radix_plans(n, [7], T), show_function, ivdep)
+        end
+    else # no_flag
+        if is_power_of(n,2)
+            Radix_Execute.generate_safe_execute_function!(Radix_Plan.create_std_radix_plan(n, [8,4,2], T), show_function, ivdep)
         elseif is_power_of(n, 3)
             Radix_Execute.generate_safe_execute_function!(Radix_Plan.create_std_radix_plan(n, [9,3], T), show_function, ivdep)
         elseif is_power_of(n, 5)
             Radix_Execute.generate_safe_execute_function!(Radix_Plan.create_std_radix_plan(n, [5], T), show_function, ivdep)
         elseif is_power_of(n, 7)
             Radix_Execute.generate_safe_execute_function!(Radix_Plan.create_std_radix_plan(n, [7], T), show_function, ivdep)
+        end
     end
+    println("FAMILY FUNC: $family_func")
 
     return family_func
 end
 
-function return_best_family_function(plans::Vector{RadixPlan{T}}) where {T <: AbstractFloat}
-    
-    best_time = Inf
-    best_func = nothing
-    
-    for plan in plans
-        test_func = Radix_Execute.generate_safe_execute_function!(plan)
-        
-        test_time = @time test_func(y, x)
-        
-        if test_time < best_time
-            best_func = test_func
-            best_time = test_time
-        end
-    
-    end
-    
-    return best_func
-
-end
 
 function return_sorted_prime_powers(n::Int)
     primes = [2,3,5,7] # Primes I have families of

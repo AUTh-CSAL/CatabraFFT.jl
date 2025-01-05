@@ -581,3 +581,188 @@ end
 export optimized_fft_codelet!, benchmark_fft_strategies
 
 end  # module OptimizedFFT
+
+module RadixFFTCompositor
+
+using LoopVectorization, SIMD
+
+const INV_SQRT2_DEFAULT = 0.7071067811865475
+const Cp_3_8_DEFAULT = 0.3826834323650898 # cospi(3/8)
+const Sp_3_8_DEFAULT = 0.9238795325112867 # sinpi(3/8)
+
+# Define kernel patterns and suffixes
+const KERNEL_PATTERNS = Dict(
+    2 => """
+        a, b = #INPUT#[q], #INPUT#[q+s]
+        #OUTPUT#[q] = a + b
+        #OUTPUT#[q+s] = a - b
+    """,
+    4 => """
+        t1, t2 = #INPUT#[q] + #INPUT#[q+2s], #INPUT#[q] - #INPUT#[q+2s]
+        t3, t4 = (#INPUT#[q+s] + #INPUT#[q+3s]), -im * (#INPUT#[q+s] - #INPUT#[q+3s])
+        #OUTPUT#[q], #OUTPUT#[q+s] = t1 + t3, t2 + t4
+        #OUTPUT#[q+2s], #OUTPUT#[q+3s] = t1 - t3, t2 - t4
+    """,
+    8 => """
+        t13, t14 = #INPUT#[q] + #INPUT#[q+4s], #INPUT#[q] - #INPUT#[q+4s]
+        t15, t16 = (#INPUT#[q+2s] + #INPUT#[q+6s]), -im * (#INPUT#[q+2s] - #INPUT#[q+6s])
+
+        t5, t6 = t13 + t15, t14 + t16
+        t7, t8 = t13 - t15, t14 - t16
+
+        t17, t18 = #INPUT#[q+s] + #INPUT#[q+5s], #INPUT#[q+s] - #INPUT#[q+5s]
+        t19, t20 = (#INPUT#[q+3s] + #INPUT#[q+7s]), -im * (#INPUT#[q+3s] - #INPUT#[q+7s])
+
+        t9, t10 = (t17 + t19), INV_SQRT2 * (1 - im) * (t18 + t20)
+        t11, t12 = -im * (t17 - t19), INV_SQRT2 * (-1 - im) * (t18 - t20)
+
+        #OUTPUT#[q], #OUTPUT#[q+s], #OUTPUT#[q+2s], #OUTPUT#[q+3s] = t5 + t9, t6 + t10, t7 + t11, t8 + t12
+        #OUTPUT#[q+4s], #OUTPUT#[q+5s], #OUTPUT#[q+6s], #OUTPUT#[q+7s] = t5 - t9, t6 - t10, t7 - t11, t8 - t12
+    """
+)
+
+# Function to generate kernel name
+function generate_kernel_name(radix::Int, suffixes::Vector{String})
+    base = "fft$(radix)_shell"
+    suffix = join(suffixes, "_")
+    return string(base, !isempty(suffix) ? "_$suffix" : "", "!")
+end
+
+# Function to generate function signature
+function generate_signature(radix::Int, suffixes::Vector{String})
+    y_only = "y" in suffixes
+    layered = "layered" in suffixes
+    
+    if y_only
+        return "(y::AbstractVector{Complex{T}}, s::Int) where T <: AbstractFloat"
+    elseif layered
+        return "(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}, s::Int, n1::Int, theta::Float64=0.125) where T <: AbstractFloat"
+    else
+        return "(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}, s::Int) where T <: AbstractFloat"
+    end
+end
+
+# Function to generate loop decorators
+function generate_loop_decorators(suffixes::Vector{String})
+    decorators = ["@inbounds"]
+    if "ivdep" in suffixes
+        push!(decorators, "@simd ivdep")
+    else
+        push!(decorators, "@simd")
+    end
+    return join(decorators, " ")
+end
+
+# Main function to generate kernel code
+function generate_kernel(radix::Int, suffixes::Vector{String})
+    name = generate_kernel_name(radix, suffixes)
+    signature = generate_signature(radix, suffixes)
+    decorators = generate_loop_decorators(suffixes)
+    
+    kernel_pattern = KERNEL_PATTERNS[radix]
+    input = "y" in suffixes ? "y" : "x"
+    output = "y"
+    
+    # Replace placeholders in kernel pattern
+    kernel_code = replace(kernel_pattern, 
+        "#INPUT#" => input,
+        "#OUTPUT#" => output)
+    
+    # Generate the complete function
+    if "layered" in suffixes
+        # Special handling for layered kernels
+        return generate_layered_kernel(name, signature, decorators, kernel_code, radix)
+    else
+        return """
+        @inline function $name$signature
+            INV_SQRT2 = T(INV_SQRT2_DEFAULT)
+            $decorators for q in 1:s
+                $kernel_code
+            end
+        end
+        """
+    end
+end
+
+# Helper function to generate layered kernel
+function generate_layered_kernel(name, signature, decorators, kernel_code, radix)
+    # Additional constants for radix-8
+    constants = radix == 8 ? """
+        INV_SQRT2 = T(INV_SQRT2_DEFAULT)
+        Cp_3_8 = T(Cp_3_8_DEFAULT)
+        Sp_3_8 = T(Sp_3_8_DEFAULT)
+    """ : "INV_SQRT2 = T(INV_SQRT2_DEFAULT)"
+    
+    return """
+    @inline function $name$signature
+        $constants
+        
+        # First section without twiddle factors
+        $decorators for q in 1:s
+            $kernel_code
+        end
+        
+        # Section with twiddle factors
+        $decorators for p in 1:(n1-1)
+            w1p = cispi(T(-p * theta))
+            w2p = w1p * w1p
+            w3p = w1p * w2p
+            $(radix ≥ 4 ? "w4p = w2p * w2p" : "")
+            $(radix == 8 ? """
+                w5p = w2p * w3p
+                w6p = w3p * w3p
+                w7p = w3p * w4p
+            """ : "")
+            
+            $decorators for q in 1:s
+                $kernel_code
+            end
+        end
+    end
+    """
+end
+
+# Function to generate all possible kernel combinations
+function generate_all_kernels(radixes=[2, 4, 8])
+    suffix_combinations = [
+        String[],
+        ["ivdep"],
+        ["y"],
+        ["y", "ivdep"],
+        ["layered"],
+        ["layered", "ivdep"]
+    ]
+    
+    kernels = Dict{String, String}()
+    
+    for radix in radixes
+        for suffixes in suffix_combinations
+            name = generate_kernel_name(radix, suffixes)
+            code = generate_kernel(radix, suffixes)
+            kernels[name] = code
+        end
+    end
+    
+    return kernels
+end
+
+# Function to evaluate and create the functions in a module
+function create_kernel_module()
+    kernels = generate_all_kernels()
+    
+    module_code = """
+    module RadixKernels
+        using LoopVectorization, SIMD
+        
+        const INV_SQRT2_DEFAULT = 0.7071067811865475
+        const Cp_3_8_DEFAULT = 0.3826834323650898 # cospi(3/8)
+        const Sp_3_8_DEFAULT = 0.9238795325112867 # sinpi(3/8)
+        
+        $(join(values(kernels), "\n\n"))
+    end
+    """
+    
+    return module_code
+end
+
+end
