@@ -273,6 +273,68 @@ end
     end
 end
 
+@inline function fft3_shell_layered_ivdep!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}, s::Int, n1::Int, theta::Float64) where {T<:AbstractFloat}
+    Cp, Sp = T(Cp_DEFAULT), T(Sp_DEFAULT)
+    @inbounds @simd ivdep for q in 1:s
+        a, b, c = x[q], x[q + s], x[q + 2s]
+
+        bpc = b + c
+        jbmcS = im*(b - c)*Sp
+        ambpcCp = a - bpc*Cp
+
+        y[q] = a + bpc
+        y[q + s] = ambpcCp - jbmcS
+        y[q + 2s] = ambpcCp + jbmcS
+    end
+
+    @inbounds @simd ivdep for p in 1:(n1-1)
+        w1p = cispi(T(-p*theta))
+        w2p = w1p * w1p
+        @inbounds @simd ivdep for q in 1:s
+            a, b, c = x[q + s*p], x[q + s*(p + n1)], x[q + s*(p + 2n1)]
+
+            bpc = b + c
+            jbmcS = im*(b - c)*Sp
+            ambpcCp = a - bpc*Cp
+
+            y[q + s*p] = a + bpc
+            y[q + s*(p + n1)] = w1p*(ambpcCp - jbmcS)
+            y[q + s*(p + 2n1)] = w2p*(ambpcCp + jbmcS)
+        end
+    end
+end
+
+@inline function fft3_shell_layered!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}, s::Int, n1::Int, theta::Float64) where {T<:AbstractFloat}
+    Cp, Sp = T(Cp_DEFAULT), T(Sp_DEFAULT)
+    @inbounds @simd for q in 1:s
+        a, b, c = x[q], x[q + s], x[q + 2s]
+
+        bpc = b + c
+        jbmcS = im*(b - c)*Sp
+        ambpcCp = a - bpc*Cp
+
+        y[q] = a + bpc
+        y[q + s] = ambpcCp - jbmcS
+        y[q + 2s] = ambpcCp + jbmcS
+    end
+
+    @inbounds @simd for p in 1:(n1-1)
+        w1p = cispi(T(-p*theta))
+        w2p = w1p * w1p
+        @inbounds @simd for q in 1:s
+            a, b, c = x[q + s*p], x[q + s*(p + n1)], x[q + s*(p + 2n1)]
+
+            bpc = b + c
+            jbmcS = im*(b - c)*Sp
+            ambpcCp = a - bpc*Cp
+
+            y[q + s*p] = a + bpc
+            y[q + s*(p + n1)] = w1p*(ambpcCp - jbmcS)
+            y[q + s*(p + 2n1)] = w2p*(ambpcCp + jbmcS)
+        end
+    end
+end
+
 @inline function fft3_shell_ivdep!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}, s::Int) where {T<:AbstractFloat}
     Cp, Sp = T(Cp_DEFAULT), T(Sp_DEFAULT)
     @inbounds @simd ivdep for q in 1:s

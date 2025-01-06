@@ -88,6 +88,7 @@ function generate_safe_execute_function!(plan::RadixPlan, show_function=true, TE
                 ivdep_func_name = Symbol(String(op.op_type), "_", String(suffix), "_ivdep!")
                 std_func_ref = get_function_reference(radix_family, std_func_name)
                 ivdep_func_ref = get_function_reference(radix_family, ivdep_func_name)
+                @show std_func_ref, ivdep_func_ref
                 ivdep = determine_ivdep_threshold(std_func_ref, ivdep_func_ref, op, is_layered, typeof(plan).parameters[1] , show_function)
                 if ivdep
                     ivdep_change_exists = true
@@ -133,6 +134,20 @@ function process_execute_function!(ex::Expr)
     end
     
     return ex
+end
+
+# Helper function to bench via @elapsed
+function time_limited_benchmark(f, args...; time_limit=0.1)
+    total_time = 0.0
+    count = 0
+    result = 0.0
+    while total_time < time_limit
+        elapsed_time = @elapsed f(args...)
+        total_time += elapsed_time
+        result += elapsed_time
+        count += 1
+    end
+    return result / count
 end
 
 function benchmark_functions_performance(fft_standard!, fft_ivdep!, N::Int, type, show_function=true)
@@ -183,10 +198,12 @@ function benchmark_ivdep_performance(fft_standard!, fft_ivdep!, op, is_layered, 
         fft_ivdep!(x, x, s, n1, theta)
     
         # Benchmark standard version
-        standard_bench = @benchmark $fft_standard!($x, $x, $s, $n1, $theta) samples=100
+        #standard_bench = @benchmark $fft_standard!($x, $x, $s, $n1, $theta) samples=100
+        standard_time = time_limited_benchmark(fft_standard!, x, x, s, n1, theta)
     
         # Benchmark ivdep version
-        ivdep_bench = @benchmark $fft_ivdep!($x, $x, $s, $n1, $theta) samples=100
+        #ivdep_bench = @benchmark $fft_ivdep!($x, $x, $s, $n1, $theta) samples=100
+        ivdep_time = time_limited_benchmark(fft_ivdep!, x, x, s, n1, theta)
 
     else
         if eo
@@ -195,25 +212,30 @@ function benchmark_ivdep_performance(fft_standard!, fft_ivdep!, op, is_layered, 
         fft_ivdep!(x, s)
         
         # Benchmark standard version
-        standard_bench = @benchmark $fft_standard!($x, $s) samples=100
+        #standard_bench = @benchmark $fft_standard!($x, $s) samples=100
+        standard_time = time_limited_benchmark(fft_standard!, x, s)
         
         # Benchmark ivdep version
-        ivdep_bench = @benchmark $fft_ivdep!($x, $s) samples=100
+        #ivdep_bench = @benchmark $fft_ivdep!($x, $s) samples=100
+        ivdep_time = time_limited_benchmark(fft_ivdep!, x, s)
     else
         # Warm-up runs
         fft_standard!(x, x, s) # Recycle random data, I don't care
         fft_ivdep!(x, x, s)
         
         # Benchmark standard version
-        standard_bench = @benchmark $fft_standard!($x, $x, $s) samples=100
+        #standard_bench = @benchmark $fft_standard!($x, $x, $s) samples=100
+        standard_time = time_limited_benchmark(fft_standard!, x, x, s)
         
         # Benchmark ivdep version
-        ivdep_bench = @benchmark $fft_ivdep!($x, $x, $s) samples=100
+        #ivdep_bench = @benchmark $fft_ivdep!($x, $x, $s) samples=100
+        ivdep_time = time_limited_benchmark(fft_ivdep!, x, x, s)
+
     end
 end
 
-    standard_time = minimum(standard_bench.times)
-    ivdep_time = minimum(ivdep_bench.times)
+    #standard_time = minimum(standard_bench.times)
+    #ivdep_time = minimum(ivdep_bench.times)
     # Calculate speedup ratio
     speedup_ratio = standard_time / ivdep_time
     
@@ -253,7 +275,7 @@ function return_best_family_function(plans::Vector{RadixPlan{T}}, show_function:
     x = randn(Complex{T}, N)
     
     for plan in plans
-        test_func = Radix_Execute.generate_safe_execute_function!(plan, false, TECHNICAL_ACCELERATION)
+        test_func = Radix_Execute.generate_safe_execute_function!(plan, true, TECHNICAL_ACCELERATION)
         show_function && println("Testing function: $plan")
 
         test_time = @elapsed test_func(x, x) # recycle same data, don't care

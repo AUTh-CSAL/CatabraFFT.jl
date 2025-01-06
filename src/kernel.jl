@@ -8,7 +8,7 @@ include("spells.jl")
 
 using .Radix_Plan 
 
-# BiMap structure for FFT caching
+# BiMap (HashMap) struct for FFT caching
 mutable struct FFTCacheMap{T}
     forward::Dict{Tuple{Int, DataType, Union{Nothing, Spell}}, Function}
     backward::Dict{Function, Tuple{Int, DataType, Union{Nothing, Spell}}}
@@ -59,7 +59,17 @@ end
     haskey(F_cache, func) ? F_cache[func] : nothing
 end
 
-@inline function generate_and_cache_fft!(n::Int, ::Type{T}, flag::FLAG=NO_FLAG)::Function where {T <: AbstractFloat}
+@inline function get_function_from_spell(spell::Spell{T})::Function where T <: AbstractFloat
+    # Iterate over the forward dictionary to find the function corresponding to the given spell
+    for ((_, _, cache_spell), func) in F_cache.forward
+        if cache_spell == spell
+            return func
+        end
+    end
+    error("Function not found for the given spell.")
+end
+
+@inline function generate_and_cache_fft!(n::Int, ::Type{T}, flag::FLAG)::Function where {T <: AbstractFloat}
     spell = Spell(n, T, flag)
     key = (n, T, spell)
     haskey(F_cache, key) && return F_cache[key] # Check out if these requieremts already have a cached-in solution
@@ -84,7 +94,7 @@ end
 
 @inline function fft_kernel!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}) where {T <: AbstractFloat}
     n = length(x)
-    fft_func = generate_and_cache_fft!(n, T)
+    fft_func = generate_and_cache_fft!(n, T, NO_FLAG) # NO_FLAG for fft(x) normal calls
     fft_func(y, x) # FUNCTION EXECUTION
     return y
 end
@@ -99,7 +109,7 @@ function is_power_of(n::Int, p::Int)
     return true
 end
 
-function call_radix_families(n::Int, ::Type{T}, flag::FLAG=NO_FLAG)::Function where {T<:AbstractFloat}
+function call_radix_families(n::Int, ::Type{T}, flag::FLAG)::Function where {T<:AbstractFloat}
     @assert (is_power_of(n, 2) || is_power_of(n, 3) || is_power_of(n, 5) || is_power_of(n, 7)) "n: $n is not divisible by 2, 3, 5, or 7"
     
     show_function = true
@@ -108,6 +118,7 @@ function call_radix_families(n::Int, ::Type{T}, flag::FLAG=NO_FLAG)::Function wh
     println("FLAG: $flag")
     
     family_func = if flag >= ENCHANT
+        println("ENCHANT")
         ivdep = true
         if is_power_of(n,2)
             Radix_Execute.return_best_family_function(Radix_Plan.create_all_radix_plans(n, [16, 8, 4, 2], T), show_function, ivdep)
@@ -119,6 +130,7 @@ function call_radix_families(n::Int, ::Type{T}, flag::FLAG=NO_FLAG)::Function wh
             Radix_Execute.return_best_family_function(Radix_Plan.create_all_radix_plans(n, [7], T), show_function, ivdep)
         end
     elseif flag == MEASURE
+        println("MEASURE")
         if is_power_of(n,2)
             Radix_Execute.return_best_family_function(Radix_Plan.create_all_radix_plans(n, [16, 8, 4, 2], T), show_function, ivdep)
         elseif is_power_of(n, 3)
@@ -129,6 +141,7 @@ function call_radix_families(n::Int, ::Type{T}, flag::FLAG=NO_FLAG)::Function wh
             Radix_Execute.return_best_family_function(Radix_Plan.create_all_radix_plans(n, [7], T), show_function, ivdep)
         end
     else # no_flag
+        println("NO FLAG")
         if is_power_of(n,2)
             Radix_Execute.generate_safe_execute_function!(Radix_Plan.create_std_radix_plan(n, [8,4,2], T), show_function, ivdep)
         elseif is_power_of(n, 3)

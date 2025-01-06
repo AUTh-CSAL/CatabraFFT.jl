@@ -42,11 +42,11 @@ function empty_cache()
     empty!(F_cache.backward)
 end
 
+# in-place manipulation of given signal
 @inline function fft!(x::AbstractVector{Complex{T}}) where T <: AbstractFloat
-    fft_kernel!(y, x)
-    return y
+    fft_kernel!(x, x)
+    return x
 end
-
 
 """
     fft(x::AbstractVector{Complex{T}})::AbstractVector{Complex{T}} where {T <: AbstractFloat}
@@ -146,25 +146,23 @@ FFT --> Spell
 ↓        ↓
 IFFT --> ISpell
 =#
-function plan_fft(x::AbstractVector{Complex{T}}, flags::FLAG=NO_FLAG)::Spell{T} where T <: AbstractFloat
+function plan_fft(x::AbstractVector{Complex{T}}, flags::FLAG)::Spell{T} where T <: AbstractFloat
     n = length(x)
-    @show flags
 
     # Create spell first if flags are specified
     spell = Spell(n, T, flags) 
-
     key = (n, T, spell)
     
     # Check if we have a cached function for this configuration
-    if haskey(F_cache, key)
-        return spell # We can return the spell directly since it matches the cache key
-    end
+    # We can return the spell directly since it matches the cache key
+    haskey(F_cache, key) && spell 
     
     # Generate new function and cache it with its spell
     func = generate_and_cache_fft!(n, T, flags)
     
     # The generate_and_cache_fft! function will have cached the function with the spell
     # We can return the spell we created, as it's now associated with the function
+    println("Spell: $spell")
     return get_spell_from_function(func)
 end
 
@@ -186,7 +184,7 @@ end
 
 # Required mul! implementation
 function mul!(y::AbstractVector{Complex{T}}, p::Spell, x::AbstractVector{Complex{T}}) where T
-    copyto!(y, fft(x))
+    fft_kernel!(y, x)
     return y
 end
 
