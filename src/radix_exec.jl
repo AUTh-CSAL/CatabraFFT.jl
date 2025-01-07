@@ -266,31 +266,27 @@ end
 
 #dummy function
 function return_best_family_function(plans::Vector{RadixPlan{T}}, show_function::Bool, TECHNICAL_ACCELERATION::Bool) where {T <: AbstractFloat}
-    
     N = plans[1].n
     best_time = Inf
     best_func = nothing
-    #best_spell = nothing
-
     x = randn(Complex{T}, N)
     
     for plan in plans
         test_func = Radix_Execute.generate_safe_execute_function!(plan, true, TECHNICAL_ACCELERATION)
-        show_function && println("Testing function: $plan")
-
-        test_time = @elapsed test_func(x, x) # recycle same data, don't care
+        show_function && println("Testing function for plan: $plan")
         
-        println("Test time: $test_time")
+        # Use @belapsed for faster benchmarking with minimal overhead
+        test_time = @elapsed test_func(x, x) 
+        
+        println("Test elapsed time: $test_time seconds")
         
         if test_time < best_time
             best_func = test_func
             best_time = test_time
-            #best_spell = plan
         end
-    
     end
     
-    show_function && println("Best function: $best_func")
+    show_function && println("Best function: $best_func with time: $best_time seconds")
     
     return best_func
 end
