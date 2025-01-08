@@ -21,7 +21,10 @@ struct RadixPlan{T<:AbstractFloat} <: AbstractFFTs.Plan{T}
 end
 
 function create_all_radix_plans(n::Int, valid_radices::Vector{Int}, ::Type{T}) where T <: AbstractFloat
-    if n > maximum(valid_radices) @assert all(n % radix == 0 for radix in valid_radices) "n must be divisible by all radices in valid_radices" end
+    if n > maximum(valid_radices)
+        @assert all(n % radix == 0 for radix in valid_radices) "n must be divisible by all radices in valid_radices"
+    end
+
     decompositions = Vector{Vector{Int}}()
     
     function backtrack(remaining::Int, current::Vector{Int}, last_radix::Int)
@@ -37,9 +40,27 @@ function create_all_radix_plans(n::Int, valid_radices::Vector{Int}, ::Type{T}) w
     
     backtrack(n, Int[], typemax(Int))
 
+    # Heuristic to narrow valid decomposition solution space to more likely solutions
+    function is_valid_decomposition(decomposition::Vector{Int})::Bool
+    if all(x -> x == 0, mod.(decomposition, 2))
+        if length(decomposition) == 1 return true end
+        if decomposition[1] == 2 || (decomposition[1] == 4 && decomposition != fill(4, length(decomposition)))
+            return false
+        end
+        count_2s = count(x -> x == 2, decomposition)
+        max_2s_allowed = length(decomposition) ÷ 2
+        if decomposition[1] in (16, 8) && count_2s > max_2s_allowed
+            return false
+        end
+        true
+    end
+    end
+
+    filtered_decompositions = filter(is_valid_decomposition, decompositions)
+
    # Create a RadixPlan for each decomposition
     radix_plans = Vector{RadixPlan{T}}()
-    for decomposition in decompositions
+    for decomposition in filtered_decompositions
         push!(radix_plans, create_radix_plan_from_decomposition(n, decomposition, T))
     end
 

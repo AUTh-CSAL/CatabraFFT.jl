@@ -142,6 +142,8 @@ function time_limited_benchmark(f, args...; time_limit=0.1)
     count = 0
     result = 0.0
     while total_time < time_limit
+        # Precompute
+        f(args...)
         elapsed_time = @elapsed f(args...)
         total_time += elapsed_time
         result += elapsed_time
@@ -274,6 +276,9 @@ function return_best_family_function(plans::Vector{RadixPlan{T}}, show_function:
     for plan in plans
         test_func = Radix_Execute.generate_safe_execute_function!(plan, true, TECHNICAL_ACCELERATION)
         show_function && println("Testing function for plan: $plan")
+        
+        #Pre-compute
+        test_func(x,x)
         
         # Use @belapsed for faster benchmarking with minimal overhead
         test_time = @elapsed test_func(x, x) 

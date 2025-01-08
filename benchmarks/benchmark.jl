@@ -66,8 +66,8 @@ end
 
 function benchmark_fft_over_range(xs::Vector; ctype=ComplexF64, fftw_plan_type=FFTW.MEASURE, save=false, msg="")
     # Initialize arrays for each plan type
-    #catabraplans = [CatabraFFT.NO_FLAG, CatabraFFT.MEASURE, CatabraFFT.ENCHANT]
-    catabraplans = [CatabraFFT.NO_FLAG, CatabraFFT.MEASURE]
+    catabraplans = [CatabraFFT.NO_FLAG, CatabraFFT.MEASURE, CatabraFFT.ENCHANT]
+    #catabraplans = [CatabraFFT.NO_FLAG, CatabraFFT.MEASURE]
 
     n_plans = length(catabraplans)  # Number of different Catabra plans
     gflops_catabra = [Float64[] for _ in 1:n_plans]
@@ -109,8 +109,7 @@ function benchmark_fft_over_range(xs::Vector; ctype=ComplexF64, fftw_plan_type=F
     p_reltime = bar(
         log2.(xs), 
         [fftw_time ./ catabra_time[i] for i in 1:n_plans],  # Matrix form for grouped bar plot
-        #label=["NO FLAG" "MEASURE" "ENCHANT"],  # Set labels for each bar group
-        label=["NO FLAG" "MEASURE"],  # Set labels for each bar group
+        label=["NO FLAG" "MEASURE" "ENCHANT"],  # Set labels for each bar group
         linestyle=:none,
         markershape=:square,
         markercolor=[:red :blue :green],  # Assign distinct colors
@@ -135,8 +134,7 @@ function benchmark_fft_over_range(xs::Vector; ctype=ComplexF64, fftw_plan_type=F
         legend=:bottom
     )
     
-    #plot_labels = ["NO FLAG", "MEASURE", "ENCHANT"]
-    plot_labels = ["NO FLAG", "MEASURE"]
+    plot_labels = ["NO FLAG", "MEASURE", "ENCHANT"]
     plot_colors = [:orange, :blue, :green]
     
     for i in 1:n_plans

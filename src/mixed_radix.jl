@@ -1,5 +1,7 @@
 using LoopVectorization
 
+include("spells.jl")
+
 if !@isdefined(MixedRadixFFT)
 struct MixedRadixFFT{T <: AbstractFloat}
     p::Int
@@ -14,13 +16,13 @@ if !@isdefined(mixed_radix_cache)
     const mixed_radix_cache = Dict{Tuple{Int, Int, DataType}, MixedRadixFFT}() 
 end
 
-function MixedRadixFFT(p::Int, m::Int, ::Type{T})::MixedRadixFFT where {T<:AbstractFloat}
+function MixedRadixFFT(p::Int, m::Int, ::Type{T}, flag::FLAG)::MixedRadixFFT where {T<:AbstractFloat}
     key = (p, m, T)
     haskey(mixed_radix_cache, key) && return mixed_radix_cache[key]
 
     W = D(p, m, T)
-    Fm = recursive_F(m, T)
-    Fp = recursive_F(p, T)
+    Fm = recursive_F(m, T, flag)
+    Fp = recursive_F(p, T, flag)
     mixed_radix_cache[key] = MixedRadixFFT{T}(p, m, W, Fm, Fp)
     MixedRadixFFT{T}(p, m, W, Fm, Fp)
 end

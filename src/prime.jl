@@ -1,6 +1,8 @@
 using Primes
 
-function generate_prime_fft_raders(n::Int, ::Type{T})::Function where {T<:AbstractFloat}
+include("spells.jl")
+
+function generate_prime_fft_raders(n::Int, ::Type{T}, flag::FLAG)::Function where {T<:AbstractFloat}
     @assert isprime(n) "Input length must be prime for Rader's FFT"
 
     # Find primitive root
@@ -35,7 +37,7 @@ function generate_prime_fft_raders(n::Int, ::Type{T})::Function where {T<:Abstra
     W = [ω^(-inv_seq[i]) for i in 1:(n-1)]
 
     # Get FFT for length n-1
-    F = recursive_F(n-1, T)
+    F = recursive_F(n-1, T, flag)
 
     return function (y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}) where {T<:AbstractFloat}
         @assert length(x) == n && length(y) == n "Input and output vectors must have length n"

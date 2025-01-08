@@ -79,10 +79,10 @@ end
     elseif is_power_of(n, 2) || is_power_of(n, 3) || is_power_of(n, 5) || is_power_of(n, 7)
         call_radix_families(n, T, flag)
     elseif isprime(n)
-        generate_prime_fft_raders(n, T)
+        generate_prime_fft_raders(n, T, flag)
     else
         p, m = find_closest_factors(n)
-        plan = MixedRadixFFT(p, m, T)
+        plan = MixedRadixFFT(p, m, T, flag)
         generate_formulation_fft(plan, T)
     end
 
@@ -115,22 +115,9 @@ function call_radix_families(n::Int, ::Type{T}, flag::FLAG)::Function where {T<:
     show_function = true
 
     ivdep = false
-    println("FLAG: $flag")
     
-    family_func = if flag >= ENCHANT
-        println("ENCHANT")
-        ivdep = true
-        if is_power_of(n,2)
-            Radix_Execute.return_best_family_function(Radix_Plan.create_all_radix_plans(n, [16, 8, 4, 2], T), show_function, ivdep)
-        elseif is_power_of(n, 3)
-            Radix_Execute.return_best_family_function(Radix_Plan.create_all_radix_plans(n, [9, 3], T), show_function, ivdep)
-        elseif is_power_of(n, 5)
-            Radix_Execute.return_best_family_function(Radix_Plan.create_all_radix_plans(n, [5], T), show_function, ivdep)
-        elseif is_power_of(n, 7)
-            Radix_Execute.return_best_family_function(Radix_Plan.create_all_radix_plans(n, [7], T), show_function, ivdep)
-        end
-    elseif flag == MEASURE
-        println("MEASURE")
+    family_func = if flag >= MEASURE
+        ivdep = flag >= ENCHANT ? true : false
         if is_power_of(n,2)
             Radix_Execute.return_best_family_function(Radix_Plan.create_all_radix_plans(n, [16, 8, 4, 2], T), show_function, ivdep)
         elseif is_power_of(n, 3)
@@ -141,7 +128,6 @@ function call_radix_families(n::Int, ::Type{T}, flag::FLAG)::Function where {T<:
             Radix_Execute.return_best_family_function(Radix_Plan.create_all_radix_plans(n, [7], T), show_function, ivdep)
         end
     else # no_flag
-        println("NO FLAG")
         if is_power_of(n,2)
             Radix_Execute.generate_safe_execute_function!(Radix_Plan.create_std_radix_plan(n, [8,4,2], T), show_function, ivdep)
         elseif is_power_of(n, 3)
@@ -152,7 +138,6 @@ function call_radix_families(n::Int, ::Type{T}, flag::FLAG)::Function where {T<:
             Radix_Execute.generate_safe_execute_function!(Radix_Plan.create_std_radix_plan(n, [7], T), show_function, ivdep)
         end
     end
-    println("FAMILY FUNC: $family_func")
 
     return family_func
 end
@@ -206,9 +191,9 @@ function find_closest_factors(n::Int, prime_powers_preference=true)
 end
 
 # Update the recursive_F function to use the new generator
-function recursive_F(n::Int, ::Type{T})::Function where {T<:AbstractFloat}
+function recursive_F(n::Int, ::Type{T}, flag::FLAG)::Function where {T<:AbstractFloat}
     haskey(F_cache, n) && F_cache[n]
 
-    fft_func = generate_and_cache_fft!(n, T)
+    fft_func = generate_and_cache_fft!(n, T, flag)
     return fft_func
 end

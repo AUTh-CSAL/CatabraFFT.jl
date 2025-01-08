@@ -112,6 +112,7 @@ end
     end
 end
 
+
 function fft_chunk!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}) where T <: AbstractFloat
     n = length(y)
     fft8_shell!(y, x, n ÷ 8)
@@ -192,263 +193,341 @@ end
 # Run benchmarks
 #benchmark_fft_variants()
 
-module OptimizedFFT
+#OptimizedFFT.benchmark_fft_strategies()
+module CacheAwareFFT
+
+using StaticArrays
+using Hwloc
+
+# Enhanced cache information structure with more detailed parameters
+struct CacheInfo
+    l1d_size::Vector{Int}
+    l1d_linesize::Int
+    l1d_associativity::Int
+    l2_size::Int
+    l2_linesize::Int
+    l2_associativity::Int
+    l3_size::Int
+    l3_linesize::Int
+    vector_size::Int  # CPU vector register size
+end
+
+"""
+    detect_cache_info() -> CacheInfo
+
+Detect CPU cache parameters using Hwloc with improved error handling and fallbacks.
+Returns a CacheInfo struct containing cache hierarchy details.
+"""
+function detect_cache_info()
+    # Initialize topology
+    topology = Hwloc.topology_load()
+    
+    # Get cache sizes using direct Hwloc functions
+    l1_sizes = Hwloc.l1cache_sizes(topology)
+    l2_sizes = Hwloc.l2cache_sizes(topology)
+    l3_sizes = Hwloc.l3cache_sizes(topology)
+    
+    # Get cache line sizes
+    l1_lines = Hwloc.l1cache_linesizes(topology)
+    l2_lines = Hwloc.l2cache_linesizes(topology)
+    l3_lines = Hwloc.l3cache_linesizes(topology)
+    
+    # Helper function to safely get first value from vector or use fallback
+    function safe_first(vec, fallback)
+        isempty(vec) ? fallback : first(vec)
+    end
+    
+    # Extract values with fallbacks
+    l1d_size = safe_first(l1_sizes, 32768)  # 32KB fallback
+    l1d_linesize = safe_first(l1_lines, 64)  # 64B fallback
+    l1d_assoc = 8  # Common fallback for L1 associativity
+    
+    l2_size = safe_first(l2_sizes, 262144)  # 256KB fallback
+    l2_linesize = safe_first(l2_lines, 64)
+    l2_assoc = 8  # Common fallback for L2 associativity
+    
+    l3_size = safe_first(l3_sizes, 8388608)  # 8MB fallback
+    l3_linesize = safe_first(l3_lines, 64)
+    
+    # Detect vector size based on CPU features
+    # TODO: Add actual CPU feature detection
+    vector_size = 32  # 256 bits = 32 bytes (AVX2)
+    
+    CacheInfo(
+        l1d_size, l1d_linesize, l1d_assoc,
+        l2_size, l2_linesize, l2_assoc,
+        l3_size, l3_linesize, vector_size
+    )
+end
+
+"""
+    calculate_chunk_sizes(cache_info::CacheInfo, T::Type) -> NamedTuple
+
+Calculate optimal chunk sizes for FFT processing based on cache parameters.
+Takes into account:
+- Cache line size and associativity
+- Vector register width
+- Complex number size
+- Power of 2 constraints for FFT
+
+Returns a NamedTuple containing:
+- chunk_size: Optimal size for processing chunks
+- l1_elements: Number of elements that fit in L1 cache
+- line_elements: Elements per cache line
+- vector_elements: Elements per vector register
+"""
+function calculate_chunk_sizes(cache_info::CacheInfo, T::Type)
+    element_size = sizeof(Complex{T})
+    
+    # Calculate various capacity constraints
+    elements_per_line = cache_info.l1d_linesize ÷ element_size
+    vector_elements = cache_info.vector_size ÷ element_size
+    
+    # Calculate L1 cache capacity accounting for associativity
+    # Use 75% of L1 capacity to avoid cache thrashing
+    effective_l1_size = (cache_info.l1d_size * 3) ÷ 4
+    l1_capacity = effective_l1_size ÷ element_size
+    
+    # Ensure chunk size is:
+    # 1. Multiple of vector size for efficient SIMD
+    # 2. Aligned with cache lines
+    # 3. Power of 2 for FFT
+    # 4. Small enough to fit in L1 cache with room for twiddle factors
+    base_chunk = lcm(vector_elements, elements_per_line)
+    max_chunk = min(
+        l1_capacity ÷ 4,  # Leave room for input/output/twiddle factors
+        nextpow(2, base_chunk)
+    )
+    
+    # Find largest power of 2 that satisfies all constraints
+    chunk_size = prevpow(2, max_chunk)
+    
+    return (
+        chunk_size = chunk_size,
+        l1_elements = l1_capacity,
+        line_elements = elements_per_line,
+        vector_elements = vector_elements,
+        l2_elements = (cache_info.l2_size * 3) ÷ (4 * element_size)
+    )
+end
+
+# Add utility functions for optimal memory access patterns
+"""
+    get_optimal_stride(chunk_size::Int, cache_info::CacheInfo) -> Int
+
+Calculate optimal stride for accessing memory to minimize cache conflicts.
+"""
+function get_optimal_stride(chunk_size::Int, cache_info::CacheInfo)
+    # Choose stride to avoid cache line conflicts
+    # Should be coprime with cache associativity
+    base_stride = chunk_size ÷ cache_info.l1d_associativity
+    return nextprime(base_stride)
+end
+
+end # module
+
+
+info = CacheAwareFFT.detect_cache_info()
+CacheAwareFFT.calculate_chunk_sizes(info, Float32)
+
+module CacheAwareFFTKernel
 
 using SIMD
-using LoopVectorization
+using StaticArrays
 using Base.Threads
-using Statistics    
 
-# Enhanced compile-time configuration with validation
-struct FFTConfig{T <: AbstractFloat}
-    vector_width::Int
-    cache_line_size::Int
-    num_cores::Int
-    type::Type{T}
+# Re-export cache detection
+using ..CacheAwareFFT: CacheInfo, detect_cache_info, calculate_chunk_sizes
 
-    function FFTConfig{T}(; 
-        vector_width::Int = sizeof(Complex{T}) ÷ sizeof(T),
-        cache_line_size::Int = 64,
-        num_cores::Int = Threads.nthreads(),
-        type::Type{T} = Float64
-    ) where {T <: AbstractFloat}
-        @assert vector_width > 0 "Vector width must be positive"
-        @assert cache_line_size > 0 "Cache line size must be positive"
-        @assert num_cores > 0 "Number of cores must be positive"
-        new{T}(vector_width, cache_line_size, num_cores, type)
-    end
-end
-
-# Constants
-const INV_SQRT2 = 0.7071067811865475244008443621048490392848359376884740
+const INV_SQRT2 = Float64(1/sqrt(2))
+const Cp_3_8 = Float64(cos(π*3/8))  # cospi(3/8)
+const Sp_3_8 = Float64(sin(π*3/8))  # sinpi(3/8)
 
 """
-    optimized_fft_codelet!(output, input, config, radix=2)
-
-Compute FFT using optimized codelet implementation.
-
-# Arguments
-- `output::AbstractVector{Complex{T}}`: Output buffer
-- `input::AbstractVector{Complex{T}}`: Input data
-- `config::FFTConfig{T}`: Hardware configuration
-- `radix::Int=2`: FFT radix (2, 4, or 8)
-
-# Returns
-- `output::AbstractVector{Complex{T}}`: Transformed data
+Optimized radix-4 FFT kernel leveraging cache parameters and SIMD
 """
-function optimized_fft_codelet!(
-    output::AbstractVector{Complex{T}}, 
-    input::AbstractVector{Complex{T}}, 
-    config::FFTConfig{T}, 
-    radix::Int = 2
+@inline function radix4_kernel_optimized!(
+    y::AbstractVector{Complex{T}}, 
+    x::AbstractVector{Complex{T}},
+    s::Int,
+    cache_params::NamedTuple,
+    stride::Int = 1
 ) where T <: AbstractFloat
-    n = length(input)
-    validate_input_size(n, radix)
+    chunk_size = cache_params.chunk_size
+    vector_elements = cache_params.vector_elements
     
-    # Optimize thread count based on input size and hardware
-    num_threads = optimize_thread_count(n, config)
-    chunk_size = div(n, num_threads)
-    
-    # Pre-compute twiddle factors with cache alignment
-    twiddle_factors = cache_aligned_twiddle_factors(n, T)
-    
-    # Parallel processing with dynamic scheduling
-    @threads for thread_id in 0:num_threads-1
-        process_thread_chunk!(
-            output, input, twiddle_factors,
-            thread_id, chunk_size, n,
-            config, radix
-        )
-    end
-    
-    return output
-end
-
-"""Input validation with detailed error messages"""
-function validate_input_size(n::Int, radix::Int)
-    if !ispow2(n)
-        throw(ArgumentError("Input length ($n) must be a power of 2"))
-    end
-    if n < radix
-        throw(ArgumentError("Input length ($n) must be >= radix ($radix)"))
-    end
-    if !(radix in [2, 4, 8])
-        throw(ArgumentError("Unsupported radix: $radix. Must be 2, 4, or 8"))
-    end
-end
-
-"""Optimize thread count based on problem size and hardware"""
-function optimize_thread_count(n::Int, config::FFTConfig)
-    min_chunk_size = max(32, config.vector_width * 4)  # Ensure sufficient work per thread
-    return min(config.num_cores, div(n, min_chunk_size))
-end
-
-"""Generate cache-aligned twiddle factors"""
-function cache_aligned_twiddle_factors(n::Int, ::Type{T}) where T
-    factors = Vector{Complex{T}}(undef, n)
-    @inbounds @simd for k in 1:n
-        factors[k] = Complex{T}(cispi(-2 * (k-1) / n))
-    end
-    return factors
-end
-
-"""Process a single thread's chunk of data"""
-function process_thread_chunk!(
-    output::AbstractVector{Complex{T}},
-    input::AbstractVector{Complex{T}},
-    twiddle_factors::AbstractVector{Complex{T}},
-    thread_id::Int,
-    chunk_size::Int,
-    total_size::Int,
-    config::FFTConfig{T},
-    radix::Int
-) where T <: AbstractFloat
-    start_idx = thread_id * chunk_size + 1
-    end_idx = thread_id == div(total_size, chunk_size) - 1 ? total_size : (thread_id + 1) * chunk_size
-    
-    chunk_view = view(output, start_idx:end_idx)
-    input_view = view(input, start_idx:end_idx)
-    twiddle_view = view(twiddle_factors, start_idx:end_idx)
-    
-    process_chunk_radix!(chunk_view, input_view, twiddle_view, config, radix)
-end
-
-"""Radix-specific processing with SIMD optimization"""
-@inline function process_chunk_radix!(
-    output::AbstractVector{Complex{T}},
-    input::AbstractVector{Complex{T}},
-    twiddle::AbstractVector{Complex{T}},
-    config::FFTConfig{T},
-    radix::Int
-) where T <: AbstractFloat
-    if radix == 2
-        process_radix2!(output, input, twiddle, config)
-    elseif radix == 4
-        process_radix4!(output, input, twiddle, config)
-    else # radix == 8
-        process_radix8!(output, input, twiddle, config)
-    end
-end
-
-"""Optimized Radix-2 butterfly computation"""
-@inline function process_radix2!(
-    output::AbstractVector{Complex{T}},
-    input::AbstractVector{Complex{T}},
-    twiddle::AbstractVector{Complex{T}},
-    config::FFTConfig{T}
-) where T <: AbstractFloat
-    @inbounds @simd for i in 1:2:length(input)
-        a, b = input[i], input[i+1]
-        t = twiddle[i] * b
-        output[i] = a + t
-        output[i+1] = a - t
-    end
-end
-
-"""Optimized Radix-4 butterfly computation"""
-@inline function process_radix4!(
-    output::AbstractVector{Complex{T}},
-    input::AbstractVector{Complex{T}},
-    twiddle::AbstractVector{Complex{T}},
-    config::FFTConfig{T}
-) where T <: AbstractFloat
-    @inbounds @simd for i in 1:4:length(input)
-        a, b, c, d = input[i:i+3]
-        t1 = a + c
-        t2 = a - c
-        t3 = b + d
-        t4 = im * (b - d)
+    # Process in cache-friendly chunks
+    @inbounds for base in 1:chunk_size:s
+        # Calculate end of current chunk
+        chunk_end = min(base + chunk_size - 1, s)
+        chunk_len = chunk_end - base + 1
         
-        output[i] = t1 + t3
-        output[i+1] = t2 + t4
-        output[i+2] = t1 - t3
-        output[i+3] = t2 - t4
-    end
-end
-
-"""Optimized Radix-8 butterfly computation"""
-@inline function process_radix8!(
-    output::AbstractVector{Complex{T}},
-    input::AbstractVector{Complex{T}},
-    twiddle::AbstractVector{Complex{T}},
-    config::FFTConfig{T}
-) where T <: AbstractFloat
-    invsqrt2 = T(INV_SQRT2)
-    @inbounds @simd for i in 1:8:length(input)
-        a, b, c, d, e, f, g, h = input[i:i+7]
+        # Pre-fetch data into L1 cache using aligned loads
+        chunk_0 = Vector{Complex{T}}(undef, chunk_len)
+        chunk_1 = Vector{Complex{T}}(undef, chunk_len)
+        chunk_2 = Vector{Complex{T}}(undef, chunk_len)
+        chunk_3 = Vector{Complex{T}}(undef, chunk_len)
         
-        # Stage 1: Initial combinations
-        t1 = a + e
-        t2 = a - e
-        t3 = c + g
-        t4 = im * (c - g)
-        t5 = b + f
-        t6 = b - f
-        t7 = d + h
-        t8 = im * (d - h)
+        # Vectorized load with stride handling
+        @inbounds @simd for i in 1:chunk_len
+            idx = base + i - 1
+            chunk_0[i] = x[idx]
+            chunk_1[i] = x[idx + s]
+            chunk_2[i] = x[idx + 2s]
+            chunk_3[i] = x[idx + 3s]
+        end
         
-        # Stage 2: Final combinations with twiddle factors
-        output[i] = t1 + t3
-        output[i+1] = t2 + invsqrt2 * (t6 + t8)
-        output[i+2] = t5 + t7
-        output[i+3] = t4 + invsqrt2 * (t2 - t8)
-        output[i+4] = t1 - t3
-        output[i+5] = t2 - invsqrt2 * (t6 + t8)
-        output[i+6] = t5 - t7
-        output[i+7] = t4 - invsqrt2 * (t2 - t8)
-    end
-end
-
-"""
-Comprehensive benchmarking function with detailed performance metrics
-"""
-function benchmark_fft_strategies(;
-    input_sizes::Vector{Int} = [2^10, 2^14, 2^18, 2^22],
-    radix_options::Vector{Int} = [2, 4, 8],
-    num_trials::Int = 5
-)
-    config = FFTConfig{Float64}()
-    
-    println("Hardware Configuration:")
-    println("  Vector Width: ", config.vector_width)
-    println("  Cache Line Size: ", config.cache_line_size, " bytes")
-    println("  Available Threads: ", config.num_cores)
-    
-    for size in input_sizes
-        x = [Complex{Float64}(rand(), rand()) for _ in 1:size]
-        y = similar(x)
-        
-        println("\nInput size: $size")
-        
-        for r in radix_options
-            println("\nRadix-$r FFT:")
+        # Process chunk with SIMD
+        @inbounds @simd for i in 1:chunk_len
+            # Radix-4 butterfly operations
+            t1 = chunk_0[i] + chunk_2[i]
+            t2 = chunk_0[i] - chunk_2[i]
+            t3 = chunk_1[i] + chunk_3[i]
+            t4 = -im * (chunk_1[i] - chunk_3[i])
             
-            # Warmup
-            optimized_fft_codelet!(y, x, config, r)
-            
-            # Benchmark trials
-            times = Float64[]
-            for _ in 1:num_trials
-                time = @elapsed optimized_fft_codelet!(y, x, config, r)
-                push!(times, time)
-            end
-            
-            # Report statistics
-            avg_time = mean(times)
-            std_dev = std(times)
-            gflops = (5 * size * log2(size)) / (1e9 * avg_time)
-            
-            println("  Average time: $(round(avg_time, digits=6)) seconds")
-            println("  Std Dev: $(round(std_dev, digits=6)) seconds")
-            println("  Performance: $(round(gflops, digits=2)) GFLOPS")
+            idx = base + i - 1
+            y[idx] = t1 + t3
+            y[idx + s] = t2 + t4
+            y[idx + 2s] = t1 - t3
+            y[idx + 3s] = t2 - t4
         end
     end
 end
 
-# Export public interface
-export FFTConfig, optimized_fft_codelet!, benchmark_fft_strategies
+"""
+Optimized radix-8 FFT kernel with cache and SIMD optimizations
+"""
+@inline function radix8_kernel_optimized!(
+    y::AbstractVector{Complex{T}}, 
+    x::AbstractVector{Complex{T}},
+    s::Int,
+    cache_params::NamedTuple,
+    stride::Int = 1
+) where T <: AbstractFloat
+    chunk_size = cache_params.chunk_size
+    vector_elements = cache_params.vector_elements
+    
+    # Process in cache-friendly chunks
+    @inbounds for base in 1:chunk_size:s
+        chunk_end = min(base + chunk_size - 1, s)
+        chunk_len = chunk_end - base + 1
+        
+        # Pre-fetch data into L1 cache
+        chunks = [Vector{Complex{T}}(undef, chunk_len) for _ in 1:8]
+        
+        # Vectorized load with stride handling
+        @inbounds @simd for i in 1:chunk_len
+            idx = base + i - 1
+            for j in 0:7
+                chunks[j+1][i] = x[idx + j*s]
+            end
+        end
+        
+        # Process chunk with SIMD
+        @inbounds @simd for i in 1:chunk_len
+            # Stage 1: Initial combinations
+            t1 = chunks[1][i] + chunks[5][i]
+            t2 = chunks[1][i] - chunks[5][i]
+            t3 = chunks[3][i] + chunks[7][i]
+            t4 = -im * (chunks[3][i] - chunks[7][i])
+            
+            t5 = chunks[2][i] + chunks[6][i]
+            t6 = chunks[2][i] - chunks[6][i]
+            t7 = chunks[4][i] + chunks[8][i]
+            t8 = -im * (chunks[4][i] - chunks[8][i])
+            
+            # Stage 2: Final combinations
+            idx = base + i - 1
+            y[idx] = t1 + t3
+            y[idx + s] = t2 + INV_SQRT2 * (1-im) * (t6 + t8)
+            y[idx + 2s] = t5 + t7
+            y[idx + 3s] = -im * (t2 - INV_SQRT2 * (1+im) * (t6 - t8))
+            y[idx + 4s] = t1 - t3
+            y[idx + 5s] = t2 - INV_SQRT2 * (1-im) * (t6 + t8)
+            y[idx + 6s] = t5 - t7
+            y[idx + 7s] = im * (t2 - INV_SQRT2 * (1+im) * (t6 - t8))
+        end
+    end
+end
 
-end # module OptimizedFFT
+"""
+General FFT processing function that selects optimal parameters
+"""
+function process_fft!(
+    y::AbstractVector{Complex{T}}, 
+    x::AbstractVector{Complex{T}},
+    radix::Int;
+    cache_info::Union{CacheInfo, Nothing} = nothing
+) where T <: AbstractFloat
+    # Auto-detect cache parameters if not provided
+    if isnothing(cache_info)
+        cache_info = detect_cache_info()
+    end
+    
+    # Calculate optimal chunk sizes
+    chunk_params = calculate_chunk_sizes(cache_info, T)
+    
+    # Calculate optimal stride to avoid cache conflicts
+    stride = get_optimal_stride(chunk_params.chunk_size, cache_info)
+    
+    n = length(x)
+    s = n ÷ radix
+    
+    # Select appropriate kernel based on radix
+    if radix == 4
+        radix4_kernel_optimized!(y, x, s, chunk_params, stride)
+    elseif radix == 8
+        radix8_kernel_optimized!(y, x, s, chunk_params, stride)
+    else
+        throw(ArgumentError("Unsupported radix: $radix. Use 4 or 8."))
+    end
+    
+    return y
+end
+
+"""
+Calculate optimal stride to minimize cache conflicts
+"""
+function get_optimal_stride(chunk_size::Int, cache_info::CacheInfo)
+    line_size = cache_info.l1d_linesize
+    associativity = cache_info.l1d_associativity
+    
+    # Choose stride that's coprime with cache associativity
+    base_stride = max(chunk_size ÷ associativity, line_size)
+    return nextprime(base_stride)
+end
+
+# Benchmark utilities
+using BenchmarkTools
+
+function benchmark_radix_performance(
+    sizes::Vector{Int} = [2^10, 2^12, 2^14, 2^16],
+    radixes::Vector{Int} = [4, 8]
+)
+    cache_info = detect_cache_info()
+    println("Cache Parameters:")
+    println("L1D: $(cache_info.l1d_size) bytes, line size: $(cache_info.l1d_linesize)")
+    println("L2: $(cache_info.l2_size) bytes")
+    println("Vector size: $(cache_info.vector_size) bytes\n")
+    
+    for n in sizes
+        println("Size: $n")
+        x = [Complex{Float64}(rand(), rand()) for _ in 1:n]
+        y = similar(x)
+        
+        for radix in radixes
+            println("Radix-$radix:")
+            b = @benchmark process_fft!($y, $x, $radix, cache_info=$cache_info)
+            println("  Min time: $(minimum(b.times)) ns")
+            println("  Mean time: $(mean(b.times)) ns")
+            println("  Memory: $(b.memory) bytes")
+        end
+        println()
+    end
+end
+
+export process_fft!, benchmark_radix_performance
+
+end # module
 
 
-#OptimizedFFT.benchmark_fft_strategies()
