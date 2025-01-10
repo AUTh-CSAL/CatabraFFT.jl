@@ -1,51 +1,44 @@
 module RadixFFTCompositor
 
-using LoopVectorization, SIMD
+using LoopVectorization
 
-# Expanded constant definitions with type parameterization
-struct FFTConstants{T}
-    INV_SQRT2::T    # 1/√2
-    INV_SQRT4::T    # 1/√4
-    CP_1_8::T       # cos(π/8)
-    SP_1_8::T       # sin(π/8)
-    CP_3_8::T       # cos(3π/8)
-    SP_3_8::T       # sin(3π/8)
-    CP_1_16::T      # cos(π/16)
-    SP_1_16::T      # sin(π/16)
-    CP_3_16::T      # cos(3π/16)
-    SP_3_16::T      # sin(3π/16)
-    CP_5_16::T      # cos(5π/16)
-    SP_5_16::T      # sin(5π/16)
-    CP_7_16::T      # cos(7π/16)
-    SP_7_16::T      # sin(7π/16)
-end
-
-# Constructor for constants with automatic type conversion
-function FFTConstants(::Type{T}) where T <: AbstractFloat
-    INV_SQRT2 = T(1/sqrt(2))
-    INV_SQRT4 = T(1/sqrt(4))
-    CP_1_8 = T(cos(π/8))
-    SP_1_8 = T(sin(π/8))
-    CP_3_8 = T(cos(3π/8))
-    SP_3_8 = T(sin(3π/8))
-    CP_1_16 = T(cos(π/16))
-    SP_1_16 = T(sin(π/16))
-    CP_3_16 = T(cos(3π/16))
-    SP_3_16 = T(sin(3π/16))
-    CP_5_16 = T(cos(5π/16))
-    SP_5_16 = T(sin(5π/16))
-    CP_7_16 = T(cos(7π/16))
-    SP_7_16 = T(sin(7π/16))
+function generate_module_constants(n::Int, ::Type{T}) where T <: AbstractFloat
+    @assert ispow2(n) "n must be a power of 2"
+    str = "# Optimized twiddle factors for radix-2^s FFT size $n\n\n"
+    current_n = n
+    # Only store the minimal set of unique twiddle factors needed
+    while current_n >= 16
+        n2 = current_n >> 1
+        n4 = current_n >> 2
+        s = current_n >> 3
+        # Store only unique twiddle factors for this stage
+        # We exploit symmetry and periodicity to minimize storage
+        str *= "# Stage $current_n constants\n"
+        for i in 1:2:s
+            # Calculate angle once and reuse
+            angle = 2 * (n4-i) / current_n
+            angle_cos = T(cospi(angle))
+            angle_sin = T(sinpi(angle))
+            
+            # Only store non-trivial values (not 0, 1, -1)
+            #if !isapprox(abs(angle_cos), 1.0) && !isapprox(abs(angle_cos), 0.0)
+                str *= "const CP_$(n4-i)_$(n2) = $angle_cos\n"
+            #end
+            #if !isapprox(abs(angle_sin), 1.0) && !isapprox(abs(angle_sin), 0.0)
+                str *= "const SP_$(n4-i)_$(n2) = $angle_sin\n"
+            #end
+        end
+        str *= "\n"
+        current_n >>= 1
+    end
     
-    FFTConstants{T}(
-        INV_SQRT2, INV_SQRT4,
-        CP_1_8, SP_1_8,
-        CP_3_8, SP_3_8,
-        CP_1_16, SP_1_16,
-        CP_3_16, SP_3_16,
-        CP_5_16, SP_5_16,
-        CP_7_16, SP_7_16
-    )
+    # Add only essential special constants
+    if n >= 8
+        str *= "const INV_SQRT2 = $(T(1/sqrt(2)))\n"
+    end
+    
+    @show str
+    return str
 end
 
 """
@@ -76,13 +69,14 @@ function get_constant_expression(w::Complex{T}, n::Integer)::String where T <: A
     imag_part = imag(w)
     
     # Helper for approximate equality
-    isclose(a, b) = abs(a - b) < eps(T) * 100
+    isclose(a, b) = abs(a - b) < eps(T) * 10
     
     # Function to get sign string
     sign_str(x) = x ≥ 0 ? "+" : "-"
     
-    # Special cases table with common twiddle factors
-    special_cases = [
+    # Common cases table with twiddle factors patterns commonly met
+
+    common_cases = [
         (1.0, 0.0) => "1",
         (-1.0, 0.0) => "-1",
         (0.0, 1.0) => "im",
@@ -90,32 +84,34 @@ function get_constant_expression(w::Complex{T}, n::Integer)::String where T <: A
         (1/√2, 1/√2) => "INV_SQRT2*(1+im)",
         (1/√2, -1/√2) => "INV_SQRT2*(1-im)",
         (-1/√2, 1/√2) => "INV_SQRT2*(-1+im)",
-        (-1/√2, -1/√2) => "INV_SQRT2*(-1-im)",
+        (-1/√2, -1/√2) => "-INV_SQRT2*(1+im)"
     ]
     
     # Check special cases first
-    for ((re, im), expr) in special_cases
+    for ((re, im), expr) in common_cases
         if isclose(real_part, re) && isclose(imag_part, im)
             return expr
         end
     end
     
+    current_n = n
     # Handle cases based on radix size
-    if n == 8
-        if isclose(abs(real_part), cos(π/4)) && isclose(abs(imag_part), sin(π/4))
-            return "CP_1_8$(sign_str(real_part))SP_1_8*im"
-        elseif isclose(abs(real_part), cos(3π/4)) && isclose(abs(imag_part), sin(3π/4))
-            return "CP_3_8$(sign_str(real_part))SP_3_8*im"
-        end
-    elseif n == 16
-        angles = [(1,16), (3,16), (5,16), (7,16)]
+    while current_n >= 16
+        n2 = current_n >> 1
+        n4 = current_n >> 2
+        s = current_n >> 3
+        angles = [(n4-i,n2) for i in 1:2:s]
+        @show angles
         for (num, den) in angles
-            cp = cos(π*num/den)
-            sp = sin(π*num/den)
+            cp = cospi(num/den)
+            sp = sinpi(num/den)
             if isclose(abs(real_part), cp) && isclose(abs(imag_part), sp)
-                return "CP_$(num)_$(den)$(sign_str(real_part))SP_$(num)_$(den)*im"
+                return "$(sign_str(real_part))CP_$(num)_$(den) $(sign_str(imag_part))SP_$(num)_$(den)*im"
+            elseif isclose(abs(real_part), sp) && isclose(abs(imag_part), cp)
+                return "$(sign_str(real_part))SP_$(num)_$(den) $(sign_str(imag_part))CP_$(num)_$(den)*im"
             end
         end
+        current_n >>= 1
     end
     
     # Fallback to numerical representation with high precision
@@ -165,9 +161,7 @@ function recfft2(y, x, w=nothing)
     # println("*** n = $n")
     t = map(i -> "t$(inc())", 1:n)
     n2 = n ÷ 2
-    #wn = get_twiddle_expression(collect(0:n2-1), n)
-    wn = cispi.(-2/n * collect(0:n2-1))
-    @show wn
+    wn = get_twiddle_expression(collect(0:n2-1), n)
 
     s1 = recfft2(t[1:n2], x[1:2:n])
     s2 = recfft2(t[n2+1:n], x[2:2:n], wn)
@@ -208,16 +202,16 @@ function generate_kernel_name(radix::Int, suffixes::Vector{String})
 end
 
 # Function to generate function signature
-function generate_signature(suffixes::Vector{String})
+function generate_signature(suffixes::Vector{String}, ::Type{T}) where T <: AbstractFloat
     y_only = "y" in suffixes
     layered = "layered" in suffixes
     
     if y_only
-        return "(y::AbstractVector{Complex{T}}, s::Int) where T <: AbstractFloat"
+        return "(y::AbstractVector{Complex{$T}}, s::Int)"
     elseif layered
-        return "(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}, s::Int, n1::Int, theta::Float64=0.125) where T <: AbstractFloat"
+        return "(y::AbstractVector{Complex{$T}}, x::AbstractVector{Complex{$T}}, s::Int, n1::Int, theta::$T=0.125)"
     else
-        return "(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}, s::Int) where T <: AbstractFloat"
+        return "(y::AbstractVector{Complex{$T}}, x::AbstractVector{Complex{$T}}, s::Int)"
     end
 end
 
@@ -235,7 +229,7 @@ end
 # Main function to generate kernel code
 function generate_kernel(radix::Int, suffixes::Vector{String}, ::Type{T}) where T <: AbstractFloat
     name = generate_kernel_name(radix, suffixes)
-    signature = generate_signature(suffixes)
+    signature = generate_signature(suffixes, T)
     decorators = generate_loop_decorators(suffixes)
     
     kernel_pattern = makefftradix(radix, T)
@@ -295,15 +289,25 @@ function generate_layered_kernel(name, signature, decorators, kernel_code, radix
 end
 
 # Function to generate all possible kernel combinations
-function generate_all_kernels(radices=[2, 4, 8]) 
+function generate_all_kernels(N::Int, ::Type{T}) where T <: AbstractFloat
+    if N < 2 || (N & (N - 1)) != 0  # Check if N is less than 2 or not a power of 2
+        error("N must be a power of 2 and greater than or equal to 2")
+    end
+        
+    radices = []
+    current = 2
+    while current <= N
+        push!(radices, current)
+        current *= 2
+    end
 
     suffix_combinations = [
         String[],
-        ["ivdep"],
+        #["ivdep"],
         ["y"],
-        ["y", "ivdep"],
+        #["y", "ivdep"],
         ["layered"],
-        ["layered", "ivdep"]
+        #["layered", "ivdep"]
     ]
     
     kernels = Dict{String, String}()
@@ -311,7 +315,7 @@ function generate_all_kernels(radices=[2, 4, 8])
     for radix in radices
         for suffixes in suffix_combinations
             name = generate_kernel_name(radix, suffixes)
-            code = generate_kernel(radix, suffixes, Float64)
+            code = generate_kernel(radix, suffixes, T)
             kernels[name] = code
         end
     end
@@ -322,16 +326,16 @@ function generate_all_kernels(radices=[2, 4, 8])
 end
 
 # Function to evaluate and create the functions in a module
-function create_kernel_module()
-    kernels = generate_all_kernels()
+function create_kernel_module(N::Int, ::Type{T}) where T <: AbstractFloat
+    module_constants = generate_module_constants(N, T)
+    @show module_constants
+    kernels = generate_all_kernels(N, T)
     
     family_module_code = """
-    module radix_2_family:w
+    module radix_2_family
         using LoopVectorization
         
-        const INV_SQRT2_DEFAULT = 0.7071067811865475
-        const Cp_3_8_DEFAULT = 0.3826834323650898 # cospi(3/8)
-        const Sp_3_8_DEFAULT = 0.9238795325112867 # sinpi(3/8)
+        $module_constants
         
         $(join(values(kernels), "\n\n"))
     end
@@ -342,4 +346,4 @@ end
 
 
 end
-RadixFFTCompositor.create_kernel_module()
+RadixFFTCompositor.create_kernel_module(128, Float32)
