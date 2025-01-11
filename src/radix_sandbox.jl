@@ -587,6 +587,17 @@ function get_optimal_stride(chunk_size::Int, cache_info::CacheInfo)
     return nextprime(base_stride)
 end
 
+function process_normal_fft!(
+    y::AbstractVector{Complex{T}},
+    x::AbstractVector{Complex{T}},
+    radix::Int
+) where T <: AbstractFloat
+    n = length(x)
+    s = n ÷ radix
+
+    
+end
+
 """
 General FFT processing function that selects optimal parameters
 """
@@ -667,18 +678,19 @@ function benchmark_fft_implementations(sizes::Vector{Int} = [2^10, 2^12, 2^14, 2
             println("  Mean time: $(mean_time) s")
             println("  Memory: $(b.memory) bytes")
 
-            println("#========================#")
-
             println("\nCache Radix-$radix:")
             GC.gc()  # Clean up before benchmarking
             b = @benchmark process_cache_fft!($y, $x, $radix, cache_info=$cache_info)
+            @assert process_fft!(y, x, radix) ≈ process_cache_fft!(y, x, radix, cache_info=cache_info)
             mean_time = mean(b.times) / 1e9  # Convert nanoseconds to seconds
             println("  Mean time: $(mean_time) s")
             println("  Memory: $(b.memory) bytes")
+            println("#========================#")
         end
 
         F = FFTW.plan_fft(x; flags=FFTW.PATIENT)
         f = @benchmark $F * $x
+        #@assert F * x ≈ y
         fftw_mean_time = mean(f.times) / 1e9  # Convert nanoseconds to seconds
         println("FFTW time: $(fftw_mean_time) s")
     end

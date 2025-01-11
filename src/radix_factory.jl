@@ -17,16 +17,10 @@ function generate_module_constants(n::Int, ::Type{T}) where T <: AbstractFloat
         for i in 1:2:s
             # Calculate angle once and reuse
             angle = 2 * (n4-i) / current_n
-            angle_cos = T(cospi(angle))
-            angle_sin = T(sinpi(angle))
-            
-            # Only store non-trivial values (not 0, 1, -1)
-            #if !isapprox(abs(angle_cos), 1.0) && !isapprox(abs(angle_cos), 0.0)
-                str *= "const CP_$(n4-i)_$(n2) = $angle_cos\n"
-            #end
-            #if !isapprox(abs(angle_sin), 1.0) && !isapprox(abs(angle_sin), 0.0)
-                str *= "const SP_$(n4-i)_$(n2) = $angle_sin\n"
-            #end
+            angle_cis_1 = Complex{T}(cispi(angle))
+            angle_cis_2 = Complex{T}(cispi(-angle))
+            str *= "const CISPI_$(n4-i)_$(n2)_Q1::Complex{$T} = $angle_cis_1\n"
+            str *= "const CISPI_$(n4-i)_$(n2)_Q4::Complex{$T} = $angle_cis_2\n"
         end
         str *= "\n"
         current_n >>= 1
@@ -34,31 +28,12 @@ function generate_module_constants(n::Int, ::Type{T}) where T <: AbstractFloat
     
     # Add only essential special constants
     if n >= 8
-        str *= "const INV_SQRT2 = $(T(1/sqrt(2)))\n"
+        str *= "const INV_SQRT2_Q1 = $(Complex{T}(1/sqrt(2) + im * 1/sqrt(2)))\n"
+        str *= "const INV_SQRT2_Q4 = $(Complex{T}(1/sqrt(2) - im * 1/sqrt(2)))\n"
+        #str *= "const INV_SQRT2_Q4 = $(T(1/sqrt(2)*(1 - im)))\n"
     end
     
-    @show str
     return str
-end
-
-"""
-Generate constant expressions for a given radix-2^s size
-"""
-function generate_radix_constants(s::Integer)::Vector{Pair{Complex{Float64}, String}}
-    n = 2^s
-    constants = Pair{Complex{Float64}, String}[]
-    
-    for k in 0:(n-1)
-        angle = -2π * k / n
-        w = cispi(-2 * k / n)
-        
-        # Generate constant name based on angle
-        constant_expr = get_constant_expression(w, n)
-        push!(constants, w => constant_expr)
-    end
-    
-    sort!(constants, by=x->abs(angle(x.first)))  # Sort by angle for consistent ordering
-    return constants
 end
 
 """
@@ -69,7 +44,7 @@ function get_constant_expression(w::Complex{T}, n::Integer)::String where T <: A
     imag_part = imag(w)
     
     # Helper for approximate equality
-    isclose(a, b) = abs(a - b) < eps(T) * 10
+    isclose(a, b) = (abs(real(a) - real(b)) < eps(T) * 10) && (abs(imag(a) - imag(b)) < eps(T) * 10)
     
     # Function to get sign string
     sign_str(x) = x ≥ 0 ? "+" : "-"
@@ -81,10 +56,10 @@ function get_constant_expression(w::Complex{T}, n::Integer)::String where T <: A
         (-1.0, 0.0) => "-1",
         (0.0, 1.0) => "im",
         (0.0, -1.0) => "-im",
-        (1/√2, 1/√2) => "INV_SQRT2*(1+im)",
-        (1/√2, -1/√2) => "INV_SQRT2*(1-im)",
-        (-1/√2, 1/√2) => "INV_SQRT2*(-1+im)",
-        (-1/√2, -1/√2) => "-INV_SQRT2*(1+im)"
+        (1/√2, 1/√2) => "INV_SQRT2_Q1",
+        (1/√2, -1/√2) => "INV_SQRT2_Q4",
+        (-1/√2, 1/√2) => "-INV_SQRT2_Q4",
+        (-1/√2, -1/√2) => "-INV_SQRT2_Q1"
     ]
     
     # Check special cases first
@@ -101,14 +76,22 @@ function get_constant_expression(w::Complex{T}, n::Integer)::String where T <: A
         n4 = current_n >> 2
         s = current_n >> 3
         angles = [(n4-i,n2) for i in 1:2:s]
-        @show angles
         for (num, den) in angles
-            cp = cospi(num/den)
-            sp = sinpi(num/den)
-            if isclose(abs(real_part), cp) && isclose(abs(imag_part), sp)
-                return "$(sign_str(real_part))CP_$(num)_$(den) $(sign_str(imag_part))SP_$(num)_$(den)*im"
-            elseif isclose(abs(real_part), sp) && isclose(abs(imag_part), cp)
-                return "$(sign_str(real_part))SP_$(num)_$(den) $(sign_str(imag_part))CP_$(num)_$(den)*im"
+            #cp = cospi(num/den)
+            #sp = sinpi(num/den)
+            cispi1, cispi2  = cispi(num/den), cispi(-num/den)
+            if isclose(w, cispi1)
+                return "CISPI_$(num)_$(den)_Q1"
+            elseif isclose(w, -cispi1)
+                return "-CISPI_$(num)_$(den)_Q1"
+            elseif isclose(w, cispi2)
+                return "CISPI_$(num)_$(den)_Q4"
+            elseif isclose(w, -cispi2)
+                return "-CISPI_$(num)_$(den)_Q4"
+            elseif isclose(w, -im*cispi1)
+                return "-im*CISPI_$(num)_$(den)_Q1"
+            elseif isclose(w, -im*cispi2)
+                return "-im*CISPI_$(num)_$(den)_Q4"
             end
         end
         current_n >>= 1
@@ -140,6 +123,7 @@ end
 
 inc = inccounter()
 
+
 function recfft2(y, x, w=nothing)
   n = length(x)
   # println("n = $n, x = $x, y = $y")
@@ -158,8 +142,7 @@ function recfft2(y, x, w=nothing)
 
     return s
   else
-    # println("*** n = $n")
-    t = map(i -> "t$(inc())", 1:n)
+    t = vmap(i -> "t$(inc())", 1:n)
     n2 = n ÷ 2
     wn = get_twiddle_expression(collect(0:n2-1), n)
 
@@ -167,19 +150,19 @@ function recfft2(y, x, w=nothing)
     s2 = recfft2(t[n2+1:n], x[2:2:n], wn)
 
     if isnothing(w)
-      s3p = foldl(*, map(i -> ",$(y[i])", 2:n2); init="$(y[1])") *
+      s3p = foldl(*, vmap(i -> ",$(y[i])", 2:n2); init="$(y[1])") *
             " = " *
-            foldl(*, map(i -> ",$(t[i]) + $(t[i+n2])", 2:n2), init="$(t[1]) + $(t[1+n2])") * "\n"
-      s3m = foldl(*, map(i -> ",$(y[i+n2])", 2:n2); init="$(y[n2+1])") *
+            foldl(*, vmap(i -> ",$(t[i]) + $(t[i+n2])", 2:n2), init="$(t[1]) + $(t[1+n2])") * "\n"
+      s3m = foldl(*, vmap(i -> ",$(y[i+n2])", 2:n2); init="$(y[n2+1])") *
             " = " *
-            foldl(*, map(i -> ",$(t[i]) - $(t[i+n2])", 2:n2), init="$(t[1]) - $(t[1+n2])") * "\n"
+            foldl(*, vmap(i -> ",$(t[i]) - $(t[i+n2])", 2:n2), init="$(t[1]) - $(t[1+n2])") * "\n"
     else
-      s3p = foldl(*, map(i -> ", $(y[i])", 2:n2); init="$(y[1])") *
+      s3p = foldl(*, vmap(i -> ", $(y[i])", 2:n2); init="$(y[1])") *
             " = " *
-            foldl(*, map(i -> ", ($(w[i]))*($(t[i]) + $(t[i+n2]))", 2:n2), init="($(w[1]))*($(t[1]) + $(t[1+n2]))") * "\n"
-      s3m = foldl(*, map(i -> ", $(y[i+n2])", 2:n2); init="$(y[n2+1])") *
+            foldl(*, vmap(i -> ", ($(w[i]))*($(t[i]) + $(t[i+n2]))", 2:n2), init="($(w[1]))*($(t[1]) + $(t[1+n2]))") * "\n"
+      s3m = foldl(*, vmap(i -> ", $(y[i+n2])", 2:n2); init="$(y[n2+1])") *
             " = " *
-            foldl(*, map(i -> ", ($(w[n2+i]))*($(t[i]) - $(t[i+n2]))", 2:n2), init="($(w[n2+1]))*($(t[1]) - $(t[1+n2]))") * "\n"
+            foldl(*, vmap(i -> ", ($(w[n2+i]))*($(t[i]) - $(t[i+n2]))", 2:n2), init="($(w[n2+1]))*($(t[1]) - $(t[1+n2]))") * "\n"
     end
 
     return s1 * s2 * s3p * s3m
@@ -187,9 +170,8 @@ function recfft2(y, x, w=nothing)
 end
 
 function makefftradix(n, ::Type{T}) where T <: AbstractFloat
-
-  x = map(i -> "#INPUT#[$i]", 1:n)
-  y = map(i -> "#OUTPUT#[$i]", 1:n)
+  x = vmap(i -> "#INPUT#[$i]", 1:n)
+  y = vmap(i -> "#OUTPUT#[$i]", 1:n)
   s = recfft2(y, x)
   return s
 end
@@ -211,7 +193,8 @@ function generate_signature(suffixes::Vector{String}, ::Type{T}) where T <: Abst
     elseif layered
         return "(y::AbstractVector{Complex{$T}}, x::AbstractVector{Complex{$T}}, s::Int, n1::Int, theta::$T=0.125)"
     else
-        return "(y::AbstractVector{Complex{$T}}, x::AbstractVector{Complex{$T}}, s::Int)"
+        #return "(y::AbstractVector{Complex{$T}}, x::AbstractVector{Complex{$T}}, s::Int)"
+        return "(y::AbstractVector{Complex{$T}}, x::AbstractVector{Complex{$T}})"
     end
 end
 
@@ -248,10 +231,7 @@ function generate_kernel(radix::Int, suffixes::Vector{String}, ::Type{T}) where 
     else
         return """
         @inline function $name$signature
-            INV_SQRT2 = T(INV_SQRT2_DEFAULT)
-            $decorators for q in 1:s
-                $kernel_code
-            end
+            @inbounds $kernel_code
         end
         """
     end
@@ -264,8 +244,8 @@ function generate_layered_kernel(name, signature, decorators, kernel_code, radix
     
     # Generate twiddle factor computation dynamically for any radix
     twiddle_code = String[]
-    for i in 1:radix-1
-        twiddle_expression = i == 1 ? "w1p" : "w$(div(i, 2))p * w$(div(i + 1, 2))p"
+    for i in 2:radix-1
+        twiddle_expression = "w$(div(i, 2))p * w$(div(i + 1, 2))p"
         push!(twiddle_code, "w$(i)p = $twiddle_expression")
     end
     twiddle_code_str = join(twiddle_code, "\n")
@@ -277,7 +257,6 @@ function generate_layered_kernel(name, signature, decorators, kernel_code, radix
 
         # Section with twiddle factors
         $decorators for p in 1:(n1-1)
-            w1p = cispi(T(-p * theta))
             $twiddle_code_str
             
             $decorators for q in 1:s
@@ -304,23 +283,25 @@ function generate_all_kernels(N::Int, ::Type{T}) where T <: AbstractFloat
     suffix_combinations = [
         String[],
         #["ivdep"],
-        ["y"],
+        #["y"],
         #["y", "ivdep"],
-        ["layered"],
+        #["layered"],
         #["layered", "ivdep"]
     ]
     
-    kernels = Dict{String, String}()
+    #kernels = Dict{String, String}()
+    kernels = Vector{String}()
     
     for radix in radices
         for suffixes in suffix_combinations
-            name = generate_kernel_name(radix, suffixes)
+            #name = generate_kernel_name(radix, suffixes)
             code = generate_kernel(radix, suffixes, T)
-            kernels[name] = code
+            #kernels[name] = code
+            push!(kernels, code)
         end
     end
     
-    @show kernels
+    #@show kernels
     
     return kernels
 end
@@ -328,7 +309,6 @@ end
 # Function to evaluate and create the functions in a module
 function create_kernel_module(N::Int, ::Type{T}) where T <: AbstractFloat
     module_constants = generate_module_constants(N, T)
-    @show module_constants
     kernels = generate_all_kernels(N, T)
     
     family_module_code = """
@@ -337,13 +317,13 @@ function create_kernel_module(N::Int, ::Type{T}) where T <: AbstractFloat
         
         $module_constants
         
-        $(join(values(kernels), "\n\n"))
+        $(join(kernels, "\n\n"))
     end
     """
     
     return family_module_code
 end
 
-
 end
-RadixFFTCompositor.create_kernel_module(128, Float32)
+
+RadixFFTCompositor.create_kernel_module(256, Float64)
