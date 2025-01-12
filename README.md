@@ -60,3 +60,9 @@ press `]` to enter the package manager and backspace to exit it, and run the fol
 ] develop .
 include("benchmarks/benchmark.jl")
 ```
+
+## References
+
+* [FFTW](https://www.fftw.org)
+* Nikos P. Pitsianis. 1997. [The Kronecker product in approximation and fast transform generation](https://users.cs.duke.edu/~nikos/reprints/T-001-KronProdApprox.pdf). Ph.D. Dissertation. Cornell University, USA. https://dl.acm.org/doi/10.5555/266698
+* [Spiral](https://www.spiral.net)
