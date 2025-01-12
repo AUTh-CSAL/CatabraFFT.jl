@@ -53,7 +53,7 @@ git clone https://github.com/AUTh-CSAL/CatabraFFT.jl.git
 cd CatabraFFT.jl
 julia --threads=1
 ``` 
-press `]` to enter the package manager and backspace to exit it, and run the following commands in the Julia REPL:
+press `]` to enter the package manager (and backspace to exit it when done), and run the following commands in the Julia REPL:
 
 ```julia
 ] activate benchmarks
