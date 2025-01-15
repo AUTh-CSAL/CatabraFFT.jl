@@ -30,7 +30,9 @@ function generate_module_constants(n::Int, ::Type{T}) where T <: AbstractFloat
     if n >= 8
         str *= "const INV_SQRT2_Q1 = $(Complex{T}(1/sqrt(2) + im * 1/sqrt(2)))\n"
         str *= "const INV_SQRT2_Q4 = $(Complex{T}(1/sqrt(2) - im * 1/sqrt(2)))\n"
-        #str *= "const INV_SQRT2_Q4 = $(T(1/sqrt(2)*(1 - im)))\n"
+
+        # Add the extract_view lamda in module definition for layered kernels
+        str *= "extract_view = (x::Vector{Complex{$T}}, q::Int, p::Int, s::Int, n1::Int, N::Int) -> [@inbounds x[q + s*(p + i*n1)] for i in 0:N-1]"
     end
     
     return str
@@ -97,7 +99,7 @@ function get_constant_expression(w::Complex{T}, n::Integer)::String where T <: A
         current_n >>= 1
     end
     
-    # Fallback to numerical representation with high precision
+    # Fallback to numerical representation with high precision if everything else fails
     return "($(round(real_part, digits=16))$(sign_str(imag_part))$(abs(round(imag_part, digits=16)))*im)"
 end
 
@@ -177,10 +179,11 @@ function makefftradix(n, ::Type{T}) where T <: AbstractFloat
 end
 
 # Function to generate kernel name
-function generate_kernel_name(radix::Int, suffixes::Vector{String})
+function generate_kernel_names(radix::Int, suffixes::Vector{String})
     base = "fft$(radix)_shell"
     suffix = join(suffixes, "_")
-    return string(base, !isempty(suffix) ? "_$suffix" : "", "!")
+    #return string(base, isempty(suffix) ? "" : ("_$suffix", ""), "!")
+    return (string(base, isempty(suffix) ? "" : "_$suffix", "!"), string(base, "!"))
 end
 
 # Function to generate function signature
@@ -191,7 +194,7 @@ function generate_signature(suffixes::Vector{String}, ::Type{T}) where T <: Abst
     if y_only
         return "(y::AbstractVector{Complex{$T}}, s::Int)"
     elseif layered
-        return "(y::AbstractVector{Complex{$T}}, x::AbstractVector{Complex{$T}}, s::Int, n1::Int, theta::$T=0.125)"
+        return "(y::AbstractVector{Complex{$T}}, x::AbstractVector{Complex{$T}}, s::Int, n1::Int, theta::$T=$T(0.125))"
     else
         #return "(y::AbstractVector{Complex{$T}}, x::AbstractVector{Complex{$T}}, s::Int)"
         return "(y::AbstractVector{Complex{$T}}, x::AbstractVector{Complex{$T}})"
@@ -211,9 +214,10 @@ end
 
 # Main function to generate kernel code
 function generate_kernel(radix::Int, suffixes::Vector{String}, ::Type{T}) where T <: AbstractFloat
-    name = generate_kernel_name(radix, suffixes)
+    names = generate_kernel_names(radix, suffixes)
     signature = generate_signature(suffixes, T)
     decorators = generate_loop_decorators(suffixes)
+    @show names
     
     kernel_pattern = makefftradix(radix, T)
     input = "y" in suffixes ? "y" : "x"
@@ -227,10 +231,10 @@ function generate_kernel(radix::Int, suffixes::Vector{String}, ::Type{T}) where 
     # Generate the complete function
     if "layered" in suffixes
         # Special handling for layered kernels
-        return generate_layered_kernel(name, signature, decorators, kernel_code, radix)
+        return generate_layered_kernel(names, signature, decorators, radix)
     else
         return """
-        @inline function $name$signature
+        @inline function $(names[2])$signature 
             @inbounds $kernel_code
         end
         """
@@ -238,7 +242,9 @@ function generate_kernel(radix::Int, suffixes::Vector{String}, ::Type{T}) where 
 end
 
 # Helper function to generate layered kernel
-function generate_layered_kernel(name, signature, decorators, kernel_code, radix)
+function generate_layered_kernel(names::Tuple, signature, decorators, radix)
+    println("Layered")
+    @show names
     s = log2(radix)  # Assuming radix is a power of 2
     @assert isinteger(s) && s > 0 "Radix must be a power of 2"
     
@@ -249,18 +255,27 @@ function generate_layered_kernel(name, signature, decorators, kernel_code, radix
         push!(twiddle_code, "w$(i)p = $twiddle_expression")
     end
     twiddle_code_str = join(twiddle_code, "\n")
+
+    # Generate layer_y twiddle factor application
+    twiddle_apply_code = ["""layer_y[$i] *= w$(i-1)p""" for i in 2:radix]
+    twiddle_apply_str = join(twiddle_apply_code, "\n    ")
     
     return """
-    @inline function $name$signature
+    @inline function $(names[1])$signature
 
-        #TODO ADD INIT KERNEL
+        @inbounds @simd for q in 1:s
+        layer_x, layer_y = extract_view(x, q, 0, s, n1, $radix), extract_view(y, q, 0, s, n1, $radix)
+        $(names[2])(layer_y, layer_x)
+        end
 
         # Section with twiddle factors
-        $decorators for p in 1:(n1-1)
+        $decorators for p in 0:(n1-1)
+            w1p = (cispi(-p * theta))
             $twiddle_code_str
-            
             $decorators for q in 1:s
-                $kernel_code
+                layer_x, layer_y = extract_view(x, q, p, s, n1, $radix), extract_view(y, q, p, s, n1, $radix)
+                $(names[2])(layer_x, layer_y)
+                $twiddle_apply_str
             end
         end
     end
@@ -283,9 +298,9 @@ function generate_all_kernels(N::Int, ::Type{T}) where T <: AbstractFloat
     suffix_combinations = [
         String[],
         #["ivdep"],
-        ["y"],
+        #["y"],
         #["y", "ivdep"],
-        #["layered"],
+        ["layered"], # Must have generated normal kernels to produces functional layered kernels
         #["layered", "ivdep"]
     ]
     
@@ -330,3 +345,27 @@ function parse_module(module_string::String)
 end
 
 end
+
+using FFTW, BenchmarkTools
+
+function evaluate_fft_generated_module(n::Int, ::Type{T}) where T <: AbstractFloat
+    module_expr = RadixGenerator.parse_module(RadixGenerator.create_kernel_module(n, T))
+    @show module_expr
+    
+    # Evaluate the module in the current context
+    Core.eval(@__MODULE__, module_expr)
+end
+
+n = 2^9
+evaluate_fft_generated_module(n, Float32)
+x = [ComplexF32(i,i) for i in 1:n]
+y = similar(x)
+radix_2_family.fft512_shell!(y, x)
+#@show x
+#@show y
+
+F = FFTW.plan_fft(x; flags=FFTW.EXHAUSTIVE)
+y_fftw = F * x
+#@show y_fftw
+@assert y_fftw ≈ y
+println("Done")
