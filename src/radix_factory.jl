@@ -283,7 +283,7 @@ function generate_all_kernels(N::Int, ::Type{T}) where T <: AbstractFloat
     suffix_combinations = [
         String[],
         #["ivdep"],
-        #["y"],
+        ["y"],
         #["y", "ivdep"],
         #["layered"],
         #["layered", "ivdep"]
