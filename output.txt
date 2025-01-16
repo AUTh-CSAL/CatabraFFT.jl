@@ -1,0 +1,1105 @@
+CatabraFFT.F_cache = 
+CatabraFFT.FFTCacheMap{Function}(Dict{Tuple{Int64, DataType, Union{Nothing, CatabraFFT.Spell}}, Function}((128, Float32, CatabraFFT.Spell{Float32}(128, Float32, 0, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x51cc7ce5, 0x24b6da98, 0xe9786d92, 0x197498c1, 0x1e69bc05), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 16, 0.015625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 8, 2, 0.125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell!)(y, x, 64)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (16, Float32, CatabraFFT.Spell{Float32}(16, Float32, 1, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x8c5ccebd, 0x98ba1431, 0xecbe9ad0, 0x636194f0, 0x181c7502), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 2, 0.125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_y!)(y, 8)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (512, Float32, CatabraFFT.Spell{Float32}(512, Float32, 0, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0xee3b03b5, 0x02a12c5c, 0x630b8626, 0xb24ac938, 0x6484e25d), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 64, 0.00390625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 8, 8, 0.03125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell!)(y, x, 64)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (8192, Float32, CatabraFFT.Spell{Float32}(8192, Float32, 1, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x333c8dd8, 0x14fd4b35, 0x38ad6ade, 0x99f558de, 0x87003acb), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 1024, 0.000244140625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 8, 128, 0.001953125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 64, 16, 0.015625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 512, 2, 0.125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell!)(y, x, 4096)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (524288, Float32, CatabraFFT.Spell{Float32}(524288, Float32, 2, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x0b5fc955, 0x90ca3845, 0x39445d65, 0xb279f858, 0xec74dd44), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 65536, 3.814697265625e-6)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(x, y, 8, 16384, 3.0517578125e-5)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(y, x, 32, 4096, 0.0001220703125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(x, y, 128, 1024, 0.00048828125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(y, x, 512, 256, 0.001953125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(x, y, 2048, 64, 0.0078125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(y, x, 8192, 16, 0.03125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(x, y, 32768, 4, 0.125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell!)(y, x, 131072)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (8192, Float32, CatabraFFT.Spell{Float32}(8192, Float32, 2, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x7668fca1, 0x5fe714eb, 0x7c47c3dd, 0x13f10668, 0x84934351), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 1024, 0.000244140625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(x, y, 8, 256, 0.001953125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(y, x, 32, 64, 0.0078125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(x, y, 128, 16, 0.03125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered_ivdep!)(y, x, 512, 4, 0.125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_y_ivdep!)(y, 2048)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (8, Float32, CatabraFFT.Spell{Float32}(8, Float32, 1, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0xce2f17cc, 0xa25f728c, 0xed2e2399, 0xca9feed1, 0x0b3f9f0f), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell!)(y, x, 1)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (16, Float32, CatabraFFT.Spell{Float32}(16, Float32, 0, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x8c5ccebd, 0x98ba1431, 0xecbe9ad0, 0x636194f0, 0x181c7502), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 2, 0.125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_y!)(y, 8)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (1024, Float32, CatabraFFT.Spell{Float32}(1024, Float32, 1, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0xc1e2eb1f, 0xb33bbf04, 0x9f8ba943, 0xa871213d, 0xc4a62862), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 128, 0.001953125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 8, 16, 0.015625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 64, 2, 0.125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_y!)(y, 512)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (64, Float32, CatabraFFT.Spell{Float32}(64, Float32, 0, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0xa921057d, 0x6f4ae218, 0x33766922, 0x2e80f8b2, 0x79194978), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 8, 0.03125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_y!)(y, 8)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (32, Float32, CatabraFFT.Spell{Float32}(32, Float32, 1, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x8eed7012, 0x2b784f7a, 0x1b315e10, 0x5bdf38bd, 0xc9936319), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 4, 0.0625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_y!)(y, 8)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (65536, Float32, CatabraFFT.Spell{Float32}(65536, Float32, 0, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0xf6020e16, 0xe0223292, 0xe15557d4, 0xa1a8c809, 0x59737547), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 8192, 3.0517578125e-5)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 8, 1024, 0.000244140625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 64, 128, 0.001953125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 512, 16, 0.015625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 4096, 2, 0.125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_y!)(y, 32768)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (524288, Float32, CatabraFFT.Spell{Float32}(524288, Float32, 1, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x31da77ef, 0x7c90f680, 0xda3a646f, 0xb78153b5, 0x27ca507c), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 65536, 3.814697265625e-6)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 8, 8192, 3.0517578125e-5)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 64, 1024, 0.000244140625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 512, 128, 0.001953125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 4096, 16, 0.015625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 32768, 2, 0.125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell!)(y, x, 262144)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (128, Float32, CatabraFFT.Spell{Float32}(128, Float32, 1, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x51cc7ce5, 0x24b6da98, 0xe9786d92, 0x197498c1, 0x1e69bc05), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 16, 0.015625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 8, 2, 0.125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell!)(y, x, 64)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (512, Float32, CatabraFFT.Spell{Float32}(512, Float32, 1, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0xee3b03b5, 0x02a12c5c, 0x630b8626, 0xb24ac938, 0x6484e25d), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 64, 0.00390625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 8, 8, 0.03125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell!)(y, x, 64)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (16, Float32, CatabraFFT.Spell{Float32}(16, Float32, 2, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0xfa3a4dc9, 0xacebcbae, 0x9058e043, 0x49f78d3f, 0xf1dca8ff), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft16_shell!)(y, x, 1)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (64, Float32, CatabraFFT.Spell{Float32}(64, Float32, 1, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0xa921057d, 0x6f4ae218, 0x33766922, 0x2e80f8b2, 0x79194978), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 8, 0.03125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_y!)(y, 8)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (16384, Float32, CatabraFFT.Spell{Float32}(16384, Float32, 1, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x3a82489a, 0x27dfba26, 0x17b08d91, 0xaac5e51c, 0x7e903176), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 2048, 0.0001220703125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 8, 256, 0.0009765625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 64, 32, 0.0078125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 512, 4, 0.0625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell!)(y, x, 4096)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (16384, Float32, CatabraFFT.Spell{Float32}(16384, Float32, 0, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x3a82489a, 0x27dfba26, 0x17b08d91, 0xaac5e51c, 0x7e903176), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 2048, 0.0001220703125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 8, 256, 0.0009765625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 64, 32, 0.0078125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 512, 4, 0.0625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell!)(y, x, 4096)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (4096, Float32, CatabraFFT.Spell{Float32}(4096, Float32, 0, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0xfe3ed4a9, 0x8f59e488, 0x01dded78, 0xb0d69b39, 0x20e36f6d), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 512, 0.00048828125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 8, 64, 0.00390625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 64, 8, 0.03125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_y!)(y, 512)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (2048, Float32, CatabraFFT.Spell{Float32}(2048, Float32, 2, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x84830b13, 0x6def4375, 0x7cb633e6, 0xf15b162c, 0x97715400), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft16_shell_layered!)(y, x, 1, 128, 0.0009765625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(x, y, 16, 32, 0.015625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered_ivdep!)(y, x, 64, 16, 0.0625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered_ivdep!)(x, y, 128, 8, 0.125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered_ivdep!)(y, x, 256, 4, 0.25)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered_ivdep!)(x, y, 512, 2, 0.5)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_ivdep!)(y, x, 1024)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (65536, Float32, CatabraFFT.Spell{Float32}(65536, Float32, 2, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x196c005f, 0x43dcbde0, 0x19c6ef17, 0x892c053b, 0x581d56ef), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft16_shell_layered!)(y, x, 1, 4096, 3.0517578125e-5)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(x, y, 16, 1024, 0.00048828125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(y, x, 64, 256, 0.001953125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered_ivdep!)(x, y, 256, 64, 0.0078125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered_ivdep!)(y, x, 1024, 16, 0.03125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered_ivdep!)(x, y, 4096, 8, 0.125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered_ivdep!)(y, x, 8192, 4, 0.25)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered_ivdep!)(x, y, 16384, 2, 0.5)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_ivdep!)(y, x, 32768)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (32, Float32, CatabraFFT.Spell{Float32}(32, Float32, 2, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x357ac768, 0x2c1acadd, 0xa83ef047, 0xe94cca4d, 0x688dfc95), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft16_shell_layered!)(y, x, 1, 2, 0.0625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_y!)(y, 16)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (16384, Float32, CatabraFFT.Spell{Float32}(16384, Float32, 2, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0xe08d2cd7, 0x1e8c8ce4, 0x84db795c, 0x78c67196, 0x1d7d633b), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft16_shell_layered!)(y, x, 1, 1024, 0.0001220703125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(x, y, 16, 256, 0.001953125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(y, x, 64, 64, 0.0078125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered_ivdep!)(x, y, 256, 32, 0.03125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered_ivdep!)(y, x, 512, 16, 0.0625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered_ivdep!)(x, y, 1024, 8, 0.125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered_ivdep!)(y, x, 2048, 4, 0.25)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered_ivdep!)(x, y, 4096, 2, 0.5)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_ivdep!)(y, x, 8192)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (32768, Float32, CatabraFFT.Spell{Float32}(32768, Float32, 0, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0xcb8cdcfa, 0xd0ab54d8, 0x8ed79e65, 0x7f5e7c94, 0x373240c4), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 4096, 6.103515625e-5)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 8, 512, 0.00048828125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 64, 64, 0.00390625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 512, 8, 0.03125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell!)(y, x, 4096)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (4, Float32, CatabraFFT.Spell{Float32}(4, Float32, 2, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x2316d95a, 0xacd659bd, 0x40592be5, 0x1c627bce, 0x440fd05d), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered!)(y, x, 1, 2, 0.5)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_y!)(y, 2)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (1048576, Float32, CatabraFFT.Spell{Float32}(1048576, Float32, 2, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0xcbfc1af1, 0xf2fdb62b, 0xe4c034e7, 0x3c092f2a, 0x51fe55c1), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft16_shell_layered_ivdep!)(y, x, 1, 65536, 1.9073486328125e-6)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 16, 8192, 3.0517578125e-5)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(y, x, 128, 2048, 0.000244140625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(x, y, 512, 512, 0.0009765625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(y, x, 2048, 128, 0.00390625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(x, y, 8192, 32, 0.015625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(y, x, 32768, 8, 0.0625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered_ivdep!)(x, y, 131072, 2, 0.25)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_ivdep!)(y, x, 524288)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (2048, Float32, CatabraFFT.Spell{Float32}(2048, Float32, 0, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x11eca224, 0x0d43e645, 0x8849cd35, 0xd4699f2a, 0xa279e50b), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 256, 0.0009765625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 8, 32, 0.0078125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 64, 4, 0.0625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_y!)(y, 512)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (8, Float32, CatabraFFT.Spell{Float32}(8, Float32, 0, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0xce2f17cc, 0xa25f728c, 0xed2e2399, 0xca9feed1, 0x0b3f9f0f), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell!)(y, x, 1)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (8192, Float32, CatabraFFT.Spell{Float32}(8192, Float32, 0, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x333c8dd8, 0x14fd4b35, 0x38ad6ade, 0x99f558de, 0x87003acb), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 1024, 0.000244140625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 8, 128, 0.001953125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 64, 16, 0.015625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 512, 2, 0.125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell!)(y, x, 4096)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (256, Float32, CatabraFFT.Spell{Float32}(256, Float32, 0, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x67676793, 0xc5b83a39, 0x9fc666a9, 0x21c890ca, 0x0e10e85a), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 32, 0.0078125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 8, 4, 0.0625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell!)(y, x, 64)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (8, Float32, CatabraFFT.Spell{Float32}(8, Float32, 2, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0xce2f17cc, 0xa25f728c, 0xed2e2399, 0xca9feed1, 0x0b3f9f0f), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell!)(y, x, 1)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (64, Float32, CatabraFFT.Spell{Float32}(64, Float32, 2, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0xd2bae382, 0x04754f5c, 0x156d09fd, 0x5b85367b, 0x20fd2350), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(y, x, 1, 16, 0.03125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered!)(x, y, 4, 8, 0.125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered!)(y, x, 8, 4, 0.25)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered!)(x, y, 16, 2, 0.5)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell!)(y, x, 32)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (4096, Float32, CatabraFFT.Spell{Float32}(4096, Float32, 2, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0xfbe1863c, 0x437f6828, 0x053a1ac9, 0xe6385e1d, 0x9314254b), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 512, 0.00048828125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(x, y, 8, 128, 0.00390625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(y, x, 32, 32, 0.015625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(x, y, 128, 8, 0.0625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(y, x, 512, 2, 0.25)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_y!)(y, 2048)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (65536, Float32, CatabraFFT.Spell{Float32}(65536, Float32, 1, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0xf6020e16, 0xe0223292, 0xe15557d4, 0xa1a8c809, 0x59737547), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 8192, 3.0517578125e-5)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 8, 1024, 0.000244140625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 64, 128, 0.001953125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 512, 16, 0.015625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 4096, 2, 0.125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_y!)(y, 32768)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (524288, Float32, CatabraFFT.Spell{Float32}(524288, Float32, 0, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x31da77ef, 0x7c90f680, 0xda3a646f, 0xb78153b5, 0x27ca507c), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 65536, 3.814697265625e-6)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 8, 8192, 3.0517578125e-5)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 64, 1024, 0.000244140625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 512, 128, 0.001953125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 4096, 16, 0.015625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 32768, 2, 0.125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell!)(y, x, 262144)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (1024, Float32, CatabraFFT.Spell{Float32}(1024, Float32, 2, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x860d1978, 0xdba9757a, 0x0c018eb9, 0xf0f561fb, 0x8965611f), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft16_shell_layered!)(y, x, 1, 64, 0.001953125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(x, y, 16, 16, 0.03125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(y, x, 64, 4, 0.125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered_ivdep!)(x, y, 256, 2, 0.5)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_ivdep!)(y, x, 512)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (4096, Float32, CatabraFFT.Spell{Float32}(4096, Float32, 1, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0xfe3ed4a9, 0x8f59e488, 0x01dded78, 0xb0d69b39, 0x20e36f6d), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 512, 0.00048828125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 8, 64, 0.00390625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 64, 8, 0.03125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_y!)(y, 512)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (128, Float32, CatabraFFT.Spell{Float32}(128, Float32, 2, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x972d507d, 0x10b9462e, 0x2146e488, 0xe459efd8, 0x7df9fec4), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 16, 0.015625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered_ivdep!)(x, y, 8, 2, 0.125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell!)(y, x, 64)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (512, Float32, CatabraFFT.Spell{Float32}(512, Float32, 2, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0xcfe52e63, 0x86d21726, 0x34583d6b, 0x33ea2a81, 0x6120b9ef), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 64, 0.00390625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered_ivdep!)(x, y, 8, 8, 0.03125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_ivdep!)(y, x, 64)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (32768, Float32, CatabraFFT.Spell{Float32}(32768, Float32, 2, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x107e32cf, 0x3e3c15c1, 0xdd069ca4, 0x875be46d, 0x13bf2cea), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 4096, 6.103515625e-5)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(x, y, 8, 1024, 0.00048828125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered_ivdep!)(y, x, 32, 512, 0.001953125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered_ivdep!)(x, y, 64, 256, 0.00390625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered_ivdep!)(y, x, 128, 128, 0.0078125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered_ivdep!)(x, y, 256, 64, 0.015625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered_ivdep!)(y, x, 512, 32, 0.03125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered_ivdep!)(x, y, 1024, 16, 0.0625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered_ivdep!)(y, x, 2048, 8, 0.125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered_ivdep!)(x, y, 4096, 4, 0.25)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered_ivdep!)(y, x, 8192, 2, 0.5)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_y_ivdep!)(y, 16384)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (1048576, Float32, CatabraFFT.Spell{Float32}(1048576, Float32, 1, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x6aa4c1aa, 0x9fc3d07e, 0x76df4520, 0x5cb8c8ec, 0x6d3ea3cb), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 131072, 1.9073486328125e-6)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 8, 16384, 1.52587890625e-5)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 64, 2048, 0.0001220703125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 512, 256, 0.0009765625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 4096, 32, 0.0078125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 32768, 4, 0.0625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell!)(y, x, 262144)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (131072, Float32, CatabraFFT.Spell{Float32}(131072, Float32, 2, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0xa52909df, 0xa6018874, 0x93323eb8, 0x9c1c3313, 0xe41bc57a), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft16_shell_layered!)(y, x, 1, 8192, 1.52587890625e-5)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(x, y, 16, 2048, 0.000244140625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(y, x, 64, 512, 0.0009765625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(x, y, 256, 128, 0.00390625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(y, x, 1024, 32, 0.015625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(x, y, 4096, 8, 0.0625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(y, x, 16384, 2, 0.25)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_y!)(y, 65536)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (262144, Float32, CatabraFFT.Spell{Float32}(262144, Float32, 1, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x73c949dc, 0x6050706c, 0x445cea48, 0x94b28d45, 0x64f9e3bd), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 32768, 7.62939453125e-6)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 8, 4096, 6.103515625e-5)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 64, 512, 0.00048828125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 512, 64, 0.00390625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 4096, 8, 0.03125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_y!)(y, 32768)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (262144, Float32, CatabraFFT.Spell{Float32}(262144, Float32, 2, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x66b93c0b, 0x89986299, 0x3887def0, 0x5da2d25a, 0x74ad2f76), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft16_shell_layered!)(y, x, 1, 16384, 7.62939453125e-6)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(x, y, 16, 4096, 0.0001220703125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(y, x, 64, 1024, 0.00048828125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(x, y, 256, 256, 0.001953125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(y, x, 1024, 64, 0.0078125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(x, y, 4096, 16, 0.03125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(y, x, 16384, 4, 0.125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_y!)(y, 65536)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (32, Float32, CatabraFFT.Spell{Float32}(32, Float32, 0, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x8eed7012, 0x2b784f7a, 0x1b315e10, 0x5bdf38bd, 0xc9936319), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 4, 0.0625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_y!)(y, 8)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (1024, Float32, CatabraFFT.Spell{Float32}(1024, Float32, 0, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0xc1e2eb1f, 0xb33bbf04, 0x9f8ba943, 0xa871213d, 0xc4a62862), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 128, 0.001953125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 8, 16, 0.015625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 64, 2, 0.125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_y!)(y, 512)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (4, Float32, CatabraFFT.Spell{Float32}(4, Float32, 1, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0xf35da778, 0xb905bd93, 0xa30d509b, 0x8c448191, 0x079dcd54), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell!)(y, x, 1)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (131072, Float32, CatabraFFT.Spell{Float32}(131072, Float32, 1, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x20879056, 0xd45969d6, 0x10b12251, 0x3e1afef2, 0x097ce711), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 16384, 1.52587890625e-5)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 8, 2048, 0.0001220703125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 64, 256, 0.0009765625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 512, 32, 0.0078125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 4096, 4, 0.0625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_y!)(y, 32768)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (256, Float32, CatabraFFT.Spell{Float32}(256, Float32, 2, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x8ef5de7f, 0x694a887e, 0x54135ec1, 0x3fa52f1e, 0x01e78c75), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(y, x, 1, 64, 0.0078125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(x, y, 4, 16, 0.03125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(y, x, 16, 4, 0.125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_y_ivdep!)(y, 64)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (256, Float32, CatabraFFT.Spell{Float32}(256, Float32, 1, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x67676793, 0xc5b83a39, 0x9fc666a9, 0x21c890ca, 0x0e10e85a), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 32, 0.0078125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 8, 4, 0.0625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell!)(y, x, 64)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (262144, Float32, CatabraFFT.Spell{Float32}(262144, Float32, 0, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x73c949dc, 0x6050706c, 0x445cea48, 0x94b28d45, 0x64f9e3bd), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 32768, 7.62939453125e-6)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 8, 4096, 6.103515625e-5)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 64, 512, 0.00048828125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 512, 64, 0.00390625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 4096, 8, 0.03125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_y!)(y, 32768)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (32768, Float32, CatabraFFT.Spell{Float32}(32768, Float32, 1, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0xcb8cdcfa, 0xd0ab54d8, 0x8ed79e65, 0x7f5e7c94, 0x373240c4), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 4096, 6.103515625e-5)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 8, 512, 0.00048828125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 64, 64, 0.00390625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 512, 8, 0.03125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell!)(y, x, 4096)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (131072, Float32, CatabraFFT.Spell{Float32}(131072, Float32, 0, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x20879056, 0xd45969d6, 0x10b12251, 0x3e1afef2, 0x097ce711), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 16384, 1.52587890625e-5)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 8, 2048, 0.0001220703125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 64, 256, 0.0009765625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 512, 32, 0.0078125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 4096, 4, 0.0625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_y!)(y, 32768)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (4, Float32, CatabraFFT.Spell{Float32}(4, Float32, 0, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0xf35da778, 0xb905bd93, 0xa30d509b, 0x8c448191, 0x079dcd54), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell!)(y, x, 1)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (1048576, Float32, CatabraFFT.Spell{Float32}(1048576, Float32, 0, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x6aa4c1aa, 0x9fc3d07e, 0x76df4520, 0x5cb8c8ec, 0x6d3ea3cb), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 131072, 1.9073486328125e-6)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 8, 16384, 1.52587890625e-5)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 64, 2048, 0.0001220703125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 512, 256, 0.0009765625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 4096, 32, 0.0078125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 32768, 4, 0.0625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell!)(y, x, 262144)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end), (2048, Float32, CatabraFFT.Spell{Float32}(2048, Float32, 1, nothing)) => RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x11eca224, 0x0d43e645, 0x8849cd35, 0xd4699f2a, 0xa279e50b), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 256, 0.0009765625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 8, 32, 0.0078125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 64, 4, 0.0625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_y!)(y, 512)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end)), Dict{Function, Tuple{Int64, DataType, Union{Nothing, CatabraFFT.Spell}}}(RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0xc1e2eb1f, 0xb33bbf04, 0x9f8ba943, 0xa871213d, 0xc4a62862), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 128, 0.001953125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 8, 16, 0.015625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 64, 2, 0.125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_y!)(y, 512)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end) => (1024, Float32, CatabraFFT.Spell{Float32}(1024, Float32, 1, nothing)), RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0xee3b03b5, 0x02a12c5c, 0x630b8626, 0xb24ac938, 0x6484e25d), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 64, 0.00390625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 8, 8, 0.03125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell!)(y, x, 64)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end) => (512, Float32, CatabraFFT.Spell{Float32}(512, Float32, 1, nothing)), RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x860d1978, 0xdba9757a, 0x0c018eb9, 0xf0f561fb, 0x8965611f), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft16_shell_layered!)(y, x, 1, 64, 0.001953125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(x, y, 16, 16, 0.03125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(y, x, 64, 4, 0.125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered_ivdep!)(x, y, 256, 2, 0.5)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_ivdep!)(y, x, 512)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end) => (1024, Float32, CatabraFFT.Spell{Float32}(1024, Float32, 2, nothing)), RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0xd2bae382, 0x04754f5c, 0x156d09fd, 0x5b85367b, 0x20fd2350), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(y, x, 1, 16, 0.03125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered!)(x, y, 4, 8, 0.125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered!)(y, x, 8, 4, 0.25)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered!)(x, y, 16, 2, 0.5)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell!)(y, x, 32)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end) => (64, Float32, CatabraFFT.Spell{Float32}(64, Float32, 2, nothing)), RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x73c949dc, 0x6050706c, 0x445cea48, 0x94b28d45, 0x64f9e3bd), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 32768, 7.62939453125e-6)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 8, 4096, 6.103515625e-5)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 64, 512, 0.00048828125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 512, 64, 0.00390625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 4096, 8, 0.03125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_y!)(y, 32768)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end) => (262144, Float32, CatabraFFT.Spell{Float32}(262144, Float32, 1, nothing)), RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x357ac768, 0x2c1acadd, 0xa83ef047, 0xe94cca4d, 0x688dfc95), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft16_shell_layered!)(y, x, 1, 2, 0.0625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_y!)(y, 16)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end) => (32, Float32, CatabraFFT.Spell{Float32}(32, Float32, 2, nothing)), RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x8ef5de7f, 0x694a887e, 0x54135ec1, 0x3fa52f1e, 0x01e78c75), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(y, x, 1, 64, 0.0078125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(x, y, 4, 16, 0.03125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(y, x, 16, 4, 0.125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_y_ivdep!)(y, 64)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end) => (256, Float32, CatabraFFT.Spell{Float32}(256, Float32, 2, nothing)), RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0xcbfc1af1, 0xf2fdb62b, 0xe4c034e7, 0x3c092f2a, 0x51fe55c1), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft16_shell_layered_ivdep!)(y, x, 1, 65536, 1.9073486328125e-6)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 16, 8192, 3.0517578125e-5)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(y, x, 128, 2048, 0.000244140625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(x, y, 512, 512, 0.0009765625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(y, x, 2048, 128, 0.00390625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(x, y, 8192, 32, 0.015625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(y, x, 32768, 8, 0.0625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered_ivdep!)(x, y, 131072, 2, 0.25)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_ivdep!)(y, x, 524288)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end) => (1048576, Float32, CatabraFFT.Spell{Float32}(1048576, Float32, 2, nothing)), RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x7668fca1, 0x5fe714eb, 0x7c47c3dd, 0x13f10668, 0x84934351), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 1024, 0.000244140625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(x, y, 8, 256, 0.001953125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(y, x, 32, 64, 0.0078125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(x, y, 128, 16, 0.03125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered_ivdep!)(y, x, 512, 4, 0.125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_y_ivdep!)(y, 2048)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end) => (8192, Float32, CatabraFFT.Spell{Float32}(8192, Float32, 2, nothing)), RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x11eca224, 0x0d43e645, 0x8849cd35, 0xd4699f2a, 0xa279e50b), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 256, 0.0009765625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 8, 32, 0.0078125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 64, 4, 0.0625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_y!)(y, 512)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end) => (2048, Float32, CatabraFFT.Spell{Float32}(2048, Float32, 1, nothing)), RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0xfe3ed4a9, 0x8f59e488, 0x01dded78, 0xb0d69b39, 0x20e36f6d), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 512, 0.00048828125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 8, 64, 0.00390625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 64, 8, 0.03125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_y!)(y, 512)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end) => (4096, Float32, CatabraFFT.Spell{Float32}(4096, Float32, 1, nothing)), RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x333c8dd8, 0x14fd4b35, 0x38ad6ade, 0x99f558de, 0x87003acb), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 1024, 0.000244140625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 8, 128, 0.001953125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 64, 16, 0.015625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 512, 2, 0.125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell!)(y, x, 4096)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end) => (8192, Float32, CatabraFFT.Spell{Float32}(8192, Float32, 1, nothing)), RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x2316d95a, 0xacd659bd, 0x40592be5, 0x1c627bce, 0x440fd05d), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered!)(y, x, 1, 2, 0.5)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_y!)(y, 2)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end) => (4, Float32, CatabraFFT.Spell{Float32}(4, Float32, 2, nothing)), RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x6aa4c1aa, 0x9fc3d07e, 0x76df4520, 0x5cb8c8ec, 0x6d3ea3cb), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 131072, 1.9073486328125e-6)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 8, 16384, 1.52587890625e-5)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 64, 2048, 0.0001220703125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 512, 256, 0.0009765625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 4096, 32, 0.0078125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 32768, 4, 0.0625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell!)(y, x, 262144)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end) => (1048576, Float32, CatabraFFT.Spell{Float32}(1048576, Float32, 1, nothing)), RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x0b5fc955, 0x90ca3845, 0x39445d65, 0xb279f858, 0xec74dd44), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 65536, 3.814697265625e-6)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(x, y, 8, 16384, 3.0517578125e-5)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(y, x, 32, 4096, 0.0001220703125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(x, y, 128, 1024, 0.00048828125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(y, x, 512, 256, 0.001953125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(x, y, 2048, 64, 0.0078125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(y, x, 8192, 16, 0.03125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(x, y, 32768, 4, 0.125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell!)(y, x, 131072)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end) => (524288, Float32, CatabraFFT.Spell{Float32}(524288, Float32, 2, nothing)), RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0xe08d2cd7, 0x1e8c8ce4, 0x84db795c, 0x78c67196, 0x1d7d633b), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft16_shell_layered!)(y, x, 1, 1024, 0.0001220703125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(x, y, 16, 256, 0.001953125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(y, x, 64, 64, 0.0078125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered_ivdep!)(x, y, 256, 32, 0.03125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered_ivdep!)(y, x, 512, 16, 0.0625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered_ivdep!)(x, y, 1024, 8, 0.125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered_ivdep!)(y, x, 2048, 4, 0.25)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered_ivdep!)(x, y, 4096, 2, 0.5)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_ivdep!)(y, x, 8192)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end) => (16384, Float32, CatabraFFT.Spell{Float32}(16384, Float32, 2, nothing)), RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x66b93c0b, 0x89986299, 0x3887def0, 0x5da2d25a, 0x74ad2f76), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft16_shell_layered!)(y, x, 1, 16384, 7.62939453125e-6)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(x, y, 16, 4096, 0.0001220703125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(y, x, 64, 1024, 0.00048828125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(x, y, 256, 256, 0.001953125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(y, x, 1024, 64, 0.0078125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(x, y, 4096, 16, 0.03125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(y, x, 16384, 4, 0.125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_y!)(y, 65536)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end) => (262144, Float32, CatabraFFT.Spell{Float32}(262144, Float32, 2, nothing)), RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x972d507d, 0x10b9462e, 0x2146e488, 0xe459efd8, 0x7df9fec4), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 16, 0.015625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered_ivdep!)(x, y, 8, 2, 0.125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell!)(y, x, 64)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end) => (128, Float32, CatabraFFT.Spell{Float32}(128, Float32, 2, nothing)), RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0xf35da778, 0xb905bd93, 0xa30d509b, 0x8c448191, 0x079dcd54), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell!)(y, x, 1)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end) => (4, Float32, CatabraFFT.Spell{Float32}(4, Float32, 1, nothing)), RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x31da77ef, 0x7c90f680, 0xda3a646f, 0xb78153b5, 0x27ca507c), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 65536, 3.814697265625e-6)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 8, 8192, 3.0517578125e-5)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 64, 1024, 0.000244140625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 512, 128, 0.001953125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 4096, 16, 0.015625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 32768, 2, 0.125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell!)(y, x, 262144)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end) => (524288, Float32, CatabraFFT.Spell{Float32}(524288, Float32, 1, nothing)), RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x8c5ccebd, 0x98ba1431, 0xecbe9ad0, 0x636194f0, 0x181c7502), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 2, 0.125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_y!)(y, 8)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end) => (16, Float32, CatabraFFT.Spell{Float32}(16, Float32, 1, nothing)), RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0xce2f17cc, 0xa25f728c, 0xed2e2399, 0xca9feed1, 0x0b3f9f0f), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell!)(y, x, 1)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end) => (8, Float32, CatabraFFT.Spell{Float32}(8, Float32, 2, nothing)), RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0xcfe52e63, 0x86d21726, 0x34583d6b, 0x33ea2a81, 0x6120b9ef), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 64, 0.00390625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered_ivdep!)(x, y, 8, 8, 0.03125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_ivdep!)(y, x, 64)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end) => (512, Float32, CatabraFFT.Spell{Float32}(512, Float32, 2, nothing)), RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x51cc7ce5, 0x24b6da98, 0xe9786d92, 0x197498c1, 0x1e69bc05), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 16, 0.015625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 8, 2, 0.125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell!)(y, x, 64)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end) => (128, Float32, CatabraFFT.Spell{Float32}(128, Float32, 1, nothing)), RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x107e32cf, 0x3e3c15c1, 0xdd069ca4, 0x875be46d, 0x13bf2cea), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 4096, 6.103515625e-5)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(x, y, 8, 1024, 0.00048828125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered_ivdep!)(y, x, 32, 512, 0.001953125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered_ivdep!)(x, y, 64, 256, 0.00390625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered_ivdep!)(y, x, 128, 128, 0.0078125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered_ivdep!)(x, y, 256, 64, 0.015625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered_ivdep!)(y, x, 512, 32, 0.03125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered_ivdep!)(x, y, 1024, 16, 0.0625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered_ivdep!)(y, x, 2048, 8, 0.125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered_ivdep!)(x, y, 4096, 4, 0.25)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered_ivdep!)(y, x, 8192, 2, 0.5)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_y_ivdep!)(y, 16384)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end) => (32768, Float32, CatabraFFT.Spell{Float32}(32768, Float32, 2, nothing)), RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x196c005f, 0x43dcbde0, 0x19c6ef17, 0x892c053b, 0x581d56ef), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft16_shell_layered!)(y, x, 1, 4096, 3.0517578125e-5)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(x, y, 16, 1024, 0.00048828125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(y, x, 64, 256, 0.001953125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered_ivdep!)(x, y, 256, 64, 0.0078125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered_ivdep!)(y, x, 1024, 16, 0.03125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered_ivdep!)(x, y, 4096, 8, 0.125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered_ivdep!)(y, x, 8192, 4, 0.25)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered_ivdep!)(x, y, 16384, 2, 0.5)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_ivdep!)(y, x, 32768)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end) => (65536, Float32, CatabraFFT.Spell{Float32}(65536, Float32, 2, nothing)), RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x84830b13, 0x6def4375, 0x7cb633e6, 0xf15b162c, 0x97715400), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft16_shell_layered!)(y, x, 1, 128, 0.0009765625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(x, y, 16, 32, 0.015625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered_ivdep!)(y, x, 64, 16, 0.0625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered_ivdep!)(x, y, 128, 8, 0.125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered_ivdep!)(y, x, 256, 4, 0.25)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_layered_ivdep!)(x, y, 512, 2, 0.5)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_ivdep!)(y, x, 1024)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end) => (2048, Float32, CatabraFFT.Spell{Float32}(2048, Float32, 2, nothing)), RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0xa921057d, 0x6f4ae218, 0x33766922, 0x2e80f8b2, 0x79194978), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 8, 0.03125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_y!)(y, 8)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end) => (64, Float32, CatabraFFT.Spell{Float32}(64, Float32, 1, nothing)), RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x3a82489a, 0x27dfba26, 0x17b08d91, 0xaac5e51c, 0x7e903176), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 2048, 0.0001220703125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 8, 256, 0.0009765625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 64, 32, 0.0078125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 512, 4, 0.0625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell!)(y, x, 4096)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end) => (16384, Float32, CatabraFFT.Spell{Float32}(16384, Float32, 1, nothing)), RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0xfbe1863c, 0x437f6828, 0x053a1ac9, 0xe6385e1d, 0x9314254b), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 512, 0.00048828125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(x, y, 8, 128, 0.00390625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(y, x, 32, 32, 0.015625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(x, y, 128, 8, 0.0625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(y, x, 512, 2, 0.25)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_y!)(y, 2048)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end) => (4096, Float32, CatabraFFT.Spell{Float32}(4096, Float32, 2, nothing)), RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x8eed7012, 0x2b784f7a, 0x1b315e10, 0x5bdf38bd, 0xc9936319), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 4, 0.0625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_y!)(y, 8)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end) => (32, Float32, CatabraFFT.Spell{Float32}(32, Float32, 1, nothing)), RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0xcb8cdcfa, 0xd0ab54d8, 0x8ed79e65, 0x7f5e7c94, 0x373240c4), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 4096, 6.103515625e-5)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 8, 512, 0.00048828125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 64, 64, 0.00390625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 512, 8, 0.03125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell!)(y, x, 4096)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end) => (32768, Float32, CatabraFFT.Spell{Float32}(32768, Float32, 1, nothing)), RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0xf6020e16, 0xe0223292, 0xe15557d4, 0xa1a8c809, 0x59737547), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 8192, 3.0517578125e-5)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 8, 1024, 0.000244140625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 64, 128, 0.001953125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 512, 16, 0.015625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 4096, 2, 0.125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_y!)(y, 32768)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end) => (65536, Float32, CatabraFFT.Spell{Float32}(65536, Float32, 1, nothing)), RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x67676793, 0xc5b83a39, 0x9fc666a9, 0x21c890ca, 0x0e10e85a), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 32, 0.0078125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 8, 4, 0.0625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell!)(y, x, 64)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end) => (256, Float32, CatabraFFT.Spell{Float32}(256, Float32, 1, nothing)), RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0xfa3a4dc9, 0xacebcbae, 0x9058e043, 0x49f78d3f, 0xf1dca8ff), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft16_shell!)(y, x, 1)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end) => (16, Float32, CatabraFFT.Spell{Float32}(16, Float32, 2, nothing)), RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0xa52909df, 0xa6018874, 0x93323eb8, 0x9c1c3313, 0xe41bc57a), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft16_shell_layered!)(y, x, 1, 8192, 1.52587890625e-5)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(x, y, 16, 2048, 0.000244140625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(y, x, 64, 512, 0.0009765625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(x, y, 256, 128, 0.00390625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(y, x, 1024, 32, 0.015625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(x, y, 4096, 8, 0.0625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_layered!)(y, x, 16384, 2, 0.25)
+        (CatabraFFT.Radix_Execute.radix2_family.fft2_shell_y!)(y, 65536)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end) => (131072, Float32, CatabraFFT.Spell{Float32}(131072, Float32, 2, nothing)), RuntimeGeneratedFunctions.RuntimeGeneratedFunction{(:y, :x), CatabraFFT.Radix_Execute.var"#_RGF_ModTag", CatabraFFT.Radix_Execute.var"#_RGF_ModTag", (0x20879056, 0xd45969d6, 0x10b12251, 0x3e1afef2, 0x097ce711), Expr}(quote
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:108 =#
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:109 =#
+    begin
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 1, 16384, 1.52587890625e-5)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 8, 2048, 0.0001220703125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 64, 256, 0.0009765625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(x, y, 512, 32, 0.0078125)
+        (CatabraFFT.Radix_Execute.radix2_family.fft8_shell_layered!)(y, x, 4096, 4, 0.0625)
+        (CatabraFFT.Radix_Execute.radix2_family.fft4_shell_y!)(y, 32768)
+    end
+    #= /home/ekyriakos/CatabraFFT.jl/src/radix_exec.jl:110 =#
+    return nothing
+end) => (131072, Float32, CatabraFFT.Spell{Float32}(131072, Float32, 1, nothing))))
