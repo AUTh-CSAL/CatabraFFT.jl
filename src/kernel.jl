@@ -1,5 +1,6 @@
 using AbstractFFTs, Primes 
 
+include("radix_factory.jl")
 include("radix_plan.jl")
 include("radix_exec.jl")
 include("mixed_radix.jl")
@@ -115,11 +116,25 @@ function call_radix_families(n::Int, ::Type{T}, flag::FLAG)::Function where {T<:
     show_function = true
 
     ivdep = false
+
+    function subpowers_of_two(N::Int)
+    # Check if N is a power of two
+    @assert N > 1 && (N & (N - 1)) == 0 "N must be a power of two greater than 1"
+    
+    # Generate the list of subpowers
+    subpowers = Vector{Int}()
+    while N >= 2
+        push!(subpowers, N)
+        N = div(N, 2)
+    end
+    return subpowers
+end
     
     family_func = if flag >= MEASURE
         ivdep = flag >= ENCHANT ? true : false
         if is_power_of(n,2)
-            Radix_Execute.return_best_family_function(Radix_Plan.create_all_radix_plans(n, [16, 8, 4, 2], T), show_function, ivdep)
+            #RadixGenerator.evaluate_fft_generated_module(n, T) # make radix_2_family shells available
+            Radix_Execute.return_best_family_function(Radix_Plan.create_all_radix_plans(n, subpowers_of_two(n), T), show_function, ivdep)
         elseif is_power_of(n, 3)
             Radix_Execute.return_best_family_function(Radix_Plan.create_all_radix_plans(n, [9, 3], T), show_function, ivdep)
         elseif is_power_of(n, 5)

@@ -265,16 +265,18 @@ function generate_layered_kernel(names::Tuple, signature, decorators, radix)
 
         @inbounds @simd for q in 1:s
         layer_x, layer_y = extract_view(x, q, 0, s, n1, $radix), extract_view(y, q, 0, s, n1, $radix)
+        @show layer_x, layer_y
         $(names[2])(layer_y, layer_x)
         end
 
         # Section with twiddle factors
-        $decorators for p in 0:(n1-1)
+        $decorators for p in 1:(n1-1)
             w1p = (cispi(-p * theta))
             $twiddle_code_str
             $decorators for q in 1:s
                 layer_x, layer_y = extract_view(x, q, p, s, n1, $radix), extract_view(y, q, p, s, n1, $radix)
-                $(names[2])(layer_x, layer_y)
+                @show layer_x, layer_y
+                $(names[2])(layer_y, layer_x)
                 $twiddle_apply_str
             end
         end
@@ -316,7 +318,6 @@ function generate_all_kernels(N::Int, ::Type{T}) where T <: AbstractFloat
         end
     end
     
-    #@show kernels
     
     return kernels
 end
@@ -344,28 +345,51 @@ function parse_module(module_string::String)
     return module_expr
 end
 
-end
-
-using FFTW, BenchmarkTools
-
-function evaluate_fft_generated_module(n::Int, ::Type{T}) where T <: AbstractFloat
+function evaluate_fft_generated_module(target_module::Module, n::Int, ::Type{T}) where T <: AbstractFloat
     module_expr = RadixGenerator.parse_module(RadixGenerator.create_kernel_module(n, T))
     @show module_expr
-    
     # Evaluate the module in the current context
-    Core.eval(@__MODULE__, module_expr)
+    Core.eval(target_module, module_expr)
 end
 
-n = 2^9
-evaluate_fft_generated_module(n, Float32)
-x = [ComplexF32(i,i) for i in 1:n]
+end
+
+
+module Testing
+using FFTW, BenchmarkTools
+using ..RadixGenerator
+
+function main()
+n = 2^3
+Type = Float32
+RadixGenerator.evaluate_fft_generated_module(Testing, n, Type)
+x = [Complex{Type}(i,i) for i in 1:n]
 y = similar(x)
-radix_2_family.fft512_shell!(y, x)
-#@show x
-#@show y
+#radix_2_family.fft16_shell_layered!(y, x, 1, n ÷ 16, Type(2 / n))
+#radix_2_family.fft16_shell_layered!(y, x, 16, n ÷ 256, Type(2 / n ÷ 16))
+
+Base.invokelatest(radix_2_family.fft4_shell_layered!, y, x, 1, n ÷ 4, Type(2 / n))
+println("In-between y: $y")
+@show y
+Base.invokelatest(radix_2_family.fft2_shell_layered!, x, y, 4, 1, Type(2 / (n ÷ 4)))
+@show x
+@show y
 
 F = FFTW.plan_fft(x; flags=FFTW.EXHAUSTIVE)
 y_fftw = F * x
 #@show y_fftw
 @assert y_fftw ≈ y
 println("Done")
+
+b_fftgen = @benchmark radix_2_family.fft32_shell!($y, $x)
+b_fftw = @benchmark $F * $x
+println("Display Generated FFT:")
+display(b_fftgen)
+
+println("Display FFTW:")
+display(b_fftw)
+
+end
+end
+
+Testing.main()

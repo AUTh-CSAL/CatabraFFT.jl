@@ -3,16 +3,19 @@ module Radix_Execute
 using Core.Compiler: Core, return_type
 using RuntimeGeneratedFunctions
 using ..Radix_Plan
+using ..RadixGenerator
 using BenchmarkTools
 
 RuntimeGeneratedFunctions.init(Radix_Execute)
 
-include("radix_2_codelets.jl")
+#include("radix_2_codelets.jl")
+include("radix_factory.jl")
 include("radix_3_codelets.jl")
 include("radix_5_codelets.jl")
 include("radix_7_codelets.jl")
 
-function generate_safe_execute_function!(plan::RadixPlan, show_function=true, TECHNICAL_ACCELERATION=true, str="")
+function generate_safe_execute_function!(plan::RadixPlan, show_function=true, TECHNICAL_ACCELERATION=true, str="") 
+    T = typeof(plan).parameters[1]
     current_input = :x
     current_output = :y
     ops = []
@@ -23,14 +26,15 @@ function generate_safe_execute_function!(plan::RadixPlan, show_function=true, TE
     # Helper to get the radix family module and function reference
     function get_radix_family(op_type::Symbol)
         radix = parse(Int, String(op_type)[4:end])
-        if radix ∈ [2, 4, 8, 16]
-            return radix2_family
+        #if radix ∈ [2, 4, 8, 16]
+        if ispow2(radix)
+            return radix_2_family
         elseif radix ∈ [3, 9]
-            return radix3_family
+            return radix_3_family
         elseif radix == 5
-            return radix5_family
+            return radix_5_family
         elseif radix == 7
-            return radix7_family
+            return radix_7_family
         else
             error("Unsupported radix: $radix")
         end
@@ -44,10 +48,11 @@ function generate_safe_execute_function!(plan::RadixPlan, show_function=true, TE
         return func
     end
 
-
     # Helper to push operations dynamically
     function push_operation!(ops, op, current_input, current_output, ivdep)
         radix_family = get_radix_family(op.op_type)
+        println("Radix Family: $radix_family")
+        #=
         suffix = if op === last(plan.operations)
             if op.eo
                 ivdep ? :shell_y_ivdep! : :shell_y!
@@ -57,21 +62,25 @@ function generate_safe_execute_function!(plan::RadixPlan, show_function=true, TE
         else
             ivdep ? :shell_layered_ivdep! : :shell_layered!
         end
+        =#
+        suffix = ivdep ? :shell_layered_ivdep! : :shell_layered!
+        @show suffix
         function_name = Symbol(String(op.op_type), "_", String(suffix))
         func_ref = get_function_reference(radix_family, function_name)
+        @show function_name, func_ref
 
-        if op === last(plan.operations)
-            op.eo ? push!(ops, Expr(:call, func_ref, current_input, op.stride)) : push!(ops, Expr(:call, func_ref, current_output, current_input, op.stride))
-        else
+        #if op === last(plan.operations)
+            #op.eo ? push!(ops, Expr(:call, func_ref, current_input, op.stride)) : push!(ops, Expr(:call, func_ref, current_output, current_input, op.stride))
+        #else
             n1 = op.n_groups ÷ get_radix_divisor(op.op_type)
-            theta = 2 / op.n_groups
-            push!(ops, Expr(:call, func_ref, current_output, current_input, op.stride, n1, theta))
-        end
+            theta::T = T(2 / op.n_groups)
+            push!(ops, Expr(:call, func_ref, current_output, current_input, op.stride, n1, T(theta)))
+        #end
     end
 
     # Main loop over operations
     for (i, op) ∈ enumerate(plan.operations)
-        if op.op_type ∈ [:fft2, :fft3, :fft4, :fft5, :fft7, :fft8, :fft9, :fft16]
+        #if op.op_type ∈ [:fft2, :fft3, :fft4, :fft5, :fft7, :fft8, :fft9, :fft16]
             if check_ivdep
                 # Determine if IVDEP is beneficial
                 radix_family = get_radix_family(op.op_type)
@@ -95,9 +104,9 @@ function generate_safe_execute_function!(plan::RadixPlan, show_function=true, TE
                 end
             end
             push_operation!(ops, op, current_input, current_output, ivdep)
-        else
-            error("Unsupported operation type: $(op.op_type)")
-        end
+        #else
+            #error("Unsupported operation type: $(op.op_type)")
+        #end
         current_input, current_output = current_output, current_input
     end
 
@@ -272,16 +281,21 @@ function return_best_family_function(plans::Vector{RadixPlan{T}}, show_function:
     best_time = Inf
     best_func = nothing
     x = randn(Complex{T}, N)
+    RadixGenerator.evaluate_fft_generated_module(Radix_Execute, N, T)
     
     for plan in plans
-        test_func = Radix_Execute.generate_safe_execute_function!(plan, true, TECHNICAL_ACCELERATION)
+        @show plan
+        @show typeof(plan)
+        test_func = Radix_Execute.generate_safe_execute_function!(plan, true, TECHNICAL_ACCELERATION) 
         show_function && println("Testing function for plan: $plan")
         
         #Pre-compute
-        test_func(x,x)
+        #test_func(x,x)
+        Base.invokelatest(test_func, x, x)
         
         # Use @belapsed for faster benchmarking with minimal overhead
-        test_time = @elapsed test_func(x, x) 
+        #test_time = @elapsed test_func(x, x) 
+        test_time = @elapsed Base.invokelatest(test_func, x, x) 
         
         println("Test elapsed time: $test_time seconds")
         
