@@ -1,6 +1,7 @@
 include("radix_factory.jl")
 include("matrix_operations.jl")
 
+
 # Module to store all runtime-generated FFT functions
 module FFTWorkspace
     using RuntimeGeneratedFunctions, Primes
@@ -13,7 +14,7 @@ module FFTWorkspace
 
     function find_closest_factors(n::Int)
         isprime(n) && return 1, n
-
+    
         p = isqrt(n) # Start with p as the floor of sqrt(n)
         while n % p != 0 # Adjust p until it divides n evenly
             p -= 1
@@ -21,25 +22,17 @@ module FFTWorkspace
         end
         return p, div(n, p)
     end
-
-    function evaluate_fft_generated_module(n::Int, ::Type{T}) where T <: AbstractFloat
-        module_expr = RadixGenerator.parse_module(RadixGenerator.create_kernel_module(n, T))
-        @show module_expr
-        
-        # Evaluate the module in the current context
-        Core.eval(@__MODULE__, module_expr)
-    end
-
+    
     @inline function D(p,m, ::Type{T})::Matrix where {T<:AbstractFloat}
         w = cispi.(T(-2/(p*m)) * collect(1:m-1))
         d = zeros(Complex{T},(p-1)*(m-1))
-
+    
         @inbounds d[1:m-1] .= w
-
+    
         @inbounds @simd for j in 2:p-1
               @views d[(j-1)*(m-1)+1:j*(m-1)] .= w .* view(d, (j-2)*(m-1)+1:(j-1)*(m-1))
         end
-
+    
         return reshape(d, m-1, p-1)
     end
 
@@ -81,7 +74,7 @@ module FFTWorkspace
     println("n1 = $n1, n2 = $n2")
     
     # Step 0: View as matrix and transpose
-A = reshape(X, n1, n2)
+    A = reshape(X, n1, n2)
     B = reshape(Y, n1, n2)
     
     # Step 1: Compute n2 FFTs of size n1
@@ -114,21 +107,20 @@ A = reshape(X, n1, n2)
     @views B .= transpose(A)
     #return X
 end
-
-
 end
 
+module Testing
+include("radix_factory.jl")
 using FFTW, BenchmarkTools
-#using .FFTWorkspace
 
-using .FFTWorkspace
+using ..FFTWorkspace
 @show isdefined(Main, :FFTWorkspace)
 
 n = 2^3
 CType = Float64
 x= [Complex{CType}(i,i) for i in 1:n];
 y = similar(x);
-FFTWorkspace.evaluate_fft_generated_module(n, CType)
+RadixGenerator.evaluate_fft_generated_module(Testing, n, CType)
 FFTWorkspace.fft_cache_oblivious!(y, x, n, false)
 
 F = FFTW.plan_fft(x; flags=FFTW.EXHAUSTIVE)
@@ -143,3 +135,5 @@ println("Custom FFT function benchmark:")
 display(factory_b)  # Use `display` for detailed results
 println("\nFFTW benchmark:")
 display(fftw_b)
+
+end

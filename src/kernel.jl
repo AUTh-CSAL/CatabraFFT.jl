@@ -6,6 +6,7 @@ include("radix_exec.jl")
 include("mixed_radix.jl")
 include("prime.jl")
 include("spells.jl")
+include("helper_tools.jl")
 
 using .Radix_Plan 
 
@@ -117,40 +118,30 @@ function call_radix_families(n::Int, ::Type{T}, flag::FLAG)::Function where {T<:
 
     ivdep = false
 
-    function subpowers_of_two(N::Int)
-    # Check if N is a power of two
-    @assert N > 1 && (N & (N - 1)) == 0 "N must be a power of two greater than 1"
-    
-    # Generate the list of subpowers
-    subpowers = Vector{Int}()
-    while N >= 2
-        push!(subpowers, N)
-        N = div(N, 2)
-    end
-    return subpowers
-end
-    
     family_func = if flag >= MEASURE
         ivdep = flag >= ENCHANT ? true : false
         if is_power_of(n,2)
-            #RadixGenerator.evaluate_fft_generated_module(n, T) # make radix_2_family shells available
-            Radix_Execute.return_best_family_function(Radix_Plan.create_all_radix_plans(n, subpowers_of_two(n), T), show_function, ivdep)
+            #Radix_Execute.return_best_factorized_function(Radix_Plan.create_all_radix_plans(n, subpowers_of_two(n), T), show_function, ivdep)
+            Radix_Execute.return_best_linear_function(Radix_Plan.create_all_radix_plans(n, subpowers_of_two(n), T), show_function, ivdep)
+
+            Radix_Execute.show_function_contents(CatabraFFT.Radix_Execute.execute_fft_linear!, AbstractVector{Complex{Float64}}, AbstractVector{Complex{Float64}})
         elseif is_power_of(n, 3)
-            Radix_Execute.return_best_family_function(Radix_Plan.create_all_radix_plans(n, [9, 3], T), show_function, ivdep)
+            Radix_Execute.return_best_linear_function(Radix_Plan.create_all_radix_plans(n, [9, 3], T), show_function, ivdep)
         elseif is_power_of(n, 5)
-            Radix_Execute.return_best_family_function(Radix_Plan.create_all_radix_plans(n, [5], T), show_function, ivdep)
+            Radix_Execute.return_best_linear_function(Radix_Plan.create_all_radix_plans(n, [5], T), show_function, ivdep)
         elseif is_power_of(n, 7)
-            Radix_Execute.return_best_family_function(Radix_Plan.create_all_radix_plans(n, [7], T), show_function, ivdep)
+            Radix_Execute.return_best_linear_function(Radix_Plan.create_all_radix_plans(n, [7], T), show_function, ivdep)
         end
     else # no_flag
         if is_power_of(n,2)
-            Radix_Execute.generate_safe_execute_function!(Radix_Plan.create_std_radix_plan(n, [8,4,2], T), show_function, ivdep)
+            #Radix_Execute.generate_linear_execute_function!(Radix_Plan.create_std_radix_plan(n, [8,4,2], T), show_function, ivdep)
+            Radix_Execute.generate_linear_execute_function!(Radix_Plan.create_std_radix_plan(n, [8,4,2], T), show_function, ivdep)
         elseif is_power_of(n, 3)
-            Radix_Execute.generate_safe_execute_function!(Radix_Plan.create_std_radix_plan(n, [9,3], T), show_function, ivdep)
+            Radix_Execute.generate_linear_execute_function!(Radix_Plan.create_std_radix_plan(n, [9,3], T), show_function, ivdep)
         elseif is_power_of(n, 5)
-            Radix_Execute.generate_safe_execute_function!(Radix_Plan.create_std_radix_plan(n, [5], T), show_function, ivdep)
+            Radix_Execute.generate_linear_execute_function!(Radix_Plan.create_std_radix_plan(n, [5], T), show_function, ivdep)
         elseif is_power_of(n, 7)
-            Radix_Execute.generate_safe_execute_function!(Radix_Plan.create_std_radix_plan(n, [7], T), show_function, ivdep)
+            Radix_Execute.generate_linear_execute_function!(Radix_Plan.create_std_radix_plan(n, [7], T), show_function, ivdep)
         end
     end
 

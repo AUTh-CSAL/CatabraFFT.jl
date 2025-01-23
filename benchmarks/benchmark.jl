@@ -66,8 +66,8 @@ end
 
 function benchmark_fft_over_range(xs::Vector; ctype=ComplexF64, fftw_plan_type=FFTW.MEASURE, save=false, msg="")
     # Initialize arrays for each plan type
-    catabraplans = [CatabraFFT.NO_FLAG, CatabraFFT.MEASURE, CatabraFFT.ENCHANT]
-    #catabraplans = [CatabraFFT.NO_FLAG, CatabraFFT.MEASURE]
+    #catabraplans = [CatabraFFT.NO_FLAG, CatabraFFT.MEASURE, CatabraFFT.ENCHANT]
+    catabraplans = [CatabraFFT.NO_FLAG, CatabraFFT.MEASURE]
 
     n_plans = length(catabraplans)  # Number of different Catabra plans
     gflops_catabra = [Float64[] for _ in 1:n_plans]
@@ -158,7 +158,7 @@ end
 
 fftwplan = FFTW.MEASURE
 save = false
-twoexp = 20
+twoexp = 15
 for b in [2 3 5 7 10]
     xs = b .^ (2:Int64(floor(twoexp / log2(b))))
     for ctype in [ComplexF32, ComplexF64]
