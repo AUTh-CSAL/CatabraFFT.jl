@@ -123,8 +123,7 @@ function call_radix_families(n::Int, ::Type{T}, flag::FLAG)::Function where {T<:
         if is_power_of(n,2)
             #Radix_Execute.return_best_factorized_function(Radix_Plan.create_all_radix_plans(n, subpowers_of_two(n), T), show_function, ivdep)
             Radix_Execute.return_best_linear_function(Radix_Plan.create_all_radix_plans(n, subpowers_of_two(n), T), show_function, ivdep)
-
-            Radix_Execute.show_function_contents(CatabraFFT.Radix_Execute.execute_fft_linear!, AbstractVector{Complex{Float64}}, AbstractVector{Complex{Float64}})
+            #Radix_Execute.show_function_contents(CatabraFFT.Radix_Execute.execute_fft_linear!, AbstractVector{Complex{Float64}}, AbstractVector{Complex{Float64}})
         elseif is_power_of(n, 3)
             Radix_Execute.return_best_linear_function(Radix_Plan.create_all_radix_plans(n, [9, 3], T), show_function, ivdep)
         elseif is_power_of(n, 5)

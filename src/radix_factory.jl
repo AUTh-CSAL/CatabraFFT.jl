@@ -1,8 +1,10 @@
 module RadixGenerator
 
 include("helper_tools.jl")
+include("radix_plan.jl")
 
 using LoopVectorization, GeneralizedGenerated
+using .Radix_Plan
 
 function generate_module_constants(n::Int, ::Type{T}) where T <: AbstractFloat
     @assert ispow2(n) "n must be a power of 2"
@@ -264,7 +266,7 @@ function generate_layered_kernel(radix, names, signature, suffixes)
     @inline function $(names[1])$signature
 
         @inbounds @simd for q in 1:s
-        layer_x, layer_y = extract_view(x, q, 0, s, n1, $radix), extract_view(y, q, 0, s, n1, $radix)
+        @show layer_x, layer_y = extract_view(x, q, 0, s, n1, $radix), extract_view(y, q, 0, s, n1, $radix)
         $(names[2])(layer_y, layer_x)
         end
 
@@ -273,7 +275,7 @@ function generate_layered_kernel(radix, names, signature, suffixes)
             w1p = cispi(-p * theta)
             $twiddle_code_str
             $decorators for q in 1:s
-                layer_x, layer_y = extract_view(x, q, p, s, n1, $radix), extract_view(y, q, p, s, n1, $radix)
+                @show layer_x, layer_y = extract_view(x, q, p, s, n1, $radix), extract_view(y, q, p, s, n1, $radix)
                 $(names[2])(layer_y, layer_x)
                 $twiddle_apply_str
             end
@@ -281,6 +283,19 @@ function generate_layered_kernel(radix, names, signature, suffixes)
     end
     """
 end
+
+function generate_kernel_vein(plan::RadixPlan)
+    T = typeof(plan).parameters[1]
+    current_input = :x
+    current_output = :y
+    blocks = []
+
+    for (i. op) ∈ enumerate(plan.operations)
+        X, Y = reshape(x, op.stride, op.n1), reshape(y, op.n1, op.stride)
+    end
+    
+end
+
 
 # Function to generate all possible kernel combinations
 function generate_all_kernels(N::Int, ::Type{T}) where T <: AbstractFloat
@@ -314,28 +329,31 @@ end
 function create_kernel_module(N::Int, ::Type{T}) where T <: AbstractFloat
     module_constants = generate_module_constants(N, T)
     kernels = generate_all_kernels(N, T)
-    
-    family_module_code = """
-    module radix_2_family
+    kernel_str = """
         using LoopVectorization
-        
+
         $module_constants
         
         $(join(kernels, "\n\n"))
+    """
+
+    family_module_code = """
+    module radix_2_family
+        $kernel_str
     end
     """
     
-    return Meta.parse(family_module_code)  # Parse directly into an expression
+    return Meta.parse(family_module_code), kernel_str  # Parse directly into an expression
 end
 
 function evaluate_fft_generated_module(target_module::Module, n::Int, ::Type{T}) where T <: AbstractFloat
-    module_expr = create_kernel_module(n, T)
+    module_expr, kernel_str = create_kernel_module(n, T)
+    @show module_expr
     Core.eval(target_module, module_expr)
 end
 
 end
 
-#=
 module Testing
 using FFTW, BenchmarkTools
 using ..RadixGenerator
@@ -368,4 +386,3 @@ end
 end
 
 Testing.main()
-=#

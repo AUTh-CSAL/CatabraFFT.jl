@@ -7,33 +7,6 @@ using ..RadixGenerator
 using BenchmarkTools
 using MacroTools
 
-function inline_function_calls(expr)
-    MacroTools.postwalk(expr) do x
-        # Replace function calls with their actual implementation
-        @capture(x, f_(args__)) && hasmethod(f, typeof.(args)) ?
-            inlined_body(f, args...) : x
-    end
-end
-
-function inlined_body(f, args...)
-    # Extract function body and substitute arguments
-    method = first(methods(f, typeof.((args...,))))
-    body = Base.code_lowered(f, typeof.((args...,)))[1].code
-    
-    # Perform symbolic substitution
-    substituted_body = substitute_args(body, method.sig, args)
-    println("Subtituted Body: $substituted_body")
-
-    return substituted_body
-end
-
-function show_function_contents(f, argtypes...)
-    method = first(methods(f, Tuple{argtypes...}))
-    lowered = Base.code_lowered(f, Tuple{argtypes...})[1].code
-    println("Function signature: $method")
-    println("Lowered code:\n$lowered")
-end
-
 #RuntimeGeneratedFunctions.init(@__MODULE__)
 
 include("radix_factory.jl")
@@ -41,34 +14,11 @@ include("radix_3_codelets.jl")
 include("radix_5_codelets.jl")
 include("radix_7_codelets.jl")
 
-function get_radix_family(op_type::Symbol)
-    radix = parse(Int, String(op_type)[4:end])
-    if ispow2(radix)
-        return radix_2_family
-    elseif radix ∈ [3, 9]
-        return radix_3_family
-    elseif radix == 5
-        return radix_5_family
-    elseif radix == 7
-        return radix_7_family
-    else
-        error("Unsupported radix: $radix")
-    end
-end
-
-function get_function_reference(radix_family, base_function_name::Symbol)
-    func = getfield(radix_family, base_function_name)
-    if !isdefined(radix_family, base_function_name)
-        error("Function $base_function_name not found in module $(radix_family)")
-    end
-    return func
-end
-
 function generated_factorized_execute_function!(plan::RadixPlan)
     T = typeof(plan).parameters[1]
     current_input = :x
     current_output = :y
-    ops = []
+    vein_ops = []
 
     function push_operation!(ops, op, current_input, current_output, ivdep)
         radix_family = get_radix_family(op.op_type)
@@ -82,13 +32,13 @@ function generated_factorized_execute_function!(plan::RadixPlan)
     end
     
     for (i, op) ∈ enumerate(plan.operations)
-        push!(ops, op, current_input, current_output)
+        push!(vein_ops, op, current_input, current_output)
     end
 
-    function_body =(:block, ops...)
+    vein_body = (:block, ops...)
 
     # Combine all operations into a runtime-generated function
-    ex = :(function execute_fft_linear!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}) where T <: AbstractFloat
+    ex = :(function execute_fft_factorized!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}) where T <: AbstractFloat
         $function_body
         return nothing
     end)

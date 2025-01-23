@@ -15,7 +15,7 @@ struct FFTOp
 end
 
 # Struct to hold the complete layered FFT plan
-struct RadixPlan{T<:AbstractFloat} <: AbstractFFTs.Plan{T}
+struct RadixPlan{T<:AbstractFloat} 
     operations::Vector{FFTOp}
     n::Int
 end
