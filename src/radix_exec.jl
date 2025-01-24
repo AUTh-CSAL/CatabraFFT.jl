@@ -13,6 +13,7 @@ include("radix_factory.jl")
 include("radix_3_codelets.jl")
 include("radix_5_codelets.jl")
 include("radix_7_codelets.jl")
+include("helper_tools.jl")
 
 function generated_factorized_execute_function!(plan::RadixPlan)
     T = typeof(plan).parameters[1]
@@ -35,7 +36,7 @@ function generated_factorized_execute_function!(plan::RadixPlan)
         push!(vein_ops, op, current_input, current_output)
     end
 
-    vein_body = (:block, ops...)
+    vein_body = (:block, vein_ops...)
 
     # Combine all operations into a runtime-generated function
     ex = :(function execute_fft_factorized!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}) where T <: AbstractFloat
@@ -125,8 +126,6 @@ function generate_linear_execute_function!(plan::RadixPlan, show_function=true, 
         $function_body
         return nothing
     end)
-    
-    inline_function_calls(ex)
     
     #runtime_generated_function = @RuntimeGeneratedFunction(ex)
     runtime_generated_function = Core.eval(Radix_Execute, ex)

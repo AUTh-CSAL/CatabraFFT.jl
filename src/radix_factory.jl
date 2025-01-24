@@ -38,6 +38,7 @@ function generate_module_constants(n::Int, ::Type{T}) where T <: AbstractFloat
         # Add the extract_view lamda in module definition for layered kernels
         #str *= "extract_view = (x::Vector{Complex{$T}}, q::Int, p::Int, s::Int, n1::Int, N::Int) -> [x[q + s*(p + i*n1)] for i in 0:N-1]"
         str *= "extract_view = (x::Vector{Complex{$T}}, q::Int, p::Int, s::Int, n1::Int, N::Int) -> view(x, q .+ s*(p .+ (0:(N-1))*n1))"
+        #str *= "cache_extract_view = (x::Vector{Complex{$T}}, block_size::Int, q::Int, p::Int, s::Int, n1::Int, N::Int) -> view(x, q + s * (p + block_size * div(0:(N-1), block_size) * n1))"
     end
     
     return str
@@ -133,16 +134,15 @@ function recfft2(y, x, w=nothing)
   if n == 1
     ""
   elseif n == 2
-    if isnothing(w)
-      s = """
-         $(y[1]), $(y[2]) = $(x[1]) + $(x[2]), $(x[1]) - $(x[2])
-         """
-    else
-      s = """
-         $(y[1]), $(y[2]) = ($(w[1]))*($(x[1]) + $(x[2])), ($(w[2]))*($(x[1]) - $(x[2]))
-         """
-    end
-
+    s = isnothing(w) ? """
+     $(y[1]), $(y[2]) = $(x[1]) + $(x[2]), $(x[1]) - $(x[2]) 
+     """ :
+        w[1] == "1" ? """
+         $(y[1]), $(y[2]) = ($(x[1]) + $(x[2])), ($(w[2]))*($(x[1]) - $(x[2]))
+          """ : 
+        """ 
+        $(y[1]), $(y[2]) = ($(w[1]))*($(x[1]) + $(x[2])), ($(w[2]))*($(x[1]) - $(x[2])) 
+        """
     return s
   else
     t = vmap(i -> "t$(inc())", 1:n)
@@ -162,7 +162,7 @@ function recfft2(y, x, w=nothing)
     else
       s3p = foldl(*, vmap(i -> ", $(y[i])", 2:n2); init="$(y[1])") *
             " = " *
-            foldl(*, vmap(i -> ", ($(w[i]))*($(t[i]) + $(t[i+n2]))", 2:n2), init="($(w[1]))*($(t[1]) + $(t[1+n2]))") * "\n"
+            foldl(*, vmap(i -> ", ($(w[i]))*($(t[i]) + $(t[i+n2]))", 2:n2), init= w[1] == "1" ? "$(t[1]) + $(t[1+n2])" : "($(w[1]))*($(t[1]) + $(t[1+n2]))") * "\n"
       s3m = foldl(*, vmap(i -> ", $(y[i+n2])", 2:n2); init="$(y[n2+1])") *
             " = " *
             foldl(*, vmap(i -> ", ($(w[n2+i]))*($(t[i]) - $(t[i+n2]))", 2:n2), init="($(w[n2+1]))*($(t[1]) - $(t[1+n2]))") * "\n"
@@ -207,7 +207,7 @@ function generate_signature(suffixes::Vector{String}, ::Type{T}) where T <: Abst
     elseif layered
         return "(y::AbstractVector{Complex{$T}}, x::AbstractVector{Complex{$T}}, s::Int, n1::Int, theta::$T=$T(0.125))"
     else
-        return "(y::AbstractVector{Complex{$T}}, x::AbstractVector{Complex{$T}})"
+        return "(y::AbstractArray{Complex{$T}, 1}, x::AbstractArray{Complex{$T}, 1})"
     end
 end
 
@@ -266,7 +266,7 @@ function generate_layered_kernel(radix, names, signature, suffixes)
     @inline function $(names[1])$signature
 
         @inbounds @simd for q in 1:s
-        @show layer_x, layer_y = extract_view(x, q, 0, s, n1, $radix), extract_view(y, q, 0, s, n1, $radix)
+        layer_x, layer_y = extract_view(x, q, 0, s, n1, $radix), extract_view(y, q, 0, s, n1, $radix)
         $(names[2])(layer_y, layer_x)
         end
 
@@ -275,7 +275,7 @@ function generate_layered_kernel(radix, names, signature, suffixes)
             w1p = cispi(-p * theta)
             $twiddle_code_str
             $decorators for q in 1:s
-                @show layer_x, layer_y = extract_view(x, q, p, s, n1, $radix), extract_view(y, q, p, s, n1, $radix)
+                layer_x, layer_y = extract_view(x, q, p, s, n1, $radix), extract_view(y, q, p, s, n1, $radix)
                 $(names[2])(layer_y, layer_x)
                 $twiddle_apply_str
             end
@@ -283,6 +283,37 @@ function generate_layered_kernel(radix, names, signature, suffixes)
     end
     """
 end
+
+#=
+function generate_blocked_layered_kernel(radix, names, signature, suffixes, block_size::Int)
+    s = log2(radix)
+    
+    # Generate blocked kernel with explicit cache-aware access
+    return """
+    @inline function $(names[1])$signature
+        # Divide into blocks for improved cache locality
+        @inbounds for block_start in 1:block_size:n1
+            block_end = min(block_start + block_size - 1, n1)
+            
+            @inbounds @simd for q in 1:s
+                # Use blocked view extraction
+                layer_x = cache_extract_view(x, block_size, q, block_start-1, s, n1, $radix)
+                layer_y = cache_extract_view(y, block_size, q, block_start-1, s, n1, $radix)
+                
+                # Process block
+                $(names[2])(layer_y, layer_x)
+            end
+            
+            # Twiddle factor application for the block
+            @inbounds @simd for p in block_start:block_end
+                w1p = cispi(-p * theta)
+                # ... (rest of twiddle factor computation)
+            end
+        end
+    end
+    """
+end
+=#
 
 function generate_kernel_vein(plan::RadixPlan)
     T = typeof(plan).parameters[1]
@@ -348,23 +379,24 @@ end
 
 function evaluate_fft_generated_module(target_module::Module, n::Int, ::Type{T}) where T <: AbstractFloat
     module_expr, kernel_str = create_kernel_module(n, T)
-    @show module_expr
+    #@show module_expr
     Core.eval(target_module, module_expr)
 end
 
 end
 
+#=
 module Testing
 using FFTW, BenchmarkTools
 using ..RadixGenerator
 
 function main()
-n = 2^7
+n = 2^5
 Type = Float64
 RadixGenerator.evaluate_fft_generated_module(Testing, n, Type)
 x = [Complex{Type}(i,i) for i in 1:n]
 y = similar(x)
-Base.invokelatest(radix_2_family.fft128_shell!, y, x)
+Base.invokelatest(radix_2_family.fft32_shell!, y, x)
 #@show y
 
 F = FFTW.plan_fft(x; flags=FFTW.EXHAUSTIVE)
@@ -374,7 +406,7 @@ y_fftw = F * x
 @assert y_fftw ≈ y
 println("Done")
 
-b_fftgen = @benchmark radix_2_family.fft128_shell!($y, $x)
+b_fftgen = @benchmark radix_2_family.fft32_shell!($y, $x)
 b_fftw = @benchmark $F * $x
 println("Display Generated FFT:")
 display(b_fftgen)
@@ -386,3 +418,4 @@ end
 end
 
 Testing.main()
+=#
