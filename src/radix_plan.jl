@@ -1,6 +1,6 @@
 module Radix_Plan
 
-using LoopVectorization, AbstractFFTs
+using LoopVectorization
 
 export RadixPlan
 
@@ -40,7 +40,7 @@ function create_all_radix_plans(n::Int, valid_radices::Vector{Int}, ::Type{T}) w
     
     backtrack(n, Int[], typemax(Int))
 
-    # Heuristic to narrow valid decomposition solution space to more likely solutions
+    # Heuristic to narrow valid decomposition solution space to exclude definetly sub-optimal solutions to have to verify
     function is_valid_decomposition(decomposition::Vector{Int})::Bool
     if all(x -> x == 0, mod.(decomposition, 2))
         if length(decomposition) == 1 return true end

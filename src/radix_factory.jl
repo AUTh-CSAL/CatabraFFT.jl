@@ -3,7 +3,8 @@ module RadixGenerator
 include("helper_tools.jl")
 include("radix_plan.jl")
 
-using LoopVectorization, GeneralizedGenerated
+using LoopVectorization
+#using ...Radix_Plan: Catabra.Radix_Plan
 using .Radix_Plan
 
 function generate_module_constants(n::Int, ::Type{T}) where T <: AbstractFloat
@@ -112,32 +113,61 @@ function get_constant_expression(w::Complex{T}, n::Integer)::String where T <: A
     return "($(round(real_part, digits=16))$(sign_str(imag_part))$(abs(round(imag_part, digits=16)))*im)"
 end
 
-@inline function D!(p, m, ::Type{T})::Matrix where {T<:AbstractFloat}
-  w = cispi.(T(-2/(p*m)) * collect(1:m-1))
-  d = zeros(Complex{T},(p-1)*(m-1))
+function create_D_kernel(n1::Int, n2::Int, ::Type{T}) where T <: AbstractFloat
 
-  @inbounds d[1:m-1] .= w
+    w = cispi.(T(-2/(n2*n1)) * collect(1:n1-1))
+    d = zeros(Complex{T},(n2-1)*(n1-1))
+    d_str = zeros(String, length(d))
 
-  @inbounds @simd for j in 2:p-1
-        @views d[(j-1)*(m-1)+1:j*(m-1)] .= w .* view(d, (j-2)*(m-1)+1:(j-1)*(m-1))
+    @inbounds d[1:n2-1] .= w
+
+    @inbounds @simd for j in 2:n1-1
+        @views d[(j-1)*(n1-1)+1:j*(n1-1)] .= w .* view(d, (j-2)*(n1-1)+1:(j-1)*(n1-1))
+    end
+
+    n = n1 * n2
+    m, M = min(n1-1, n2-1), max(n1-1, n2-1)
+    d_size = m * ((2M - m + 1) ÷ 2)  # Size of the upper triangle array
+
+    # Precompute the constant expression for the upper triangle
+    d_str = [get_constant_expression(d[i], n) for i in 1:d_size]
+
+    # Build the D_kernel string efficiently
+    D_kernel = """
+    D_$(n1)_$(n2)::AbstractArray{Complex{$T}} = [
+    $(join(d, ","))
+    ]
+    """
+
+    return D_kernel
+end
+
+@inline function D!(n1, n2, ::Type{T})::Matrix where T <:AbstractFloat
+  w = cispi.(T(-2/(n2*n1)) * collect(1:n1-1))
+  d = zeros(Complex{T},(n2-1)*(n1-1))
+
+  @inbounds d[1:n2-1] .= w
+
+  @inbounds @simd for j in 2:n1-1
+        @views d[(j-1)*(n1-1)+1:j*(n1-1)] .= w .* view(d, (j-2)*(n1-1)+1:(j-1)*(n1-1))
   end
   
   #=
   D_str = "
   D::AbstractMatrix{Complex{$T}} = ["
 
-  if ispow2(p) && ispow2(m)
+  if ispow2(n1) && ispow2(n2)
     for (i, w_d) in enumerate(d)
-        w_d_str = get_constant_expression(w_d, p*m)
-        D_str *= w_d_str * (i % (p-1) == 0 ? ";" : ",")
+        w_d_str = get_constant_expression(w_d, n1*n2)
+        D_str *= w_d_str * (i % (n1-1) == 0 ? ";" : ",")
     end
   end
   
   D_str *= "]\n"
-  @show D_str
+  @show eval(Meta.parse(D_str))
   =#
 
-  return reshape(d, m-1, p-1)
+  return reshape(d, n1-1, n2-1)
 end
 
 """
@@ -269,8 +299,8 @@ function generate_kernel(radix::Int, suffixes::Vector{String}, ::Type{T}) where 
         @inline function $(names[2])$signature 
             @inbounds @simd for k in axes(x,1)
             $kernel_code
-            @inbounds @simd for j in 1:(size(D,2)-1)
-                y[k,j] *= D[k, j]
+            @inbounds @simd for j in 1:(size(D,2))
+                y[k,j+1] *= D[k, j]
             end
             end
         end
@@ -365,7 +395,7 @@ function generate_all_kernels(N::Int, ::Type{T}) where T <: AbstractFloat
         #["ivdep"],
         #["y"],
         #["y", "ivdep"],
-        #["layered"], # Must have generated normal kernels to produces functional layered kernels
+        ["layered"], # Must have generated normal kernels to produces functional layered kernels
         #["layered", "ivdep"]
     ])
     
@@ -401,14 +431,59 @@ function create_kernel_module(N::Int, ::Type{T}) where T <: AbstractFloat
     return Meta.parse(family_module_code), kernel_str  # Parse directly into an expression
 end
 
+function create_kernel_module(plan::RadixPlan, ::Type{T}) where T <: AbstractFloat
+    module_constants = generate_module_constants(N, T)
+    kernels = generate_all_kernels(N, T)
+    D_kernels = generate_D_kernels(plan)
+    kernel_str = """
+        using LoopVectorization
+        
+        $module_constants
+        
+        $(join(kernels, "\n\n"))
+        
+        $(join(D_kernels, "\n\n"))
+    """
+    
+    family_module_code = """
+        module radix_2_family
+        $kernel_str
+    end
+    """
+
+    return Meta.parse(family_module_code), kernel_str  # Parse directly into an expression
+end
+
+function generate_D_kernels(plan::RadixPlan{})
+    
+    D_kernels = Vector{String}()
+
+    n = plan.n
+    for FFTOp in plan.operations
+        s = FFTOp.stride
+        n_group = FFTOp.n_groups
+        @show s, n_group
+        push!(D_kernels, create_D_kernel(s, n_group, T))
+    end
+
+    return D_kernels
+end
+
+
 function evaluate_fft_generated_module(target_module::Module, n::Int, ::Type{T}) where T <: AbstractFloat
     module_expr, kernel_str = create_kernel_module(n, T)
     @show module_expr
     Core.eval(target_module, module_expr)
 end
 
+function evaluate_fft_generated_module(target_module::Module, plan::RadixPlan, ::Type{T}) where T <: AbstractFloat
+    module_expr, kernel_str = create_kernel_module(plan, T)
+    Core.eval(target_module, module_expr)
 end
 
+end
+
+#=
 module Testing
 using FFTW, BenchmarkTools
 using ..RadixGenerator
@@ -439,24 +514,26 @@ X, Y = reshape(x, 2^3, 8), reshape(y, 2^3, 8)
 
 b_W = @benchmark RadixGenerator.D!(8, 2^3,Float64)
 display(b_W)
-W = RadixGenerator.D!(8, 2^3, Float64)
+#W = RadixGenerator.D!(8, 2^3, Float64)
 
 #b_mat = @benchmark Base.invokelatest(radix_2_family.fft8_shell!, $Y, $X)
 b_mat = @benchmark Base.invokelatest(radix_2_family.fft8_shell!, $Y, $X, $W)
 println("MAT FFT8:")
 display(b_mat)
 
-#b_layered = @benchmark Base.invokelatest(radix_2_family.fft8_shell_layered!,$y, $x, 1, 4, 2/32)
-#println("Layered FFT8:")
-#display(b_layered)
+b_layered = @benchmark Base.invokelatest(radix_2_family.fft8_shell_layered!,$y, $x, 1, 4, 2/32)
+println("Layered FFT8:")
+display(b_layered)
 
-b_W = RadixGenerator.D!(8, 2^3, Float64)
-display(b_W)
+#b_W = RadixGenerator.D!(8, 2^3, Float64)
+#display(b_W)
+
 
 end
 end
 
 Testing.main()
+=#
 
 #COMMENTS: IN ORDER TO HAVE NO HEAP USAGE THE PLANNER MUST CREATE THE TESTING MODULE AND NOT A POSSIBLE DYNAMIC MODULE TO BE TESTING UPON POTENTIAL PLANS!!!!
 # FOR STATIC ARRAYS OR NOT
