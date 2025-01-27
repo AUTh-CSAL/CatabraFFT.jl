@@ -60,7 +60,7 @@ function get_constant_expression(w::Complex{T}, n::Integer)::String where T <: A
     # Common cases table with twiddle factors patterns commonly met
 
     common_cases = [
-        (1.0, 0.0) => "1", # TODO SKIP UNITARY MULTIPLICATIONS
+        (1.0, 0.0) => "1",
         (-1.0, 0.0) => "-1",
         (0.0, 1.0) => "im",
         (0.0, -1.0) => "-im",
@@ -98,6 +98,11 @@ function get_constant_expression(w::Complex{T}, n::Integer)::String where T <: A
                 return "-im*CISPI_$(num)_$(den)_Q1"
             elseif isclose(w, -im*cispi2)
                 return "-im*CISPI_$(num)_$(den)_Q4"
+            elseif isclose(w, im*cispi1)
+                return "im*CISPI_$(num)_$(den)_Q1"
+            elseif isclose(w, im*cispi2)
+                return "im*CISPI_$(num)_$(den)_Q4"
+
             end
         end
         current_n >>= 1
@@ -105,6 +110,34 @@ function get_constant_expression(w::Complex{T}, n::Integer)::String where T <: A
     
     # Fallback to numerical representation with high precision if everything else fails
     return "($(round(real_part, digits=16))$(sign_str(imag_part))$(abs(round(imag_part, digits=16)))*im)"
+end
+
+@inline function D!(p, m, ::Type{T})::Matrix where {T<:AbstractFloat}
+  w = cispi.(T(-2/(p*m)) * collect(1:m-1))
+  d = zeros(Complex{T},(p-1)*(m-1))
+
+  @inbounds d[1:m-1] .= w
+
+  @inbounds @simd for j in 2:p-1
+        @views d[(j-1)*(m-1)+1:j*(m-1)] .= w .* view(d, (j-2)*(m-1)+1:(j-1)*(m-1))
+  end
+  
+  #=
+  D_str = "
+  D::AbstractMatrix{Complex{$T}} = ["
+
+  if ispow2(p) && ispow2(m)
+    for (i, w_d) in enumerate(d)
+        w_d_str = get_constant_expression(w_d, p*m)
+        D_str *= w_d_str * (i % (p-1) == 0 ? ";" : ",")
+    end
+  end
+  
+  D_str *= "]\n"
+  @show D_str
+  =#
+
+  return reshape(d, m-1, p-1)
 end
 
 """
@@ -176,9 +209,14 @@ end
 function makefftradix(n::Int, suffixes::Vector{String}, ::Type{T}) where T <: AbstractFloat
     input = "y" ∈ suffixes ? "y" : "x"
     output = "y"
-
-    x = ["$input[$i]" for i in 1:n]
-    y = ["$output[$i]" for i in 1:n]
+    
+    if "mat" ∈ suffixes
+        x = ["$input[k, $i]" for i in 1:n]
+        y = ["$output[k, $i]" for i in 1:n]
+    else
+        x = ["$input[$i]" for i in 1:n]
+        y = ["$output[$i]" for i in 1:n]
+    end
 
     s = recfft2(y, x) # Replace with any other recfft kernel family seed.
     
@@ -194,18 +232,21 @@ function generate_kernel_names(radix::Int, suffixes::Vector{String})
     base = "fft$(radix)_shell"
     suffix = join(suffixes, "_")
     return (string(base, isempty(suffix) ? "" : "_$suffix", "!"), string(base, "!"))
-    #return (string(base, isempty(suffix) ? "" : "$suffix", "!"), string(base, "!"))
 end
 
 # Function to generate function signature
 function generate_signature(suffixes::Vector{String}, ::Type{T}) where T <: AbstractFloat
     y_only = "y" in suffixes
     layered = "layered" in suffixes
+    mat = "mat" ∈ suffixes
     
     if y_only
         return "(y::AbstractVector{Complex{$T}})"
     elseif layered
         return "(y::AbstractVector{Complex{$T}}, x::AbstractVector{Complex{$T}}, s::Int, n1::Int, theta::$T=$T(0.125))"
+    elseif mat
+        return "(y::AbstractMatrix{Complex{$T}}, x::AbstractMatrix{Complex{$T}}, D::AbstractMatrix{Complex{$T}})"
+        #return "(y::AbstractMatrix{Complex{$T}}, x::AbstractMatrix{Complex{$T}})"
     else
         return "(y::AbstractArray{Complex{$T}, 1}, x::AbstractArray{Complex{$T}, 1})"
     end
@@ -223,11 +264,24 @@ function generate_kernel(radix::Int, suffixes::Vector{String}, ::Type{T}) where 
         # Special handling for layered kernels
         return generate_layered_kernel(radix, names, signature, suffixes)
     else
+        if "mat" ∈ suffixes
+        return """
+        @inline function $(names[2])$signature 
+            @inbounds @simd for k in axes(x,1)
+            $kernel_code
+            @inbounds @simd for j in 1:(size(D,2)-1)
+                y[k,j] *= D[k, j]
+            end
+            end
+        end
+        """
+    else
         return """
         @inline function $(names[2])$signature 
             $kernel_code
         end
         """
+    end
     end
 end
 
@@ -284,37 +338,6 @@ function generate_layered_kernel(radix, names, signature, suffixes)
     """
 end
 
-#=
-function generate_blocked_layered_kernel(radix, names, signature, suffixes, block_size::Int)
-    s = log2(radix)
-    
-    # Generate blocked kernel with explicit cache-aware access
-    return """
-    @inline function $(names[1])$signature
-        # Divide into blocks for improved cache locality
-        @inbounds for block_start in 1:block_size:n1
-            block_end = min(block_start + block_size - 1, n1)
-            
-            @inbounds @simd for q in 1:s
-                # Use blocked view extraction
-                layer_x = cache_extract_view(x, block_size, q, block_start-1, s, n1, $radix)
-                layer_y = cache_extract_view(y, block_size, q, block_start-1, s, n1, $radix)
-                
-                # Process block
-                $(names[2])(layer_y, layer_x)
-            end
-            
-            # Twiddle factor application for the block
-            @inbounds @simd for p in block_start:block_end
-                w1p = cispi(-p * theta)
-                # ... (rest of twiddle factor computation)
-            end
-        end
-    end
-    """
-end
-=#
-
 function generate_kernel_vein(plan::RadixPlan)
     T = typeof(plan).parameters[1]
     current_input = :x
@@ -338,10 +361,11 @@ function generate_all_kernels(N::Int, ::Type{T}) where T <: AbstractFloat
 
     suffix_combinations = Vector{Vector{String}}([
         String[],
+        ["mat"],
         #["ivdep"],
         #["y"],
         #["y", "ivdep"],
-        ["layered"], # Must have generated normal kernels to produces functional layered kernels
+        #["layered"], # Must have generated normal kernels to produces functional layered kernels
         #["layered", "ivdep"]
     ])
     
@@ -379,34 +403,31 @@ end
 
 function evaluate_fft_generated_module(target_module::Module, n::Int, ::Type{T}) where T <: AbstractFloat
     module_expr, kernel_str = create_kernel_module(n, T)
-    #@show module_expr
+    @show module_expr
     Core.eval(target_module, module_expr)
 end
 
 end
 
-#=
 module Testing
 using FFTW, BenchmarkTools
 using ..RadixGenerator
 
 function main()
-n = 2^5
+n = 2^6
 Type = Float64
 RadixGenerator.evaluate_fft_generated_module(Testing, n, Type)
 x = [Complex{Type}(i,i) for i in 1:n]
 y = similar(x)
-Base.invokelatest(radix_2_family.fft32_shell!, y, x)
+Base.invokelatest(radix_2_family.fft64_shell!, y, x)
 #@show y
 
 F = FFTW.plan_fft(x; flags=FFTW.EXHAUSTIVE)
 y_fftw = F * x
-#@show y_fftw
-##@show y_fftw
 @assert y_fftw ≈ y
 println("Done")
 
-b_fftgen = @benchmark radix_2_family.fft32_shell!($y, $x)
+b_fftgen = @benchmark radix_2_family.fft64_shell!($y, $x)
 b_fftw = @benchmark $F * $x
 println("Display Generated FFT:")
 display(b_fftgen)
@@ -414,8 +435,28 @@ display(b_fftgen)
 println("Display FFTW:")
 display(b_fftw)
 
+X, Y = reshape(x, 2^3, 8), reshape(y, 2^3, 8)
+
+b_W = @benchmark RadixGenerator.D!(8, 2^3,Float64)
+display(b_W)
+W = RadixGenerator.D!(8, 2^3, Float64)
+
+#b_mat = @benchmark Base.invokelatest(radix_2_family.fft8_shell!, $Y, $X)
+b_mat = @benchmark Base.invokelatest(radix_2_family.fft8_shell!, $Y, $X, $W)
+println("MAT FFT8:")
+display(b_mat)
+
+#b_layered = @benchmark Base.invokelatest(radix_2_family.fft8_shell_layered!,$y, $x, 1, 4, 2/32)
+#println("Layered FFT8:")
+#display(b_layered)
+
+b_W = RadixGenerator.D!(8, 2^3, Float64)
+display(b_W)
+
 end
 end
 
 Testing.main()
-=#
+
+#COMMENTS: IN ORDER TO HAVE NO HEAP USAGE THE PLANNER MUST CREATE THE TESTING MODULE AND NOT A POSSIBLE DYNAMIC MODULE TO BE TESTING UPON POTENTIAL PLANS!!!!
+# FOR STATIC ARRAYS OR NOT
