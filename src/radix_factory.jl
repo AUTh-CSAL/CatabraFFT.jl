@@ -6,7 +6,6 @@ include("radix_plan.jl")
 
 using LoopVectorization
 using .Radix_Plan
-#using .Radix_Execute: Radix_Execute
 
 export evaluate_fft_generated_module
 
@@ -40,9 +39,7 @@ function generate_module_constants(n::Int, ::Type{T}) where T <: AbstractFloat
         str *= "const INV_SQRT2_Q4 = $(Complex{T}(1/sqrt(2) - im * 1/sqrt(2)))\n"
 
         # Add the extract_view lamda in module definition for layered kernels
-        #str *= "extract_view = (x::Vector{Complex{$T}}, q::Int, p::Int, s::Int, n1::Int, N::Int) -> [x[q + s*(p + i*n1)] for i in 0:N-1]"
         str *= "extract_view = (x::Vector{Complex{$T}}, q::Int, p::Int, s::Int, n1::Int, N::Int) -> view(x, q .+ s*(p .+ (0:(N-1))*n1))"
-        #str *= "cache_extract_view = (x::Vector{Complex{$T}}, block_size::Int, q::Int, p::Int, s::Int, n1::Int, N::Int) -> view(x, q + s * (p + block_size * div(0:(N-1), block_size) * n1))"
     end
     
     return str
@@ -141,16 +138,24 @@ end
         push!(constant_exprs, get_constant_expression(d[i], n))
     end
     
-    # Build the D_kernel string
-    buf = IOBuffer()
-    write(buf, "D_$(n1)_$(n2)::AbstractArray{Complex{$T}, 1} = [\n    ")
+    # Reshape the array into a matrix
+    d_matrix = reshape(d, (m-1, p-1))
     
-    # Write complex numbers
-    for (i, expr) in enumerate(constant_exprs)
-        if i > 1
-            write(buf, i % 4 == 1 ? ",\n    " : ", ")
+    # Build the D_kernel string as an SMatrix
+    buf = IOBuffer()
+    write(buf, "D_$(n1)_$(n2)::AbstractMatrix{Complex{$T}} = [\n    ")
+    
+    # Write complex numbers in matrix form
+    for i in 1:size(d_matrix, 1)
+        for j in 1:size(d_matrix, 2)
+            if j > 1
+                write(buf, ", ")
+            end
+            write(buf, get_constant_expression(d_matrix[i, j], n))
         end
-        write(buf, expr)
+        if i < size(d_matrix, 1)
+            write(buf, ";\n    ")
+        end
     end
     
     write(buf, "\n]")
@@ -161,59 +166,6 @@ end
     
     return D_kernel
 end
-
-
-#=
-function create_D_kernel(n1::Int, n2::Int, ::Type{T}) where T <: AbstractFloat
-    # Pre-allocate the complex array for twiddle factors
-    w = cispi.(T(-2/(n2*n1)) * collect(1:n2-1))
-    d = zeros(Complex{T}, (n2-1)*(n1-1))
-    
-    # Fill the first row
-    @inbounds d[1:n2-1] .= w
-    
-    # Fill subsequent rows using views for better performance
-    @inbounds @simd for j in 2:n1-1
-        row_start = (j-1)*(n1-1)
-        prev_row_start = (j-2)*(n1-1)
-        @views d[row_start+1:row_start+n1-1] .= w .* d[prev_row_start+1:prev_row_start+n1-1]
-    end
-    
-    n = n1 * n2
-    m, M = min(n1-1, n2-1), max(n1-1, n2-1)
-    d_size = m * ((2M - m + 1) ÷ 2)  # Size of the upper triangle array
-    
-    # Generate constant expressions directly into a string buffer
-    constant_exprs = String[]
-    for i in 1:d_size
-        println("D_kernel d[i] and const expr:")
-        @show d[i]
-        @show get_constant_expression(d[i], n)
-        push!(constant_exprs, get_constant_expression(d[i], n))
-    end
-    
-    # Build the D_kernel string efficiently using IOBuffer
-    buf = IOBuffer()
-    write(buf, "D_$(n1)_$(n2)::AbstractArray{Complex{$T}, 1} = [\n")
-    
-    # Write complex numbers with proper formatting
-    for (i, val) in enumerate(d)
-        if i > 1
-            write(buf, ",")
-        end
-        write(buf, get_constant_expression(val, n))
-    end
-    
-    write(buf, "\n]")
-    
-    # Convert buffer to string
-    D_kernel = String(take!(buf))
-    close(buf)
-    
-    return D_kernel
-end
-=#
-
 
 """
 Generate twiddle factor expressions for a given collection of indices
@@ -237,63 +189,136 @@ end
 
 inc = inccounter()
 
-function recfft2(y, x, w=nothing)
+function recfft2(y, x, d=nothing, w=nothing)
   n = length(x)
   if n == 1
     ""
   elseif n == 2
-    s = isnothing(w) ? """
-     $(y[1]), $(y[2]) = $(x[1]) + $(x[2]), $(x[1]) - $(x[2]) 
-     """ :
-        w[1] == "1" ? """
-         $(y[1]), $(y[2]) = ($(x[1]) + $(x[2])), ($(w[2]))*($(x[1]) - $(x[2]))
-          """ : 
-        """ 
-        $(y[1]), $(y[2]) = ($(w[1]))*($(x[1]) + $(x[2])), ($(w[2]))*($(x[1]) - $(x[2])) 
+    s = if !isnothing(d)
+      if isnothing(w)
         """
+        $(y[1]), $(y[2]) = $(x[1]) + $(x[2]), $(d[1])*($(x[1]) - $(x[2]))
+        """
+      else
+        w[1] == "1" ? 
+        """
+        $(y[1]), $(y[2]) = ($(x[1]) + $(x[2])), ($(d[1])*$(w[2]))*($(x[1]) - $(x[2]))
+        """ : 
+        """
+        $(y[1]), $(y[2]) = ($(w[1]))*($(x[1]) + $(x[2])), ($(d[1])*$(w[2]))*($(x[1]) - $(x[2]))
+        """
+      end
+    else
+      if isnothing(w)
+        """
+        $(y[1]), $(y[2]) = $(x[1]) + $(x[2]), $(x[1]) - $(x[2])
+        """
+      else
+        w[1] == "1" ? 
+        """
+        $(y[1]), $(y[2]) = ($(x[1]) + $(x[2])), ($(w[2]))*($(x[1]) - $(x[2]))
+        """ :
+        """
+        $(y[1]), $(y[2]) = ($(w[1]))*($(x[1]) + $(x[2])), ($(w[2]))*($(x[1]) - $(x[2]))
+        """
+      end
+    end
     return s
   else
     t = vmap(i -> "t$(inc())", 1:n)
     n2 = n ÷ 2
     wn = get_twiddle_expression(collect(0:n2-1), n)
-
-    s1 = recfft2(t[1:n2], x[1:2:n])
-    s2 = recfft2(t[n2+1:n], x[2:2:n], wn)
-
-    if isnothing(w)
-      s3p = foldl(*, vmap(i -> ",$(y[i])", 2:n2); init="$(y[1])") *
-            " = " *
-            foldl(*, vmap(i -> ",$(t[i]) + $(t[i+n2])", 2:n2), init="$(t[1]) + $(t[1+n2])") * "\n"
-      s3m = foldl(*, vmap(i -> ",$(y[i+n2])", 2:n2); init="$(y[n2+1])") *
-            " = " *
-            foldl(*, vmap(i -> ",$(t[i]) - $(t[i+n2])", 2:n2), init="$(t[1]) - $(t[1+n2])") * "\n"
+    
+    # Recursively handle sub-transforms
+    s1 = recfft2(t[1:n2], x[1:2:n], nothing, nothing)
+    s2 = recfft2(t[n2+1:n], x[2:2:n], nothing, wn)
+    
+    # Final layer combining with D matrix twiddles
+    if !isnothing(d)
+      if isnothing(w)
+        s3p = "$(y[1])" * foldl(*, vmap(i -> ",$(y[i])", 2:n2)) *
+              " = " *
+              "$(t[1]) + $(t[1+n2])" * foldl(*, vmap(i -> ",$(d[i-1])*($(t[i]) + $(t[i+n2]))", 2:n2)) * "\n"
+        s3m = "$(y[n2+1])" * foldl(*, vmap(i -> ",$(y[i+n2])", 2:n2)) *
+              " = " *
+              "$(d[n2])*($(t[1]) - $(t[1+n2]))" * foldl(*, vmap(i -> ",$(d[i+n2-1])*($(t[i]) - $(t[i+n2]))", 2:n2)) * "\n"
+      else
+        s3p = "$(y[1])" * foldl(*, vmap(i -> ", $(y[i])", 2:n2)) *
+              " = " *
+              (w[1] == "1" ? "$(t[1]) + $(t[1+n2])" : "($(w[1]))*($(t[1]) + $(t[1+n2]))") *
+              foldl(*, vmap(i -> ", $(d[i-1])*($(w[i]))*($(t[i]) + $(t[i+n2]))", 2:n2)) * "\n"
+        s3m = "$(y[n2+1])" * foldl(*, vmap(i -> ", $(y[i+n2])", 2:n2)) *
+              " = " *
+              "($(d[n2])*$(w[n2+1]))*($(t[1]) - $(t[1+n2]))" *
+              foldl(*, vmap(i -> ", ($(d[i+n2-1])*$(w[n2+i]))*($(t[i]) - $(t[i+n2]))", 2:n2)) * "\n"
+      end
     else
-      s3p = foldl(*, vmap(i -> ", $(y[i])", 2:n2); init="$(y[1])") *
-            " = " *
-            foldl(*, vmap(i -> ", ($(w[i]))*($(t[i]) + $(t[i+n2]))", 2:n2), init= w[1] == "1" ? "$(t[1]) + $(t[1+n2])" : "($(w[1]))*($(t[1]) + $(t[1+n2]))") * "\n"
-      s3m = foldl(*, vmap(i -> ", $(y[i+n2])", 2:n2); init="$(y[n2+1])") *
-            " = " *
-            foldl(*, vmap(i -> ", ($(w[n2+i]))*($(t[i]) - $(t[i+n2]))", 2:n2), init="($(w[n2+1]))*($(t[1]) - $(t[1+n2]))") * "\n"
+      if isnothing(w)
+        s3p = "$(y[1])" * foldl(*, vmap(i -> ",$(y[i])", 2:n2)) *
+              " = " *
+              "$(t[1]) + $(t[1+n2])" * foldl(*, vmap(i -> ",$(t[i]) + $(t[i+n2])", 2:n2)) * "\n"
+        s3m = "$(y[n2+1])" * foldl(*, vmap(i -> ",$(y[i+n2])", 2:n2)) *
+              " = " *
+              "$(t[1]) - $(t[1+n2])" * foldl(*, vmap(i -> ",$(t[i]) - $(t[i+n2])", 2:n2)) * "\n"
+      else
+        s3p = "$(y[1])" * foldl(*, vmap(i -> ", $(y[i])", 2:n2)) *
+              " = " *
+              (w[1] == "1" ? "$(t[1]) + $(t[1+n2])" : "($(w[1]))*($(t[1]) + $(t[1+n2]))") *
+              foldl(*, vmap(i -> ", ($(w[i]))*($(t[i]) + $(t[i+n2]))", 2:n2)) * "\n"
+        s3m = "$(y[n2+1])" * foldl(*, vmap(i -> ", $(y[i+n2])", 2:n2)) *
+              " = " *
+              "($(w[n2+1]))*($(t[1]) - $(t[1+n2]))" *
+              foldl(*, vmap(i -> ", ($(w[n2+i]))*($(t[i]) - $(t[i+n2]))", 2:n2)) * "\n"
+      end
     end
-
     return s1 * s2 * s3p * s3m
   end
 end
 
-# Wrapper for any other kernel shell strategy planer
 function makefftradix(n::Int, suffixes::Vector{String}, ::Type{T}) where T <: AbstractFloat
     input = "y" ∈ suffixes ? "y" : "x"
     output = "y"
+    d_matrix = "D"
+    is_mat = "mat" ∈ suffixes
     
-    if "mat" ∈ suffixes
+    if is_mat
         x = ["$input[k, $i]" for i in 1:n]
         y = ["$output[k, $i]" for i in 1:n]
+        d = ["$d_matrix[k, $i]" for i in 1:(n-1)]
     else
         x = ["$input[$i]" for i in 1:n]
         y = ["$output[$i]" for i in 1:n]
+        d = nothing
+    end
+    
+    s = recfft2(y, x, d)
+    kernel_code = replace(s, 
+            "#INPUT#" => input,
+            "#OUTPUT#" => output)
+    return kernel_code
+end
+
+# Wrapper for any other kernel shell strategy planer
+function makefftradix(n::Int, suffixes::Vector{String}, ::Type{T}) where T <: AbstractFloat
+
+    global inc = inccounter()
+
+    input = "y" ∈ suffixes ? "y" : "x"
+    output = "y"
+    d_matrix = "D"
+    is_mat = "mat" ∈ suffixes
+    
+    if is_mat
+        x = ["$input[k, $i]" for i in 1:n]
+        y = ["$output[k, $i]" for i in 1:n]
+        d = ["$d_matrix[k, $i]" for i in 1:(n-1)]
+    else
+        x = ["$input[$i]" for i in 1:n]
+        y = ["$output[$i]" for i in 1:n]
+        d = nothing
     end
 
-    s = recfft2(y, x) # Replace with any other recfft kernel family seed.
+    s = recfft2(y, x, d) # Replace with any other recfft kernel family seed.
     
     kernel_code = replace(s, 
             "#INPUT#" => input,
@@ -320,8 +345,8 @@ function generate_signature(suffixes::Vector{String}, ::Type{T}) where T <: Abst
     elseif layered
         return "(y::AbstractVector{Complex{$T}}, x::AbstractVector{Complex{$T}}, s::Int, n1::Int, theta::$T=$T(0.125))"
     elseif mat
-        #return "(y::AbstractMatrix{Complex{$T}}, x::AbstractMatrix{Complex{$T}}, D::AbstractMatrix{Complex{$T}})"
-        return "(y::AbstractMatrix{Complex{$T}}, x::AbstractMatrix{Complex{$T}})"
+        return "(y::AbstractMatrix{Complex{$T}}, x::AbstractMatrix{Complex{$T}}, D::AbstractMatrix{Complex{$T}})"
+        #return "(y::AbstractMatrix{Complex{$T}}, x::AbstractMatrix{Complex{$T}})"
     else
         return "(y::AbstractArray{Complex{$T}, 1}, x::AbstractArray{Complex{$T}, 1})"
     end
@@ -344,9 +369,6 @@ function generate_kernel(radix::Int, suffixes::Vector{String}, ::Type{T}) where 
         @inline function $(names[2])$signature 
             @inbounds @simd for k in axes(x,1)
             $kernel_code
-            @inbounds @simd for j in 1:(size(D,2))
-                y[k,j+1] *= D[k, j]
-            end
             end
         end
         """
