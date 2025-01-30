@@ -1,19 +1,18 @@
 module Radix_Execute
 
 using Core.Compiler: Core, return_type
-#using RuntimeGeneratedFunctions
 using ..Radix_Plan
 using ..RadixGenerator
 using BenchmarkTools
-using MacroTools
 
 #RuntimeGeneratedFunctions.init(@__MODULE__)
 
-include("radix_factory.jl")
+#include("radix_factory.jl")
 include("radix_3_codelets.jl")
 include("radix_5_codelets.jl")
 include("radix_7_codelets.jl")
 include("helper_tools.jl")
+#include("radix_plan.jl")
 
 
 function generate_linear_execute_function!(plan::RadixPlan, show_function=true, TECHNICAL_ACCELERATION=true, str="") 
@@ -257,10 +256,10 @@ function return_best_linear_function(plans::Vector{RadixPlan{T}}, show_function:
     best_time = Inf
     best_func = nothing
     x = randn(Complex{T}, N)
-    RadixGenerator.evaluate_fft_generated_module(Radix_Execute, N, T)
+    evaluate_fft_generated_module(Radix_Execute, N, T)
     
     for plan in plans
-        test_func = Radix_Execute.generate_linear_execute_function!(plan, true, TECHNICAL_ACCELERATION) 
+        test_func = generate_linear_execute_function!(plan, true, TECHNICAL_ACCELERATION) 
         show_function && println("Testing function for plan: $plan")
         
         #Pre-compute
@@ -286,13 +285,14 @@ end
 
 function return_best_static_linear_function(plans::Vector{RadixPlan{T}}, show_function::Bool, TECHNICAL_ACCELERATION::Bool) where T <: AbstractFloat
     N = plans[1].n
-    best_time = Int
+    best_time = Inf
     best_func = nothing
     x = rand(Complex{T}, N)
     
     for plan in plans
         println("Creating new module")
-        RadixGenerator.evaluate_fft_generated_module(Radix_Execute, plan, T)
+        evaluate_fft_generated_module(Radix_Execute, plan, T)
+        test_func = generate_linear_execute_function!(plan, true, TECHNICAL_ACCELERATION)
         show_function && println("Testing module for plan: $plan")
         
         Base.invokelatest(test_func, x, x)

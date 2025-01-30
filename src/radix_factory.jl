@@ -2,10 +2,13 @@ module RadixGenerator
 
 include("helper_tools.jl")
 include("radix_plan.jl")
+#include("radix_exec.jl")
 
 using LoopVectorization
-#using ...Radix_Plan: Catabra.Radix_Plan
 using .Radix_Plan
+#using .Radix_Execute: Radix_Execute
+
+export evaluate_fft_generated_module
 
 function generate_module_constants(n::Int, ::Type{T}) where T <: AbstractFloat
     @assert ispow2(n) "n must be a power of 2"
@@ -53,7 +56,7 @@ function get_constant_expression(w::Complex{T}, n::Integer)::String where T <: A
     imag_part = imag(w)
     
     # Helper for approximate equality
-    isclose(a, b) = (abs(real(a) - real(b)) < eps(T) * 10) && (abs(imag(a) - imag(b)) < eps(T) * 10)
+    isclose(a, b) = (abs(real(a) - real(b)) < eps(T) * 50) && (abs(imag(a) - imag(b)) < eps(T) * 50)
     
     # Function to get sign string
     sign_str(x) = x ≥ 0 ? "+" : "-"
@@ -113,62 +116,104 @@ function get_constant_expression(w::Complex{T}, n::Integer)::String where T <: A
     return "($(round(real_part, digits=16))$(sign_str(imag_part))$(abs(round(imag_part, digits=16)))*im)"
 end
 
-function create_D_kernel(n1::Int, n2::Int, ::Type{T}) where T <: AbstractFloat
-
-    w = cispi.(T(-2/(n2*n1)) * collect(1:n1-1))
-    d = zeros(Complex{T},(n2-1)*(n1-1))
-    d_str = zeros(String, length(d))
-
-    @inbounds d[1:n2-1] .= w
-
-    @inbounds @simd for j in 2:n1-1
-        @views d[(j-1)*(n1-1)+1:j*(n1-1)] .= w .* view(d, (j-2)*(n1-1)+1:(j-1)*(n1-1))
+@inline function create_D_kernel(n1::Int, n2::Int, ::Type{T}) where T <: AbstractFloat
+    # Pre-allocate the array for twiddle factors
+    m, p = min(n1, n2), max(n1, n2)
+    w = cispi.(T(-2/(p*m)) * collect(1:m-1))
+    d = zeros(Complex{T}, (p-1)*(m-1))
+    d_size = length(d)
+    
+    # Fill the first row
+    @inbounds d[1:m-1] .= w
+    
+    # Fill subsequent rows
+    @inbounds @simd for j in 2:p-1
+        row_start = (j-1)*(m-1)
+        prev_row_start = (j-2)*(m-1)
+        @views d[row_start+1:row_start+m-1] .= w .* d[prev_row_start+1:prev_row_start+m-1]
     end
-
+    
     n = n1 * n2
-    m, M = min(n1-1, n2-1), max(n1-1, n2-1)
-    d_size = m * ((2M - m + 1) ÷ 2)  # Size of the upper triangle array
-
-    # Precompute the constant expression for the upper triangle
-    d_str = [get_constant_expression(d[i], n) for i in 1:d_size]
-
-    # Build the D_kernel string efficiently
-    D_kernel = """
-    D_$(n1)_$(n2)::AbstractArray{Complex{$T}} = [
-    $(join(d, ","))
-    ]
-    """
-
+    
+    # Generate constant expressions
+    constant_exprs = String[]
+    for i in 1:d_size
+        push!(constant_exprs, get_constant_expression(d[i], n))
+    end
+    
+    # Build the D_kernel string
+    buf = IOBuffer()
+    write(buf, "D_$(n1)_$(n2)::AbstractArray{Complex{$T}, 1} = [\n    ")
+    
+    # Write complex numbers
+    for (i, expr) in enumerate(constant_exprs)
+        if i > 1
+            write(buf, i % 4 == 1 ? ",\n    " : ", ")
+        end
+        write(buf, expr)
+    end
+    
+    write(buf, "\n]")
+    
+    # Convert buffer to string
+    D_kernel = String(take!(buf))
+    close(buf)
+    
     return D_kernel
 end
 
-@inline function D!(n1, n2, ::Type{T})::Matrix where T <:AbstractFloat
-  w = cispi.(T(-2/(n2*n1)) * collect(1:n1-1))
-  d = zeros(Complex{T},(n2-1)*(n1-1))
 
-  @inbounds d[1:n2-1] .= w
-
-  @inbounds @simd for j in 2:n1-1
-        @views d[(j-1)*(n1-1)+1:j*(n1-1)] .= w .* view(d, (j-2)*(n1-1)+1:(j-1)*(n1-1))
-  end
-  
-  #=
-  D_str = "
-  D::AbstractMatrix{Complex{$T}} = ["
-
-  if ispow2(n1) && ispow2(n2)
-    for (i, w_d) in enumerate(d)
-        w_d_str = get_constant_expression(w_d, n1*n2)
-        D_str *= w_d_str * (i % (n1-1) == 0 ? ";" : ",")
+#=
+function create_D_kernel(n1::Int, n2::Int, ::Type{T}) where T <: AbstractFloat
+    # Pre-allocate the complex array for twiddle factors
+    w = cispi.(T(-2/(n2*n1)) * collect(1:n2-1))
+    d = zeros(Complex{T}, (n2-1)*(n1-1))
+    
+    # Fill the first row
+    @inbounds d[1:n2-1] .= w
+    
+    # Fill subsequent rows using views for better performance
+    @inbounds @simd for j in 2:n1-1
+        row_start = (j-1)*(n1-1)
+        prev_row_start = (j-2)*(n1-1)
+        @views d[row_start+1:row_start+n1-1] .= w .* d[prev_row_start+1:prev_row_start+n1-1]
     end
-  end
-  
-  D_str *= "]\n"
-  @show eval(Meta.parse(D_str))
-  =#
-
-  return reshape(d, n1-1, n2-1)
+    
+    n = n1 * n2
+    m, M = min(n1-1, n2-1), max(n1-1, n2-1)
+    d_size = m * ((2M - m + 1) ÷ 2)  # Size of the upper triangle array
+    
+    # Generate constant expressions directly into a string buffer
+    constant_exprs = String[]
+    for i in 1:d_size
+        println("D_kernel d[i] and const expr:")
+        @show d[i]
+        @show get_constant_expression(d[i], n)
+        push!(constant_exprs, get_constant_expression(d[i], n))
+    end
+    
+    # Build the D_kernel string efficiently using IOBuffer
+    buf = IOBuffer()
+    write(buf, "D_$(n1)_$(n2)::AbstractArray{Complex{$T}, 1} = [\n")
+    
+    # Write complex numbers with proper formatting
+    for (i, val) in enumerate(d)
+        if i > 1
+            write(buf, ",")
+        end
+        write(buf, get_constant_expression(val, n))
+    end
+    
+    write(buf, "\n]")
+    
+    # Convert buffer to string
+    D_kernel = String(take!(buf))
+    close(buf)
+    
+    return D_kernel
 end
+=#
+
 
 """
 Generate twiddle factor expressions for a given collection of indices
@@ -275,8 +320,8 @@ function generate_signature(suffixes::Vector{String}, ::Type{T}) where T <: Abst
     elseif layered
         return "(y::AbstractVector{Complex{$T}}, x::AbstractVector{Complex{$T}}, s::Int, n1::Int, theta::$T=$T(0.125))"
     elseif mat
-        return "(y::AbstractMatrix{Complex{$T}}, x::AbstractMatrix{Complex{$T}}, D::AbstractMatrix{Complex{$T}})"
-        #return "(y::AbstractMatrix{Complex{$T}}, x::AbstractMatrix{Complex{$T}})"
+        #return "(y::AbstractMatrix{Complex{$T}}, x::AbstractMatrix{Complex{$T}}, D::AbstractMatrix{Complex{$T}})"
+        return "(y::AbstractMatrix{Complex{$T}}, x::AbstractMatrix{Complex{$T}})"
     else
         return "(y::AbstractArray{Complex{$T}, 1}, x::AbstractArray{Complex{$T}, 1})"
     end
@@ -368,27 +413,14 @@ function generate_layered_kernel(radix, names, signature, suffixes)
     """
 end
 
-function generate_kernel_vein(plan::RadixPlan)
-    T = typeof(plan).parameters[1]
-    current_input = :x
-    current_output = :y
-    blocks = []
-
-    for (i. op) ∈ enumerate(plan.operations)
-        X, Y = reshape(x, op.stride, op.n1), reshape(y, op.n1, op.stride)
-    end
-    
-end
-
-
-# Function to generate all possible kernel combinations
-function generate_all_kernels(N::Int, ::Type{T}) where T <: AbstractFloat
+function generate_all_kernels(N::Int,  ::Type{T}; suffix_combinations::Union{Nothing, Vector{Vector{String}}}=nothing) where T <: AbstractFloat
     if N < 2 || (N & (N - 1)) != 0  # Check if N is less than 2 or not a power of 2
         error("N must be a power of 2 and greater than or equal to 2")
     end
         
     radices = subpowers_of_two(N)
 
+    if isnothing(suffix_combinations)
     suffix_combinations = Vector{Vector{String}}([
         String[],
         ["mat"],
@@ -398,6 +430,7 @@ function generate_all_kernels(N::Int, ::Type{T}) where T <: AbstractFloat
         ["layered"], # Must have generated normal kernels to produces functional layered kernels
         #["layered", "ivdep"]
     ])
+    end
     
     kernels = Vector{String}()
     
@@ -410,10 +443,28 @@ function generate_all_kernels(N::Int, ::Type{T}) where T <: AbstractFloat
     return kernels
 end
 
-# Function to evaluate and create the functions in a module
+function generate_D_kernels(operations, ::Type{T}) where T <: AbstractFloat
+    D_kernels = Vector{String}()
+    
+    for op in operations
+        s = op.stride
+        if s == 1
+            continue
+        end
+        n_group = op.n_groups
+        push!(D_kernels, create_D_kernel(s, n_group, T))
+    end
+    
+    @show D_kernels
+
+    return D_kernels
+end
+
+# MEASURE KERNEL PRODUCER
 function create_kernel_module(N::Int, ::Type{T}) where T <: AbstractFloat
     module_constants = generate_module_constants(N, T)
-    kernels = generate_all_kernels(N, T)
+    custom_combinations = [String[], ["layered"]]
+    kernels = generate_all_kernels(N, T; suffix_combinations=custom_combinations)
     kernel_str = """
         using LoopVectorization
 
@@ -431,44 +482,55 @@ function create_kernel_module(N::Int, ::Type{T}) where T <: AbstractFloat
     return Meta.parse(family_module_code), kernel_str  # Parse directly into an expression
 end
 
-function create_kernel_module(plan::RadixPlan, ::Type{T}) where T <: AbstractFloat
-    module_constants = generate_module_constants(N, T)
-    kernels = generate_all_kernels(N, T)
-    D_kernels = generate_D_kernels(plan)
+# ENCHANT KERNEL PRODUCER
+function create_kernel_module(plan_data::NamedTuple, ::Type{T}) where T <: AbstractFloat
+    module_constants = generate_module_constants(plan_data.n, T)
+    custom_combinations = [String[], ["mat"]]
+    kernels = generate_all_kernels(plan_data.n, T; suffix_combinations=custom_combinations)
+    D_kernels = generate_D_kernels(plan_data.operations, T)
+
     kernel_str = """
         using LoopVectorization
         
         $module_constants
-        
+
         $(join(kernels, "\n\n"))
         
         $(join(D_kernels, "\n\n"))
+        
     """
     
     family_module_code = """
         module radix_2_family
         $kernel_str
-    end
+        end
     """
-
-    return Meta.parse(family_module_code), kernel_str  # Parse directly into an expression
-end
-
-function generate_D_kernels(plan::RadixPlan{})
     
-    D_kernels = Vector{String}()
-
-    n = plan.n
-    for FFTOp in plan.operations
-        s = FFTOp.stride
-        n_group = FFTOp.n_groups
-        @show s, n_group
-        push!(D_kernels, create_D_kernel(s, n_group, T))
-    end
-
-    return D_kernels
+    return Meta.parse(family_module_code), kernel_str
 end
 
+
+# This function extracts the data we need from any RadixPlan-like type
+# by checking for the expected fields
+function extract_plan_data(plan::T) where T
+    if !(:n in fieldnames(T)) || !(:operations in fieldnames(T))
+        error("Invalid plan type: missing required fields")
+    end
+    return (n=plan.n, operations=plan.operations)
+end
+
+# Modify the evaluate_fft_generated_module to use a more flexible type constraint
+function evaluate_fft_generated_module(target_module::Module, plan::P, ::Type{T}) where {P, T <: AbstractFloat}
+    # Check if the type has the structure we expect
+    if !hasfield(P, :n) || !hasfield(P, :operations)
+        error("Invalid plan type: must have fields 'n' and 'operations'")
+    end
+    
+    # Create module expression using the extracted data
+    module_expr, kernel_str = create_kernel_module(extract_plan_data(plan), T)
+    @show module_expr
+    Core.eval(target_module, module_expr)
+end
 
 function evaluate_fft_generated_module(target_module::Module, n::Int, ::Type{T}) where T <: AbstractFloat
     module_expr, kernel_str = create_kernel_module(n, T)
@@ -476,10 +538,6 @@ function evaluate_fft_generated_module(target_module::Module, n::Int, ::Type{T})
     Core.eval(target_module, module_expr)
 end
 
-function evaluate_fft_generated_module(target_module::Module, plan::RadixPlan, ::Type{T}) where T <: AbstractFloat
-    module_expr, kernel_str = create_kernel_module(plan, T)
-    Core.eval(target_module, module_expr)
-end
 
 end
 
@@ -489,7 +547,7 @@ using FFTW, BenchmarkTools
 using ..RadixGenerator
 
 function main()
-n = 2^6
+n = 2^5
 Type = Float64
 RadixGenerator.evaluate_fft_generated_module(Testing, n, Type)
 x = [Complex{Type}(i,i) for i in 1:n]

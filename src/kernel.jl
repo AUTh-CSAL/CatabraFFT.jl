@@ -8,7 +8,8 @@ include("prime.jl")
 include("spells.jl")
 include("helper_tools.jl")
 
-using .Radix_Plan 
+#using .Radix_Plan 
+export Radix_Plan, RadixGenerator, Radix_Execute
 
 # BiMap (HashMap) struct for FFT caching
 mutable struct FFTCacheMap{T}
