@@ -335,7 +335,7 @@ function generate_kernel_names(radix::Int, suffixes::Vector{String})
 end
 
 # Function to generate function signature
-function generate_signature(suffixes::Vector{String}, ::Type{T}) where T <: AbstractFloat
+function generate_signature(radix::Int, suffixes::Vector{String}, ::Type{T}) where T <: AbstractFloat
     y_only = "y" in suffixes
     layered = "layered" in suffixes
     mat = "mat" ∈ suffixes
@@ -355,14 +355,14 @@ end
 # Main function to generate kernel code
 function generate_kernel(radix::Int, suffixes::Vector{String}, ::Type{T}) where T <: AbstractFloat
     names = generate_kernel_names(radix, suffixes)
-    signature = generate_signature(suffixes, T)
+    signature = generate_signature(radix, suffixes, T)
     
     kernel_code = makefftradix(radix, suffixes, T)
     
     # Generate the complete function
     if "layered" ∈ suffixes
         # Special handling for layered kernels
-        return generate_layered_kernel(radix, names, signature, suffixes)
+        # return generate_layered_kernel(radix, names, signature, suffixes)
     else
         if "mat" ∈ suffixes
         return """
@@ -375,7 +375,9 @@ function generate_kernel(radix::Int, suffixes::Vector{String}, ::Type{T}) where 
     else
         return """
         @inline function $(names[2])$signature 
+        @inbounds begin
             $kernel_code
+        end
         end
         """
     end
@@ -507,12 +509,13 @@ end
 # ENCHANT KERNEL PRODUCER
 function create_kernel_module(plan_data::NamedTuple, ::Type{T}) where T <: AbstractFloat
     module_constants = generate_module_constants(plan_data.n, T)
-    custom_combinations = [String[], ["mat"]]
+    custom_combinations = [String[], ["mat"], ["y"]]
     kernels = generate_all_kernels(plan_data.n, T; suffix_combinations=custom_combinations)
     D_kernels = generate_D_kernels(plan_data.operations, T)
 
     kernel_str = """
         using LoopVectorization
+        using StaticArrays
         
         $module_constants
 

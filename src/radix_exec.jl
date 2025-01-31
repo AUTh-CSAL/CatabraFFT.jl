@@ -5,15 +5,87 @@ using ..Radix_Plan
 using ..RadixGenerator
 using BenchmarkTools
 
-#RuntimeGeneratedFunctions.init(@__MODULE__)
-
-#include("radix_factory.jl")
 include("radix_3_codelets.jl")
 include("radix_5_codelets.jl")
 include("radix_7_codelets.jl")
 include("helper_tools.jl")
-#include("radix_plan.jl")
 
+function generate_mat_execute_function!(plan::RadixPlan, show_function=true) 
+    T = typeof(plan).parameters[1]
+    current_input = :x
+    current_output = :y
+    ops = []
+    ivdep = false
+    ivdep_change_exists = false
+    check_ivdep = false
+
+    # Helper to push operations dynamically
+    function push_operation!(ops, op, current_input, current_output, ivdep)
+        suffix = ivdep ? :shell_ivdep! : :shell!
+        radix_family = get_radix_family(op.op_type)
+        function_name = Symbol(String(op.op_type), "_", String(suffix))
+        @show function_name
+        func_ref = get_function_reference(radix_family, function_name)
+
+        #if op === last(plan.operations)
+            #op.eo ? push!(ops, Expr(:call, func_ref, current_input, op.stride)) : push!(ops, Expr(:call, func_ref, current_output, current_input, op.stride))
+        #else
+            n1 = op.n_groups ÷ get_radix_divisor(op.op_type)
+            theta::T = T(2 / op.n_groups)
+            push!(ops, Expr(:call, func_ref, current_output, current_input))
+        #end
+    end
+
+    # Main loop over operations
+    for (i, op) ∈ enumerate(plan.operations)
+            if check_ivdep
+                # Determine if IVDEP is beneficial
+                radix_family = get_radix_family(op.op_type)
+                suffix, is_layered = if op === last(plan.operations)
+                    if op.eo
+                        :shell_y, false
+                    else
+                        :shell, false
+                    end
+                else
+                    :shell_layered, true
+                end
+                std_func_name = Symbol(String(op.op_type), "_", String(suffix), "!")
+                ivdep_func_name = Symbol(String(op.op_type), "_", String(suffix), "_ivdep!")
+                std_func_ref = get_function_reference(radix_family, std_func_name)
+                ivdep_func_ref = get_function_reference(radix_family, ivdep_func_name)
+                @show std_func_ref, ivdep_func_ref
+                ivdep = determine_ivdep_threshold(std_func_ref, ivdep_func_ref, op, is_layered, typeof(plan).parameters[1] , show_function)
+                if ivdep
+                    ivdep_change_exists = true
+                end
+            end
+            push_operation!(ops, op, current_input, current_output, ivdep)
+        current_input, current_output = current_output, current_input
+    end
+
+    # Construct the function body
+    function_body = Expr(:block, ops...)
+
+    # Combine all operations into a runtime-generated function
+    ex = :(function execute_fft_linear!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}) where T <: AbstractFloat
+        $function_body
+        return nothing
+    end)
+    
+    #runtime_generated_function = @RuntimeGeneratedFunction(ex)
+    runtime_generated_function = Core.eval(Radix_Execute, ex)
+    if check_ivdep && ivdep_change_exists
+        # Create a similar function with ivdep turned off to compare
+        clean_generated_function = generate_linear_execute_function!(plan, true, false, "CLEAN")
+        
+        if !benchmark_functions_performance(clean_generated_function, runtime_generated_function , plan.n, typeof(plan).parameters[1], show_function)
+            show_function && println("NON-IVDEP FUNCTION IS BETTER")
+            runtime_generated_function = clean_generated_function
+        end
+    end
+    return runtime_generated_function
+end
 
 function generate_linear_execute_function!(plan::RadixPlan, show_function=true, TECHNICAL_ACCELERATION=true, str="") 
     T = typeof(plan).parameters[1]
@@ -292,7 +364,7 @@ function return_best_static_linear_function(plans::Vector{RadixPlan{T}}, show_fu
     for plan in plans
         println("Creating new module")
         evaluate_fft_generated_module(Radix_Execute, plan, T)
-        test_func = generate_linear_execute_function!(plan, true, TECHNICAL_ACCELERATION)
+        test_func = generate_mat_execute_function!(plan, true)
         show_function && println("Testing module for plan: $plan")
         
         Base.invokelatest(test_func, x, x)
