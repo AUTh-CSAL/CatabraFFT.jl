@@ -39,7 +39,7 @@ function generate_module_constants(n::Int, ::Type{T}) where T <: AbstractFloat
         str *= "const INV_SQRT2_Q4 = $(Complex{T}(1/sqrt(2) - im * 1/sqrt(2)))\n"
 
         # Add the extract_view lamda in module definition for layered kernels
-        str *= "extract_view = (x::Vector{Complex{$T}}, q::Int, p::Int, s::Int, n1::Int, N::Int) -> view(x, q .+ s*(p .+ (0:(N-1))*n1))"
+        #str *= "extract_view = (x::Vector{Complex{$T}}, q::Int, p::Int, s::Int, n1::Int, N::Int) -> view(x, q .+ s*(p .+ (0:(N-1))*n1))"
     end
     
     return str
@@ -153,7 +153,7 @@ end
             end
             write(buf, get_constant_expression(d_matrix[i, j], n))
         end
-        if i < size(d_matrix, 1)
+        if i < size(d_matrix, 1)  # Add semicolon only if it's not the last row
             write(buf, ";\n    ")
         end
     end
@@ -166,6 +166,65 @@ end
     
     return D_kernel
 end
+
+#=
+@inline function create_D_kernel(n1::Int, n2::Int, ::Type{T}) where T <: AbstractFloat
+    # Pre-allocate the array for twiddle factors
+    m, p = min(n1, n2), max(n1, n2)
+    w = cispi.(T(-2/(p*m)) * collect(1:m-1))
+    d = zeros(Complex{T}, (p-1)*(m-1))
+    d_size = length(d)
+    
+    # Fill the first row
+    @inbounds d[1:m-1] .= w
+    
+    # Fill subsequent rows
+    @inbounds @simd for j in 2:p-1
+        row_start = (j-1)*(m-1)
+        prev_row_start = (j-2)*(m-1)
+        @views d[row_start+1:row_start+m-1] .= w .* d[prev_row_start+1:prev_row_start+m-1]
+    end
+    
+    n = n1 * n2
+    
+    # Generate constant expressions
+    constant_exprs = String[]
+    for i in 1:d_size
+        push!(constant_exprs, get_constant_expression(d[i], n))
+    end
+    
+    # Reshape the array into a matrix
+    d_matrix = reshape(d, (m-1, p-1))
+    
+    # Build the D_kernel string as an SMatrix
+    buf = IOBuffer()
+    write(buf, "D_$(n1)_$(n2)::AbstractMatrix{Complex{$T}} = [\n    ")
+    
+    # Write complex numbers in matrix form
+    for i in 1:size(d_matrix, 1)
+        for j in 1:size(d_matrix, 2)
+            if j > 1
+                write(buf, ", ")
+            end
+            write(buf, get_constant_expression(d_matrix[i, j], n))
+        end
+        write(buf, ";\n    ")
+        #=
+        if i < size(d_matrix, 1)
+            write(buf, ";\n    ")
+        end
+        =#
+    end
+    
+    write(buf, "\n]")
+    
+    # Convert buffer to string
+    D_kernel = String(take!(buf))
+    close(buf)
+    
+    return D_kernel
+end
+=#
 
 """
 Generate twiddle factor expressions for a given collection of indices
@@ -479,8 +538,6 @@ function generate_D_kernels(operations, ::Type{T}) where T <: AbstractFloat
         push!(D_kernels, create_D_kernel(s, n_group, T))
     end
     
-    @show D_kernels
-
     return D_kernels
 end
 
@@ -509,21 +566,19 @@ end
 # ENCHANT KERNEL PRODUCER
 function create_kernel_module(plan_data::NamedTuple, ::Type{T}) where T <: AbstractFloat
     module_constants = generate_module_constants(plan_data.n, T)
-    custom_combinations = [String[], ["mat"], ["y"]]
+    custom_combinations = [String[], ["mat"]]
     kernels = generate_all_kernels(plan_data.n, T; suffix_combinations=custom_combinations)
     D_kernels = generate_D_kernels(plan_data.operations, T)
 
     kernel_str = """
         using LoopVectorization
-        using StaticArrays
         
         $module_constants
 
         $(join(kernels, "\n\n"))
-        
-        $(join(D_kernels, "\n\n"))
-        
+
     """
+        #$(join(D_kernels, "\n\n"))
     
     family_module_code = """
         module radix_2_family
@@ -553,13 +608,13 @@ function evaluate_fft_generated_module(target_module::Module, plan::P, ::Type{T}
     
     # Create module expression using the extracted data
     module_expr, kernel_str = create_kernel_module(extract_plan_data(plan), T)
-    @show module_expr
+    #@show module_expr
     Core.eval(target_module, module_expr)
 end
 
 function evaluate_fft_generated_module(target_module::Module, n::Int, ::Type{T}) where T <: AbstractFloat
     module_expr, kernel_str = create_kernel_module(n, T)
-    @show module_expr
+    #@show module_expr
     Core.eval(target_module, module_expr)
 end
 

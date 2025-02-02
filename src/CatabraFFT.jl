@@ -44,7 +44,7 @@ end
 
 # in-place manipulation of given signal
 @inline function fft!(x::AbstractVector{Complex{T}}) where T <: AbstractFloat
-    fft_kernel!(x, x)
+    fft_kernel!(x, x, CatabraFFT.NO_FLAG)
     return x
 end
 
@@ -67,7 +67,7 @@ X = fft(x)
     workspace = get_workspace(n, T)
     copyto!(workspace.x_work, x)  # Fast copy into preallocated space
     y = similar(x)
-    fft_kernel!(y, workspace.x_work)
+    fft_kernel!(y, workspace.x_work, CatabraFFT.NO_FLAG)
     return y
 end
 
@@ -93,7 +93,7 @@ x = ifft(X)
     
     # IFFT using the FFT with complex conjugate and normalization
     conj!(workspace.x_work)
-    fft_kernel!(y, workspace.x_work)
+    fft_kernel!(y, workspace.x_work, CatabraFFT.NO_FLAG)
     conj!(y)
     y ./= n
     
@@ -108,7 +108,7 @@ end
     
     # IFFT using the FFT with complex conjugate and NOT normalization (BFFT)
     conj!(workspace.x_work)
-    fft_kernel!(y, workspace.x_work)
+    fft_kernel!(y, workspace.x_work, CatabraFFT.NO_FLAG)
     conj!(y)
     
     return y
@@ -184,7 +184,7 @@ end
 
 # Required mul! implementation
 function mul!(y::AbstractVector{Complex{T}}, p::Spell, x::AbstractVector{Complex{T}}) where T
-    fft_kernel!(y, x)
+    fft_kernel!(y, x, p.flag)
     return y
 end
 

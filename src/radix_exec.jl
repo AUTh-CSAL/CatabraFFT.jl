@@ -20,20 +20,33 @@ function generate_mat_execute_function!(plan::RadixPlan, show_function=true)
     check_ivdep = false
 
     # Helper to push operations dynamically
-    function push_operation!(ops, op, current_input, current_output, ivdep)
+    function push_operation!(ops, op, future_op, current_input, current_output, ivdep)
         suffix = ivdep ? :shell_ivdep! : :shell!
         radix_family = get_radix_family(op.op_type)
         function_name = Symbol(String(op.op_type), "_", String(suffix))
-        @show function_name
         func_ref = get_function_reference(radix_family, function_name)
 
-        #if op === last(plan.operations)
-            #op.eo ? push!(ops, Expr(:call, func_ref, current_input, op.stride)) : push!(ops, Expr(:call, func_ref, current_output, current_input, op.stride))
-        #else
-            n1 = op.n_groups ÷ get_radix_divisor(op.op_type)
-            theta::T = T(2 / op.n_groups)
+        n1 = op.n_groups ÷ get_radix_divisor(op.op_type)
+        @show plan
+
+        if n1 == 1
             push!(ops, Expr(:call, func_ref, current_output, current_input))
-        #end
+        else
+            if !isnothing(future_op)
+                reshaped_input = Symbol(current_input, :_reshaped)
+                reshaped_output = Symbol(current_output, :_reshaped)
+
+                push!(ops, :($reshaped_input = reshape($current_input, $(future_op.n_groups), $(future_op.stride))))
+                push!(ops, :($reshaped_output = reshape($current_output, $(future_op.n_groups), $(future_op.stride))))
+                D_matrix = Symbol("D_", future_op.stride, "_", future_op.n_groups)
+                push!(ops, Expr(:call, func_ref, reshaped_output, reshaped_input, D_matrix))
+            else
+                push!(ops, :($reshaped_input = reshape($current_input, $(op.n_groups), $(op.stride))))
+                push!(ops, :($reshaped_output = reshape($current_output, $(op.n_groups), $(op.stride))))
+                push!(ops, Expr(:call, func_ref, current_output, current_input))
+            end
+        end
+        @show ops
     end
 
     # Main loop over operations
@@ -54,18 +67,19 @@ function generate_mat_execute_function!(plan::RadixPlan, show_function=true)
                 ivdep_func_name = Symbol(String(op.op_type), "_", String(suffix), "_ivdep!")
                 std_func_ref = get_function_reference(radix_family, std_func_name)
                 ivdep_func_ref = get_function_reference(radix_family, ivdep_func_name)
-                @show std_func_ref, ivdep_func_ref
                 ivdep = determine_ivdep_threshold(std_func_ref, ivdep_func_ref, op, is_layered, typeof(plan).parameters[1] , show_function)
                 if ivdep
                     ivdep_change_exists = true
                 end
             end
-            push_operation!(ops, op, current_input, current_output, ivdep)
+            future_op = i < length(plan.operations) ? plan.operations[i+1] : nothing
+            push_operation!(ops, op, future_op, current_input, current_output, ivdep)
         current_input, current_output = current_output, current_input
     end
 
     # Construct the function body
     function_body = Expr(:block, ops...)
+    @show function_body
 
     # Combine all operations into a runtime-generated function
     ex = :(function execute_fft_linear!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}) where T <: AbstractFloat
@@ -144,7 +158,7 @@ function generate_linear_execute_function!(plan::RadixPlan, show_function=true, 
                 ivdep_func_name = Symbol(String(op.op_type), "_", String(suffix), "_ivdep!")
                 std_func_ref = get_function_reference(radix_family, std_func_name)
                 ivdep_func_ref = get_function_reference(radix_family, ivdep_func_name)
-                @show std_func_ref, ivdep_func_ref
+                #@show std_func_ref, ivdep_func_ref
                 ivdep = determine_ivdep_threshold(std_func_ref, ivdep_func_ref, op, is_layered, typeof(plan).parameters[1] , show_function)
                 if ivdep
                     ivdep_change_exists = true

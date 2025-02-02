@@ -95,9 +95,9 @@ end
 end
 
 
-@inline function fft_kernel!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}) where {T <: AbstractFloat}
+@inline function fft_kernel!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}, p::FLAG) where T <: AbstractFloat
     n = length(x)
-    fft_func = generate_and_cache_fft!(n, T, NO_FLAG) # NO_FLAG for fft(x) normal calls
+    fft_func = generate_and_cache_fft!(n, T, p) # NO_FLAG for fft(x) normal calls
     fft_func(y, x) # FUNCTION EXECUTION
     return y
 end
