@@ -113,52 +113,51 @@ function get_constant_expression(w::Complex{T}, n::Integer)::String where T <: A
     return "($(round(real_part, digits=16))$(sign_str(imag_part))$(abs(round(imag_part, digits=16)))*im)"
 end
 
-@inline function create_D_kernel(n1::Int, n2::Int, ::Type{T}) where T <: AbstractFloat
+@inline function create_D_kernel_square(n::Int, ::Type{T}) where T <: AbstractFloat
     # Pre-allocate the array for twiddle factors
-    m, p = min(n1, n2), max(n1, n2)
-    w = cispi.(T(-2/(p*m)) * collect(1:m-1))
-    d = zeros(Complex{T}, (p-1)*(m-1))
+    w = cispi.(T(-2/(n*n)) * collect(1:n-1))
+    d = zeros(Complex{T}, (n-1)*(n-1))
     d_size = length(d)
     
     # Fill the first row
-    @inbounds d[1:m-1] .= w
+    @inbounds d[1:n-1] .= w
     
     # Fill subsequent rows
-    @inbounds @simd for j in 2:p-1
-        row_start = (j-1)*(m-1)
-        prev_row_start = (j-2)*(m-1)
-        @views d[row_start+1:row_start+m-1] .= w .* d[prev_row_start+1:prev_row_start+m-1]
-    end
-    
-    n = n1 * n2
-    
-    # Generate constant expressions
-    constant_exprs = String[]
-    for i in 1:d_size
-        push!(constant_exprs, get_constant_expression(d[i], n))
+    @inbounds @simd for j in 2:n-1
+        row_start = (j-1)*(n-1)
+        prev_row_start = (j-2)*(n-1)
+        @views d[row_start+1:row_start+n-1] .= w .* d[prev_row_start+1:prev_row_start+n-1]
     end
     
     # Reshape the array into a matrix
-    d_matrix = reshape(d, (m-1, p-1))
+    d_matrix = reshape(d, (n-1, n-1))
     
-    # Build the D_kernel string as an SMatrix
-    buf = IOBuffer()
-    write(buf, "D_$(n1)_$(n2)::AbstractMatrix{Complex{$T}} = [\n    ")
+    # Create a collapsed array containing only the upper triangular elements
+    num_elements = div((n-1) * n, 2)  # Number of elements in the upper triangular part
+    collapsed_array = Vector{Complex{T}}(undef, num_elements)
     
-    # Write complex numbers in matrix form
-    for i in 1:size(d_matrix, 1)
-        for j in 1:size(d_matrix, 2)
-            if j > 1
-                write(buf, ", ")
-            end
-            write(buf, get_constant_expression(d_matrix[i, j], n))
-        end
-        if i < size(d_matrix, 1)  # Add semicolon only if it's not the last row
-            write(buf, ";\n    ")
+    # Fill the collapsed array with upper triangular elements
+    index = 1
+    for i in 1:n-1
+        for j in i:n-1
+            collapsed_array[index] = d_matrix[i, j]
+            index += 1
         end
     end
     
-    write(buf, "\n]")
+    # Generate the code for the collapsed array
+    buf = IOBuffer()
+    write(buf, "D_$(n)_$(n)::Vector{Complex{$T}} = [\n    ")
+    
+    # Write elements of the collapsed array
+    for i in 1:length(collapsed_array)
+        write(buf, get_constant_expression(collapsed_array[i], n*n))
+        if i < length(collapsed_array)
+            write(buf, ", ")
+        end
+    end
+    
+    write(buf, "]")
     
     # Convert buffer to string
     D_kernel = String(take!(buf))
@@ -167,8 +166,7 @@ end
     return D_kernel
 end
 
-#=
-@inline function create_D_kernel(n1::Int, n2::Int, ::Type{T}) where T <: AbstractFloat
+@inline function create_D_kernel_non_square(n1::Int, n2::Int, ::Type{T}) where T <: AbstractFloat
     # Pre-allocate the array for twiddle factors
     m, p = min(n1, n2), max(n1, n2)
     w = cispi.(T(-2/(p*m)) * collect(1:m-1))
@@ -185,38 +183,27 @@ end
         @views d[row_start+1:row_start+m-1] .= w .* d[prev_row_start+1:prev_row_start+m-1]
     end
     
-    n = n1 * n2
-    
-    # Generate constant expressions
-    constant_exprs = String[]
-    for i in 1:d_size
-        push!(constant_exprs, get_constant_expression(d[i], n))
-    end
-    
     # Reshape the array into a matrix
     d_matrix = reshape(d, (m-1, p-1))
     
-    # Build the D_kernel string as an SMatrix
+    # Generate the code for the full matrix
     buf = IOBuffer()
-    write(buf, "D_$(n1)_$(n2)::AbstractMatrix{Complex{$T}} = [\n    ")
+    write(buf, "D_$(n1)_$(n2)::Matrix{Complex{$T}} = [\n    ")
     
-    # Write complex numbers in matrix form
+    # Write elements of the matrix
     for i in 1:size(d_matrix, 1)
         for j in 1:size(d_matrix, 2)
-            if j > 1
+            write(buf, get_constant_expression(d_matrix[i, j], n1*n2))
+            if j < size(d_matrix, 2)
                 write(buf, ", ")
             end
-            write(buf, get_constant_expression(d_matrix[i, j], n))
         end
-        write(buf, ";\n    ")
-        #=
         if i < size(d_matrix, 1)
             write(buf, ";\n    ")
         end
-        =#
     end
     
-    write(buf, "\n]")
+    write(buf, "]")
     
     # Convert buffer to string
     D_kernel = String(take!(buf))
@@ -224,7 +211,6 @@ end
     
     return D_kernel
 end
-=#
 
 """
 Generate twiddle factor expressions for a given collection of indices
@@ -577,8 +563,8 @@ function create_kernel_module(plan_data::NamedTuple, ::Type{T}) where T <: Abstr
 
         $(join(kernels, "\n\n"))
 
+        $(join(D_kernels, "\n\n"))
     """
-        #$(join(D_kernels, "\n\n"))
     
     family_module_code = """
         module radix_2_family
@@ -608,7 +594,7 @@ function evaluate_fft_generated_module(target_module::Module, plan::P, ::Type{T}
     
     # Create module expression using the extracted data
     module_expr, kernel_str = create_kernel_module(extract_plan_data(plan), T)
-    #@show module_expr
+    @show module_expr
     Core.eval(target_module, module_expr)
 end
 
