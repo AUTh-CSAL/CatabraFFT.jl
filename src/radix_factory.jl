@@ -37,9 +37,6 @@ function generate_module_constants(n::Int, ::Type{T}) where T <: AbstractFloat
     if n >= 8
         str *= "const INV_SQRT2_Q1 = $(Complex{T}(1/sqrt(2) + im * 1/sqrt(2)))\n"
         str *= "const INV_SQRT2_Q4 = $(Complex{T}(1/sqrt(2) - im * 1/sqrt(2)))\n"
-
-        # Add the extract_view lamda in module definition for layered kernels
-        #str *= "extract_view = (x::Vector{Complex{$T}}, q::Int, p::Int, s::Int, n1::Int, N::Int) -> view(x, q .+ s*(p .+ (0:(N-1))*n1))"
     end
     
     return str
@@ -59,7 +56,6 @@ function get_constant_expression(w::Complex{T}, n::Integer)::String where T <: A
     sign_str(x) = x ≥ 0 ? "+" : "-"
     
     # Common cases table with twiddle factors patterns commonly met
-
     common_cases = [
         (1.0, 0.0) => "1",
         (-1.0, 0.0) => "-1",
@@ -138,8 +134,8 @@ end
     
     # Fill the collapsed array with upper triangular elements
     index = 1
-    for i in 1:n-1
-        for j in i:n-1
+    @inbounds for i in 1:n-1
+        @inbounds for j in i:n-1
             collapsed_array[index] = d_matrix[i, j]
             index += 1
         end
@@ -147,10 +143,10 @@ end
     
     # Generate the code for the collapsed array
     buf = IOBuffer()
-    write(buf, "D_$(n)_$(n)::Vector{Complex{$T}} = [\n    ")
+    write(buf, "D_$(n)_$(n)::AbstractVector{Complex{$T}} = [\n    ")
     
     # Write elements of the collapsed array
-    for i in 1:length(collapsed_array)
+    @inbounds for i in 1:length(collapsed_array)
         write(buf, get_constant_expression(collapsed_array[i], n*n))
         if i < length(collapsed_array)
             write(buf, ", ")
@@ -188,7 +184,8 @@ end
     
     # Generate the code for the full matrix
     buf = IOBuffer()
-    write(buf, "D_$(n1)_$(n2)::Matrix{Complex{$T}} = [\n    ")
+    #write(buf, "D_$(n1)_$(n2)::AbstractMatrix{Complex{$T}} = [\n    ")
+    n2 == 2 ? write(buf, "D_$(n1)_$(n2)::AbstractVector{Complex{$T}} = [\n    ") : write(buf, "D_$(n1)_$(n2)::AbstractMatrix{Complex{$T}} = [\n    ")
     
     # Write elements of the matrix
     for i in 1:size(d_matrix, 1)
@@ -320,33 +317,10 @@ function recfft2(y, x, d=nothing, w=nothing)
   end
 end
 
-function makefftradix(n::Int, suffixes::Vector{String}, ::Type{T}) where T <: AbstractFloat
-    input = "y" ∈ suffixes ? "y" : "x"
-    output = "y"
-    d_matrix = "D"
-    is_mat = "mat" ∈ suffixes
-    
-    if is_mat
-        x = ["$input[k, $i]" for i in 1:n]
-        y = ["$output[k, $i]" for i in 1:n]
-        d = ["$d_matrix[k, $i]" for i in 1:(n-1)]
-    else
-        x = ["$input[$i]" for i in 1:n]
-        y = ["$output[$i]" for i in 1:n]
-        d = nothing
-    end
-    
-    s = recfft2(y, x, d)
-    kernel_code = replace(s, 
-            "#INPUT#" => input,
-            "#OUTPUT#" => output)
-    return kernel_code
-end
-
 # Wrapper for any other kernel shell strategy planer
-function makefftradix(n::Int, suffixes::Vector{String}, ::Type{T}) where T <: AbstractFloat
+function makefftradix(n::Int,  suffixes::Vector{String}, ::Type{T}, plan_data::Union{NamedTuple, Nothing}=nothing) where T <: AbstractFloat
 
-    global inc = inccounter()
+    global inc = inccounter() #nullify glabal tmp 't' var counter for each new kernel generated
 
     input = "y" ∈ suffixes ? "y" : "x"
     output = "y"
@@ -356,7 +330,7 @@ function makefftradix(n::Int, suffixes::Vector{String}, ::Type{T}) where T <: Ab
     if is_mat
         x = ["$input[k, $i]" for i in 1:n]
         y = ["$output[k, $i]" for i in 1:n]
-        d = ["$d_matrix[k, $i]" for i in 1:(n-1)]
+        d = ["$d_matrix[k, $i]" for i in 1:(n-1)] # TODO Matrix/Vector special handling
     else
         x = ["$input[$i]" for i in 1:n]
         y = ["$output[$i]" for i in 1:n]
@@ -398,11 +372,12 @@ function generate_signature(radix::Int, suffixes::Vector{String}, ::Type{T}) whe
 end
 
 # Main function to generate kernel code
-function generate_kernel(radix::Int, suffixes::Vector{String}, ::Type{T}) where T <: AbstractFloat
+function generate_kernel(radix::Int, plan_data::NamedTuple, suffixes::Vector{String}, ::Type{T}) where T <: AbstractFloat
     names = generate_kernel_names(radix, suffixes)
+    generate_D_kernels(plan_data.operations, T)
     signature = generate_signature(radix, suffixes, T)
     
-    kernel_code = makefftradix(radix, suffixes, T)
+    kernel_code = makefftradix(radix, suffixes, T, plan_data)
     
     # Generate the complete function
     if "layered" ∈ suffixes
@@ -429,57 +404,70 @@ function generate_kernel(radix::Int, suffixes::Vector{String}, ::Type{T}) where 
     end
 end
 
-# Helper function to generate layered kernel
-function generate_layered_kernel(radix, names, signature, suffixes)
-    s = log2(radix)  # Assuming radix is a power of 2
-    @assert isinteger(s) && s > 0 "Radix must be a power of 2"
-
-# Function to generate loop decorators
-    function generate_loop_decorators(suffixes::Vector{String})
-        decorators = ["@inbounds"]
-        if "ivdep" in suffixes
-            push!(decorators, "@simd ivdep")
-        else
-            push!(decorators, "@simd")
-        end
-        return join(decorators, " ")
-    end
-
-    decorators = generate_loop_decorators(suffixes)
+function generate_kernel(radix::Int, suffixes::Vector{String}, ::Type{T}) where T <: AbstractFloat
+    names = generate_kernel_names(radix, suffixes)
+    signature = generate_signature(radix, suffixes, T)
     
-    # Generate twiddle factor computation dynamically for any radix
-    twiddle_code = String[]
-    for i in 2:radix-1
-        twiddle_expression = "w$(div(i, 2))p * w$(div(i + 1, 2))p"
-        push!(twiddle_code, "w$(i)p = $twiddle_expression")
-    end
-    twiddle_code_str = join(twiddle_code, "\n")
-
-    # Generate layer_y twiddle factor application
-    twiddle_apply_code = ["""layer_y[$i] *= w$(i-1)p""" for i in 2:radix]
-    #twiddle_apply_code = ["""layer_y[$i] = dot(wp[1:$(radix-1)], layer_y[2:$radix])""" for i in 2:radix]
-    twiddle_apply_str = join(twiddle_apply_code, "\n    ")
+    kernel_code = makefftradix(radix, suffixes, T, nothing)
     
-    return """
-    @inline function $(names[1])$signature
-
-        @inbounds @simd for q in 1:s
-        layer_x, layer_y = extract_view(x, q, 0, s, n1, $radix), extract_view(y, q, 0, s, n1, $radix)
-        $(names[2])(layer_y, layer_x)
-        end
-
-        # Section with twiddle factors
-        $decorators for p in 1:(n1-1)
-            w1p = cispi(-p * theta)
-            $twiddle_code_str
-            $decorators for q in 1:s
-                layer_x, layer_y = extract_view(x, q, p, s, n1, $radix), extract_view(y, q, p, s, n1, $radix)
-                $(names[2])(layer_y, layer_x)
-                $twiddle_apply_str
+    # Generate the complete function
+    if "layered" ∈ suffixes
+        # Special handling for layered kernels
+        # return generate_layered_kernel(radix, names, signature, suffixes)
+    else
+        if "mat" ∈ suffixes
+        return """
+        @inline function $(names[2])$signature 
+            @inbounds @simd for k in axes(x,1)
+            $kernel_code
             end
         end
+        """
+    else
+        return """
+        @inline function $(names[2])$signature 
+        @inbounds begin
+            $kernel_code
+        end
+        end
+        """
     end
-    """
+    end
+end
+
+function generate_all_kernels(plan_data::NamedTuple, ::Type{T}; suffix_combinations::Union{Nothing, Vector{Vector{String}}}=nothing) where T <: AbstractFloat
+    # Extract unique radices from the operations in plan_data
+    symbols = Vector{Symbol}()
+    radices = Vector{Int}()
+
+    @inbounds for op in plan_data.operations
+        push!(symbols, op.op_type)  # Add the radix symbol (e.g., :fft64, :fft4)
+    end
+
+    # Convert symbols to integers
+    @inbounds for symbol in symbols
+        # Extract the numeric part of the symbol (e.g., "256" from ":fft256")
+        num_str = String(symbol)[4:end]
+        push!(radices, parse(Int, num_str))
+    end
+
+    if isnothing(suffix_combinations)
+        suffix_combinations = Vector{Vector{String}}([
+            String[],
+            ["mat"],
+            ["layered"]
+        ])
+    end
+
+    kernels = Vector{String}()
+    
+    @inbounds for radix ∈ radices
+        @inbounds for suffixes ∈ suffix_combinations
+            push!(kernels, generate_kernel(radix, plan_data, suffixes, T))
+        end
+    end
+    
+    return kernels
 end
 
 function generate_all_kernels(N::Int,  ::Type{T}; suffix_combinations::Union{Nothing, Vector{Vector{String}}}=nothing) where T <: AbstractFloat
@@ -503,8 +491,8 @@ function generate_all_kernels(N::Int,  ::Type{T}; suffix_combinations::Union{Not
     
     kernels = Vector{String}()
     
-    for radix ∈ radices
-        for suffixes ∈ suffix_combinations
+    @inbounds for radix ∈ radices
+        @inbounds for suffixes ∈ suffix_combinations
             push!(kernels, generate_kernel(radix, suffixes, T))
         end
     end
@@ -515,13 +503,13 @@ end
 function generate_D_kernels(operations, ::Type{T}) where T <: AbstractFloat
     D_kernels = Vector{String}()
     
-    for op in operations
+    @inbounds for op in operations
         s = op.stride
         if s == 1
             continue
         end
         n_group = op.n_groups
-        push!(D_kernels, create_D_kernel(s, n_group, T))
+        n_group == s ? push!(D_kernels, create_D_kernel_square(s, T)) : push!(D_kernels, create_D_kernel_non_square(s, n_group, T))
     end
     
     return D_kernels
@@ -553,8 +541,8 @@ end
 function create_kernel_module(plan_data::NamedTuple, ::Type{T}) where T <: AbstractFloat
     module_constants = generate_module_constants(plan_data.n, T)
     custom_combinations = [String[], ["mat"]]
-    kernels = generate_all_kernels(plan_data.n, T; suffix_combinations=custom_combinations)
-    D_kernels = generate_D_kernels(plan_data.operations, T)
+    kernels = generate_all_kernels(plan_data, T; suffix_combinations=custom_combinations)
+    #D_kernels = generate_D_kernels(plan_data.operations, T)
 
     kernel_str = """
         using LoopVectorization
@@ -563,7 +551,6 @@ function create_kernel_module(plan_data::NamedTuple, ::Type{T}) where T <: Abstr
 
         $(join(kernels, "\n\n"))
 
-        $(join(D_kernels, "\n\n"))
     """
     
     family_module_code = """
@@ -594,13 +581,13 @@ function evaluate_fft_generated_module(target_module::Module, plan::P, ::Type{T}
     
     # Create module expression using the extracted data
     module_expr, kernel_str = create_kernel_module(extract_plan_data(plan), T)
-    @show module_expr
+    #@show module_expr
     Core.eval(target_module, module_expr)
 end
 
 function evaluate_fft_generated_module(target_module::Module, n::Int, ::Type{T}) where T <: AbstractFloat
     module_expr, kernel_str = create_kernel_module(n, T)
-    #@show module_expr
+    @show module_expr
     Core.eval(target_module, module_expr)
 end
 

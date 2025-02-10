@@ -21,8 +21,11 @@ struct RadixPlan{T<:AbstractFloat}
 end
 
 function create_all_radix_plans(n::Int, valid_radices::Vector{Int}, ::Type{T}) where T <: AbstractFloat
+    # Handle single-digit inputs directly
+    n ≤ 9 && return [create_radix_plan_from_decomposition(n, [n], T)]
+
     if n > maximum(valid_radices)
-        @assert all(n % radix == 0 for radix in valid_radices) "n must be divisible by all radices in valid_radices"
+        @assert all(n % radix == 0 for radix in valid_radices) "n must be divisible by all radices"
     end
 
     decompositions = Vector{Vector{Int}}()
@@ -30,7 +33,7 @@ function create_all_radix_plans(n::Int, valid_radices::Vector{Int}, ::Type{T}) w
     function backtrack(remaining::Int, current::Vector{Int}, last_radix::Int)
         remaining == 1 && push!(decompositions, copy(current))
         for radix in valid_radices
-            if radix <= last_radix && remaining % radix == 0 
+            radix ≤ last_radix && remaining % radix == 0 && begin
                 push!(current, radix)
                 backtrack(remaining ÷ radix, current, radix)
                 pop!(current)
@@ -40,33 +43,33 @@ function create_all_radix_plans(n::Int, valid_radices::Vector{Int}, ::Type{T}) w
     
     backtrack(n, Int[], typemax(Int))
 
-    # Heuristic to narrow valid decomposition solution space to exclude definetly sub-optimal solutions to have to verify
-    function is_valid_decomposition(decomposition::Vector{Int})::Bool
-    if all(x -> x == 0, mod.(decomposition, 2))
-        if length(decomposition) == 1 return true end
-        if decomposition[1] == 2 || (decomposition[1] == 4 && decomposition != fill(4, length(decomposition)))
-            return false
-        end
-        count_2s = count(x -> x == 2, decomposition)
-        max_2s_allowed = length(decomposition) ÷ 2
-        if decomposition[1] in (16, 8) && count_2s > max_2s_allowed
-            return false
-        end
+    # Get minimul element of valid radices list
+    min_elem = minimum(valid_radices)
+
+    # Strict filtering logic
+    function is_valid(decomp)
+        # Allow single-element decompositions
+        length(decomp) == 1 && return true
+
+        # Reject any decomposition starting with min element
+        decomp[1] == min_elem && return false
+
+        # Reject non-uniform 4-based decompositions
+        decomp[1] == 4 && decomp != fill(4, length(decomp)) && return false
+
+        # Universal min elem ratio check
+        count_mins = count(==(min_elem), decomp)
+        max_allowed_mins = length(decomp) ÷ 2  # Integer division
+        count_mins > max_allowed_mins && return false
+
         true
     end
-    end
 
-    filtered_decompositions = filter(is_valid_decomposition, decompositions)
+    filtered = filter(is_valid, decompositions)
+    @show filtered
     
-    @show filtered_decompositions
-
-    # Create a RadixPlan for each decomposition
-    radix_plans = Vector{RadixPlan{T}}()
-    for decomposition in filtered_decompositions
-        push!(radix_plans, create_radix_plan_from_decomposition(n, decomposition, T))
-    end
-
-    radix_plans
+    # Create RadixPlan objects
+    [create_radix_plan_from_decomposition(n, decomp, T) for decomp in filtered]
 end
 
 # Create a RadixPlan from a specific decomposition
