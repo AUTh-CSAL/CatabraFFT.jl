@@ -581,7 +581,7 @@ function evaluate_fft_generated_module(target_module::Module, plan::P, ::Type{T}
     
     # Create module expression using the extracted data
     module_expr, kernel_str = create_kernel_module(extract_plan_data(plan), T)
-    #@show module_expr
+    @show module_expr
     Core.eval(target_module, module_expr)
 end
 
@@ -590,7 +590,6 @@ function evaluate_fft_generated_module(target_module::Module, n::Int, ::Type{T})
     @show module_expr
     Core.eval(target_module, module_expr)
 end
-
 
 end
 
