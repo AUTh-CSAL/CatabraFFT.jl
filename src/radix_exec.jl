@@ -27,24 +27,20 @@ function generate_mat_execute_function!(plan::RadixPlan, show_function=true)
         func_ref = get_function_reference(radix_family, function_name)
 
         n1 = op.n_groups ÷ get_radix_divisor(op.op_type)
-        @show plan
 
-        if n1 == 1
-            push!(ops, Expr(:call, func_ref, current_output, current_input))
+        if !isnothing(future_op)
+            push!(ops, :($current_input = static_reshape($current_input, $(future_op.n_groups), $(future_op.stride))))
+            push!(ops, :($current_output = static_reshape($current_output, $(future_op.n_groups), $(future_op.stride))))
+            D_matrix = Symbol("D_", future_op.stride, "_", future_op.n_groups)
+            D_ref = get_function_reference(radix_family, D_matrix)
+            push!(ops, Expr(:call, func_ref, current_output, current_input, D_ref))
         else
-            if !isnothing(future_op)
-                reshaped_input = Symbol(current_input, :_reshaped)
-                reshaped_output = Symbol(current_output, :_reshaped)
-
-                push!(ops, :($reshaped_input = reshape($current_input, $(future_op.n_groups), $(future_op.stride))))
-                push!(ops, :($reshaped_output = reshape($current_output, $(future_op.n_groups), $(future_op.stride))))
-                D_matrix = Symbol("D_", future_op.stride, "_", future_op.n_groups)
-                D_ref = get_function_reference(radix_family, D_matrix)
-                push!(ops, Expr(:call, func_ref, reshaped_output, reshaped_input, D_ref))
-            else
-                push!(ops, :($reshaped_input = reshape($current_input, $(op.n_groups), $(op.stride))))
-                push!(ops, :($reshaped_output = reshape($current_output, $(op.n_groups), $(op.stride))))
+            if n1 == op.stride == 1 # single linear kernel 
                 push!(ops, Expr(:call, func_ref, current_output, current_input))
+            else
+            push!(ops, :($current_input = static_reshape($current_input, $(op.n_groups), $(op.stride))))
+            push!(ops, :($current_output = static_reshape($current_output, $(op.n_groups), $(op.stride))))
+            push!(ops, Expr(:call, func_ref, current_output, current_input))
             end
         end
         @show ops
@@ -75,7 +71,7 @@ function generate_mat_execute_function!(plan::RadixPlan, show_function=true)
             end
             future_op = i < length(plan.operations) ? plan.operations[i+1] : nothing
             push_operation!(ops, op, future_op, current_input, current_output, ivdep)
-        current_input, current_output = current_output, current_input
+        current_input, current_output = current_output, current_input #swap
     end
 
     # Construct the function body
@@ -159,7 +155,6 @@ function generate_linear_execute_function!(plan::RadixPlan, show_function=true, 
                 ivdep_func_name = Symbol(String(op.op_type), "_", String(suffix), "_ivdep!")
                 std_func_ref = get_function_reference(radix_family, std_func_name)
                 ivdep_func_ref = get_function_reference(radix_family, ivdep_func_name)
-                #@show std_func_ref, ivdep_func_ref
                 ivdep = determine_ivdep_threshold(std_func_ref, ivdep_func_ref, op, is_layered, typeof(plan).parameters[1] , show_function)
                 if ivdep
                     ivdep_change_exists = true
@@ -328,12 +323,6 @@ function determine_ivdep_threshold(fft_standard!, fft_ivdep!, op, is_layered, ty
     end
     
     return is_ivdep_beneficial
-end
-
-# Divisor mapping for specific FFTs
-function get_radix_divisor(op_type::Symbol)
-    radix = parse(Int, String(op_type)[4:end])
-    return radix
 end
 
 # Benchmarking different theoretical plans used by the MEASURE >= FLAGS

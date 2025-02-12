@@ -226,121 +226,6 @@ end
     return D_kernel
 end
 
-#=
-# Helper function to format complex numbers properly
-function format_complex(z::Complex{T}) where T
-    re, im = real(z), imag(z)
-    if abs(im) < eps(T)
-        return "@real($re)"
-    elseif abs(re) < eps(T)
-        return im == one(T) ? "im" : im == -one(T) ? "-im" : "$(im)im"
-    else
-        im_str = im > 0 ? "+ $(abs(im))im" : "- $(abs(im))im"
-        return "$re $im_str"
-    end
-end
-
-@inline function create_D_kernel_square(n::Int, ::Type{T}) where T <: AbstractFloat
-    # Pre-allocate the array for twiddle factors
-    w = cispi.(T(-2/(n*n)) * collect(1:n-1))
-    d = zeros(Complex{T}, (n-1)*(n-1))
-    d_size = length(d)
-    
-    # Fill the first row
-    @inbounds d[1:n-1] .= w
-    
-    # Fill subsequent rows
-    @inbounds @simd for j in 2:n-1
-        row_start = (j-1)*(n-1)
-        prev_row_start = (j-2)*(n-1)
-        @views d[row_start+1:row_start+n-1] .= w .* d[prev_row_start+1:prev_row_start+n-1]
-    end
-    
-    # Reshape the array into a matrix
-    d_matrix = reshape(d, (n-1, n-1))
-    
-    # Create a collapsed array containing only the upper triangular elements
-    num_elements = div((n-1) * n, 2)  # Number of elements in the upper triangular part
-    collapsed_array = Vector{Complex{T}}(undef, num_elements)
-    
-    # Fill the collapsed array with upper triangular elements
-    index = 1
-    @inbounds for i in 1:n-1
-        @inbounds for j in i:n-1
-            collapsed_array[index] = d_matrix[i, j]
-            index += 1
-        end
-    end
-    
-    # Generate the code for the collapsed array
-    buf = IOBuffer()
-    write(buf, "D_$(n)_$(n)::AbstractVector{Complex{$T}} = [\n    ")
-    
-    # Write elements of the collapsed array
-    @inbounds for i in 1:length(collapsed_array)
-        write(buf, get_constant_expression(collapsed_array[i], n*n))
-        if i < length(collapsed_array)
-            write(buf, ", ")
-        end
-    end
-    
-    write(buf, "]")
-    
-    # Convert buffer to string
-    D_kernel = String(take!(buf))
-    close(buf)
-    
-    return D_kernel
-end
-
-@inline function create_D_kernel_non_square(n1::Int, n2::Int, ::Type{T}) where T <: AbstractFloat
-    # Pre-allocate the array for twiddle factors
-    m, p = min(n1, n2), max(n1, n2)
-    w = cispi.(T(-2/(p*m)) * collect(1:m-1))
-    d = zeros(Complex{T}, (p-1)*(m-1))
-    d_size = length(d)
-    
-    # Fill the first row
-    @inbounds d[1:m-1] .= w
-    
-    # Fill subsequent rows
-    @inbounds @simd for j in 2:p-1
-        row_start = (j-1)*(m-1)
-        prev_row_start = (j-2)*(m-1)
-        @views d[row_start+1:row_start+m-1] .= w .* d[prev_row_start+1:prev_row_start+m-1]
-    end
-    
-    # Reshape the array into a matrix
-    d_matrix = reshape(d, (m-1, p-1))
-    
-    # Generate the code for the full matrix
-    buf = IOBuffer()
-    #write(buf, "D_$(n1)_$(n2)::AbstractMatrix{Complex{$T}} = [\n    ")
-    n2 == 2 ? write(buf, "D_$(n1)_$(n2)::AbstractVector{Complex{$T}} = [\n    ") : write(buf, "D_$(n1)_$(n2)::AbstractMatrix{Complex{$T}} = [\n    ")
-    
-    # Write elements of the matrix
-    for i in 1:size(d_matrix, 1)
-        for j in 1:size(d_matrix, 2)
-            write(buf, get_constant_expression(d_matrix[i, j], n1*n2))
-            if j < size(d_matrix, 2)
-                write(buf, ", ")
-            end
-        end
-        if i < size(d_matrix, 1)
-            write(buf, ";\n    ")
-        end
-    end
-    
-    write(buf, "]")
-    
-    # Convert buffer to string
-    D_kernel = String(take!(buf))
-    close(buf)
-    
-    return D_kernel
-end
-=#
-
 """
 Generate twiddle factor expressions for a given collection of indices
 """
@@ -542,11 +427,7 @@ function generate_kernel(radix::Int, suffixes::Vector{String}, ::Type{T}) where 
     kernel_code = makefftradix(radix, suffixes, T, nothing)
     
     # Generate the complete function
-    if "layered" ∈ suffixes
-        # Special handling for layered kernels
-        # return generate_layered_kernel(radix, names, signature, suffixes)
-    else
-        if "mat" ∈ suffixes
+    if "mat" ∈ suffixes
         return """
         @inline function $(names[2])$signature 
             @inbounds @simd for k in axes(x,1)
@@ -562,7 +443,6 @@ function generate_kernel(radix::Int, suffixes::Vector{String}, ::Type{T}) where 
         end
         end
         """
-    end
     end
 end
 
@@ -612,12 +492,12 @@ function generate_all_kernels(N::Int,  ::Type{T}; suffix_combinations::Union{Not
 
     if isnothing(suffix_combinations)
     suffix_combinations = Vector{Vector{String}}([
-        String[],
+        #String[],
         ["mat"],
         #["ivdep"],
         #["y"],
         #["y", "ivdep"],
-        ["layered"], # Must have generated normal kernels to produces functional layered kernels
+        #["layered"], # Must have generated normal kernels to produces functional layered kernels
         #["layered", "ivdep"]
     ])
     end
@@ -673,7 +553,8 @@ end
 # ENCHANT KERNEL PRODUCER
 function create_kernel_module(plan_data::NamedTuple, ::Type{T}) where T <: AbstractFloat
     module_constants = generate_module_constants(plan_data.n, T)
-    custom_combinations = [String[], ["mat"]]
+    @show plan_data
+    custom_combinations = length(plan_data.operations) == 1 ? [String[]] : [["mat"]]
     kernels = generate_all_kernels(plan_data, T; suffix_combinations=custom_combinations)
     D_kernels = generate_D_kernels(plan_data.operations, T)
 
