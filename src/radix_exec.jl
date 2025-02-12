@@ -29,8 +29,8 @@ function generate_mat_execute_function!(plan::RadixPlan, show_function=true)
         n1 = op.n_groups ÷ get_radix_divisor(op.op_type)
 
         if !isnothing(future_op)
-            push!(ops, :($current_input = static_reshape($current_input, $(future_op.n_groups), $(future_op.stride))))
-            push!(ops, :($current_output = static_reshape($current_output, $(future_op.n_groups), $(future_op.stride))))
+            push!(ops, :($current_input = reshape($current_input, $(future_op.n_groups), $(future_op.stride))))
+            push!(ops, :($current_output = reshape($current_output, $(future_op.n_groups), $(future_op.stride))))
             D_matrix = Symbol("D_", future_op.stride, "_", future_op.n_groups)
             D_ref = get_function_reference(radix_family, D_matrix)
             push!(ops, Expr(:call, func_ref, current_output, current_input, D_ref))
@@ -38,8 +38,8 @@ function generate_mat_execute_function!(plan::RadixPlan, show_function=true)
             if n1 == op.stride == 1 # single linear kernel 
                 push!(ops, Expr(:call, func_ref, current_output, current_input))
             else
-            push!(ops, :($current_input = static_reshape($current_input, $(op.n_groups), $(op.stride))))
-            push!(ops, :($current_output = static_reshape($current_output, $(op.n_groups), $(op.stride))))
+            push!(ops, :($current_input = reshape($current_input, $(op.n_groups), $(op.stride))))
+            push!(ops, :($current_output = reshape($current_output, $(op.n_groups), $(op.stride))))
             push!(ops, Expr(:call, func_ref, current_output, current_input))
             end
         end

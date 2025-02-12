@@ -335,7 +335,7 @@ function recfft2(y, x, d=nothing, w=nothing)
 end
 
 # Wrapper for any other kernel shell strategy planer
-function makefftradix(n::Int,  suffixes::Vector{String}, use_vec::Bool, ::Type{T}) where T <: AbstractFloat
+function makefftradix(n::Int,  suffixes::Vector{String}, D_status::Int, ::Type{T}) where T <: AbstractFloat
 
     global inc = inccounter() #nullify glabal tmp 't' var counter for each new kernel generated
 
@@ -347,7 +347,7 @@ function makefftradix(n::Int,  suffixes::Vector{String}, use_vec::Bool, ::Type{T
     if is_mat
         x = ["$input[k, $i]" for i in 1:n]
         y = ["$output[k, $i]" for i in 1:n]
-        d = use_vec ? ["$d_matrix[$i]" for i in 1:(n-1)] : ["$d_matrix[k, $i]" for i in 1:(n-1)] # TODO Matrix/Vector special handling
+        d = D_status == 2 ? ["$d_matrix[k, $i]" for i in 1:(n-1)] : D_status == 1 ? ["$d_matrix[$i]" for i in 1:(n-1)] : nothing
     else
         x = ["$input[$i]" for i in 1:n]
         y = ["$output[$i]" for i in 1:n]
@@ -371,7 +371,7 @@ function generate_kernel_names(radix::Int, suffixes::Vector{String})
 end
 
 # Function to generate function signature
-function generate_signature(suffixes::Vector{String}, use_vec::Bool, ::Type{T}) where T <: AbstractFloat
+function generate_signature(suffixes::Vector{String}, D_status::Int, ::Type{T}) where T <: AbstractFloat
     y_only = "y" in suffixes
     layered = "layered" in suffixes
     mat = "mat" ∈ suffixes
@@ -381,10 +381,12 @@ function generate_signature(suffixes::Vector{String}, use_vec::Bool, ::Type{T}) 
     elseif layered
         return "(y::AbstractVector{Complex{$T}}, x::AbstractVector{Complex{$T}}, s::Int, n1::Int, theta::$T=$T(0.125))"
     elseif mat
-        if use_vec
+        if D_status == 2
+            return "(y::AbstractMatrix{Complex{$T}}, x::AbstractMatrix{Complex{$T}}, D::AbstractMatrix{Complex{$T}})"
+        elseif D_status == 1
             return "(y::AbstractMatrix{Complex{$T}}, x::AbstractMatrix{Complex{$T}}, D::AbstractVector{Complex{$T}})" 
         else
-            return "(y::AbstractMatrix{Complex{$T}}, x::AbstractMatrix{Complex{$T}}, D::AbstractMatrix{Complex{$T}})"
+            return "(y::AbstractMatrix{Complex{$T}}, x::AbstractMatrix{Complex{$T}})"
         end
     else
         return "(y::AbstractArray{Complex{$T}, 1}, x::AbstractArray{Complex{$T}, 1})"
@@ -395,10 +397,21 @@ end
 function generate_kernel(radix::Int, op, suffixes::Vector{String}, ::Type{T}) where T <: AbstractFloat
     names = generate_kernel_names(radix, suffixes)
     s = op.stride; n_group = op.n_groups
-    use_vec = s == 1 ? true : n_group == s ? true : false
-    signature = generate_signature(suffixes, use_vec, T)
+    @show radix, op, suffixes
+    #TODO FIX D_status INTERVATION
+    if radix == get_radix_divisor(op.op_type) 
+        D_status = 0 
+    elseif radix == 2*get_radix_divisor(op.op_type) # fftN/2 * fft2
+        D_status = 1
+    else 
+        D_status = 0 
+    end
+
+    println(" FFT: $(op.op_type) : Dstatus : $D_status")
+    signature = generate_signature(suffixes, D_status, T)
     
-    kernel_code = makefftradix(radix, suffixes, use_vec, T)
+    kernel_code = makefftradix(radix, suffixes, D_status, T)
+
     
     # Generate the complete function
     if "mat" ∈ suffixes
@@ -446,6 +459,7 @@ function generate_kernel(radix::Int, suffixes::Vector{String}, ::Type{T}) where 
     end
 end
 
+# ENCHANT
 function generate_all_kernels(plan_data::NamedTuple, ::Type{T}; suffix_combinations::Union{Nothing, Vector{Vector{String}}}=nothing) where T <: AbstractFloat
     # Extract unique radices from the operations in plan_data
     symbols = Vector{Symbol}()
@@ -483,6 +497,7 @@ function generate_all_kernels(plan_data::NamedTuple, ::Type{T}; suffix_combinati
     return kernels
 end
 
+# MEASURE
 function generate_all_kernels(N::Int,  ::Type{T}; suffix_combinations::Union{Nothing, Vector{Vector{String}}}=nothing) where T <: AbstractFloat
     if N < 2 || (N & (N - 1)) != 0  # Check if N is less than 2 or not a power of 2
         error("N must be a power of 2 and greater than or equal to 2")
@@ -533,21 +548,18 @@ function create_kernel_module(N::Int, ::Type{T}) where T <: AbstractFloat
     module_constants = generate_module_constants(N, T)
     custom_combinations = [String[], ["layered"]]
     kernels = generate_all_kernels(N, T; suffix_combinations=custom_combinations)
-    kernel_str = """
+
+    family_module_code = """
+    module radix_2_family
         using LoopVectorization
 
         $module_constants
         
         $(join(kernels, "\n\n"))
-    """
-
-    family_module_code = """
-    module radix_2_family
-        $kernel_str
     end
     """
     
-    return Meta.parse(family_module_code), kernel_str  # Parse directly into an expression
+    return Meta.parse(family_module_code) # Parse directly into an expression
 end
 
 # ENCHANT KERNEL PRODUCER
@@ -558,7 +570,8 @@ function create_kernel_module(plan_data::NamedTuple, ::Type{T}) where T <: Abstr
     kernels = generate_all_kernels(plan_data, T; suffix_combinations=custom_combinations)
     D_kernels = generate_D_kernels(plan_data.operations, T)
 
-    kernel_str = """
+    family_module_code = """
+        module radix_2_family
         using LoopVectorization
         
         $module_constants
@@ -566,15 +579,11 @@ function create_kernel_module(plan_data::NamedTuple, ::Type{T}) where T <: Abstr
         $(join(kernels, "\n\n"))
 
         $(join(D_kernels, "\n\n"))
-    """
-    
-    family_module_code = """
-        module radix_2_family
-        $kernel_str
+
         end
     """
     
-    return Meta.parse(family_module_code), kernel_str
+    return Meta.parse(family_module_code)
 end
 
 
@@ -595,13 +604,13 @@ function evaluate_fft_generated_module(target_module::Module, plan::P, ::Type{T}
     end
     
     # Create module expression using the extracted data
-    module_expr, kernel_str = create_kernel_module(extract_plan_data(plan), T)
+    module_expr = create_kernel_module(extract_plan_data(plan), T)
     @show module_expr
     Core.eval(target_module, module_expr)
 end
 
 function evaluate_fft_generated_module(target_module::Module, n::Int, ::Type{T}) where T <: AbstractFloat
-    module_expr, kernel_str = create_kernel_module(n, T)
+    module_expr = create_kernel_module(n, T)
     @show module_expr
     Core.eval(target_module, module_expr)
 end
