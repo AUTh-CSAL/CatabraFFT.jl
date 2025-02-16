@@ -2,6 +2,7 @@ module RadixGenerator
 
 include("helper_tools.jl")
 include("radix_plan.jl")
+#include("fft_seed.jl")
 #include("radix_exec.jl")
 
 using LoopVectorization
@@ -37,6 +38,9 @@ function generate_module_constants(n::Int, ::Type{T}) where T <: AbstractFloat
     if n >= 8
         str *= "const INV_SQRT2_Q1 = $(Complex{T}(1/sqrt(2) + im * 1/sqrt(2)))\n"
         str *= "const INV_SQRT2_Q4 = $(Complex{T}(1/sqrt(2) - im * 1/sqrt(2)))\n"
+
+        # Add the extract_view lamda in module definition for layered kernels
+        str *= "extract_view = (x::Vector{Complex{$T}}, q::Int, p::Int, s::Int, n1::Int, N::Int) -> [@inbounds x[q + s*(p + i*n1)] for i in 0:N-1]"
     end
     
     return str
@@ -50,12 +54,13 @@ function get_constant_expression(w::Complex{T}, n::Integer)::String where T <: A
     imag_part = imag(w)
     
     # Helper for approximate equality
-    isclose(a, b) = (abs(real(a) - real(b)) < eps(T) * 50) && (abs(imag(a) - imag(b)) < eps(T) * 50)
+    isclose(a, b) = (abs(real(a) - real(b)) < eps(T) * 10) && (abs(imag(a) - imag(b)) < eps(T) * 10)
     
     # Function to get sign string
     sign_str(x) = x ≥ 0 ? "+" : "-"
     
     # Common cases table with twiddle factors patterns commonly met
+
     common_cases = [
         (1.0, 0.0) => "1",
         (-1.0, 0.0) => "-1",
@@ -67,7 +72,7 @@ function get_constant_expression(w::Complex{T}, n::Integer)::String where T <: A
         (-1/√2, -1/√2) => "-INV_SQRT2_Q1"
     ]
     
-    # Check special cases fist
+    # Check special cases first
     for ((re, im), expr) in common_cases
         if isclose(real_part, re) && isclose(imag_part, im)
             return expr
@@ -82,6 +87,8 @@ function get_constant_expression(w::Complex{T}, n::Integer)::String where T <: A
         s = current_n >> 3
         angles = [(n4-i,n2) for i in 1:2:s]
         for (num, den) in angles
+            #cp = cospi(num/den)
+            #sp = sinpi(num/den)
             cispi1, cispi2  = cispi(num/den), cispi(-num/den)
             if isclose(w, cispi1)
                 return "CISPI_$(num)_$(den)_Q1"
@@ -95,11 +102,6 @@ function get_constant_expression(w::Complex{T}, n::Integer)::String where T <: A
                 return "-im*CISPI_$(num)_$(den)_Q1"
             elseif isclose(w, -im*cispi2)
                 return "-im*CISPI_$(num)_$(den)_Q4"
-            elseif isclose(w, im*cispi1)
-                return "im*CISPI_$(num)_$(den)_Q1"
-            elseif isclose(w, im*cispi2)
-                return "im*CISPI_$(num)_$(den)_Q4"
-
             end
         end
         current_n >>= 1

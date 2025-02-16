@@ -91,6 +91,7 @@ end
 
     # Cache-in
     F_cache[key] = fft_func
+    @show F_cache
     return fft_func
 end
 
@@ -98,7 +99,8 @@ end
 @inline function fft_kernel!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}, p::FLAG) where T <: AbstractFloat
     n = length(x)
     fft_func = generate_and_cache_fft!(n, T, p) # NO_FLAG for fft(x) normal calls
-    fft_func(y, x) # FUNCTION EXECUTION
+    Base.invokelatest(fft_func,y, x) # FUNCTION EXECUTION
+    #fft_func(y, x) # FUNCTION EXECUTION
     return y
 end
 
@@ -121,6 +123,7 @@ function call_radix_families(n::Int, ::Type{T}, flag::FLAG)::Function where {T<:
 
     family_func = if flag >= ENCHANT
         if is_power_of(n, 2)
+            println("STATIC FUNC GEN")
             Radix_Execute.return_best_static_linear_function(Radix_Plan.create_all_radix_plans(n, subpowers_of_two(n), T), show_function, ivdep)
         end
         elseif flag >= MEASURE
