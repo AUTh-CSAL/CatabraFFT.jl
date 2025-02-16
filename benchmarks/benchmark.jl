@@ -55,7 +55,8 @@ function bench_catabra(n::Int, catabra_time::Vector, catabra_mem::Vector, ctype=
 
     fftw_result = F * x
     catabra_result = C * x
-    @show rel_err = relative_error(catabra_result, fftw_result)
+    #@show catabra_result
+    rel_err = relative_error(catabra_result, fftw_result)
     @assert catabra_result ≈ fftw_result
 
     # Run custom FFT benchmark
@@ -67,7 +68,7 @@ end
 function benchmark_fft_over_range(xs::Vector; ctype=ComplexF64, fftw_plan_type=FFTW.MEASURE, save=false, msg="")
     # Initialize arrays for each plan type
     #catabraplans = [CatabraFFT.NO_FLAG, CatabraFFT.MEASURE, CatabraFFT.ENCHANT]
-    catabraplans = [CatabraFFT.NO_FLAG, CatabraFFT.MEASURE]
+    catabraplans = [CatabraFFT.ENCHANT]
 
     n_plans = length(catabraplans)  # Number of different Catabra plans
     gflops_catabra = [Float64[] for _ in 1:n_plans]
@@ -101,7 +102,7 @@ function benchmark_fft_over_range(xs::Vector; ctype=ComplexF64, fftw_plan_type=F
     end
     
     # System info
-    info = Sys.cpu_info()[1]
+    @show info = Sys.cpu_info()[1]
     cpu = "$(info.model)@$(info.speed) Julia $(VERSION)"
     ptype = fftwplantype2str(fftw_plan_type)
     
@@ -109,7 +110,8 @@ function benchmark_fft_over_range(xs::Vector; ctype=ComplexF64, fftw_plan_type=F
     p_reltime = bar(
         log2.(xs), 
         [fftw_time ./ catabra_time[i] for i in 1:n_plans],  # Matrix form for grouped bar plot
-        label=["NO FLAG" "MEASURE" "ENCHANT"],  # Set labels for each bar group
+        #label=["NO FLAG" "MEASURE" "ENCHANT"],  # Set labels for each bar group
+        label=["ENCHANT"],  # Set labels for each bar group
         linestyle=:none,
         markershape=:square,
         markercolor=[:red :blue :green],  # Assign distinct colors
@@ -156,12 +158,14 @@ function benchmark_fft_over_range(xs::Vector; ctype=ComplexF64, fftw_plan_type=F
 end
 
 
-fftwplan = FFTW.MEASURE
+fftwplan = FFTW.PATIENT
 save = false
-twoexp = 15
-for b in [2 3 5 7 10]
+twoexp = 4
+#for b in [2 3 5 7 10]
+for b in [2]
     xs = b .^ (2:Int64(floor(twoexp / log2(b))))
-    for ctype in [ComplexF32, ComplexF64]
+    #for ctype in [ComplexF32, ComplexF64]
+    for ctype in [ComplexF64]
         benchmark_fft_over_range(xs; ctype, fftw_plan_type=fftwplan, save, msg="FFT-$b")
     end
 end
