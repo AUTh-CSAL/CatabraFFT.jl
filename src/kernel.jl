@@ -91,7 +91,6 @@ end
 
     # Cache-in
     F_cache[key] = fft_func
-    @show F_cache
     return fft_func
 end
 

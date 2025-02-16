@@ -1,4 +1,4 @@
-module radix2_family
+module radix_2_family
 using LoopVectorization, SIMD
 
 const INV_SQRT2_DEFAULT = 0.7071067811865475

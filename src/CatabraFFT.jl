@@ -190,9 +190,13 @@ end
 
 # Required * operation
 function Base.:*(p::Spell, x::AbstractVector{Complex{T}}) where T
-    y = similar(x)
-    mul!(y, p, x)
-    return y
+    #y = similar(x)
+    #mul!(y, p, x)
+    n = length(x)
+    workspace = get_workspace(n, T)
+    copyto!(workspace.x_work, x) # immutable x
+    fft_kernel!(workspace.x_work, workspace.x_work, p.flag)
+    return workspace.x_work
 end
 
 # Support for real FFTs

@@ -399,7 +399,6 @@ end
 function generate_kernel(radix::Int, op, suffixes::Vector{String}, ::Type{T}) where T <: AbstractFloat
     names = generate_kernel_names(radix, suffixes)
     s = op.stride; n_group = op.n_groups
-    @show radix, op, suffixes
     #TODO FIX D_status INTERVATION
     if radix == get_radix_divisor(op.op_type) 
         D_status = 0 
@@ -567,8 +566,7 @@ end
 # ENCHANT KERNEL PRODUCER
 function create_kernel_module(plan_data::NamedTuple, ::Type{T}) where T <: AbstractFloat
     module_constants = generate_module_constants(plan_data.n, T)
-    @show plan_data
-    custom_combinations = length(plan_data.operations) == 1 ? [String[]] : [["mat"]]
+    custom_combinations = length(plan_data.operations) == 1 ? [String[], ["y"]] : [["mat"], ["y"]]
     kernels = generate_all_kernels(plan_data, T; suffix_combinations=custom_combinations)
     D_kernels = generate_D_kernels(plan_data.operations, T)
 
@@ -613,7 +611,6 @@ end
 
 function evaluate_fft_generated_module(target_module::Module, n::Int, ::Type{T}) where T <: AbstractFloat
     module_expr = create_kernel_module(n, T)
-    @show module_expr
     Core.eval(target_module, module_expr)
 end
 

@@ -5,6 +5,7 @@ using ..Radix_Plan
 using ..RadixGenerator
 using BenchmarkTools, RuntimeGeneratedFunctions
 
+#include("radix_2_codelets.jl")
 include("radix_3_codelets.jl")
 include("radix_5_codelets.jl")
 include("radix_7_codelets.jl")
@@ -45,7 +46,6 @@ function generate_mat_execute_function!(plan::RadixPlan, show_function=true)
             push!(ops, Expr(:call, func_ref, current_output, current_input))
             end
         end
-        @show ops
     end
 
     # Main loop over operations
@@ -78,13 +78,13 @@ function generate_mat_execute_function!(plan::RadixPlan, show_function=true)
 
     # Construct the function body
     function_body = Expr(:block, ops...)
-    @show function_body
 
     # Combine all operations into a runtime-generated function
     ex = :(function execute_fft_linear!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}) where T <: AbstractFloat
         $function_body
         return nothing
     end)
+
     
     runtime_generated_function = @RuntimeGeneratedFunction(ex)
     #runtime_generated_function = Core.eval(Radix_Execute, ex)
