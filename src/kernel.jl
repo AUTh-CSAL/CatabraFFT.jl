@@ -12,6 +12,7 @@ include("helper_tools.jl")
 export Radix_Plan, RadixGenerator, Radix_Execute
 
 # BiMap (HashMap) struct for FFT caching
+#=
 mutable struct FFTCacheMap{T}
     forward::Dict{Tuple{Int, DataType, Union{Nothing, Spell}}, Function}
     backward::Dict{Function, Tuple{Int, DataType, Union{Nothing, Spell}}}
@@ -72,11 +73,26 @@ end
     error("Function not found for the given spell.")
 end
 
-@inline function generate_and_cache_fft!(n::Int, ::Type{T}, flag::FLAG)::Function where {T <: AbstractFloat}
-    spell = Spell(n, T, flag)
-    key = (n, T, spell)
-    haskey(F_cache, key) && return F_cache[key] # Check out if these requieremts already have a cached-in solution
+=#
 
+const F_cache_lock = ReentrantLock()
+const F_cache = Dict{Tuple{Int,Type,FLAG}, Spell}()
+
+function get_cached_spell(n::Int, T::Type, flag::FLAG)
+    key = (n, T, flag)
+    lock(F_cache_lock) do
+        get(F_cache, key, nothing)
+    end
+end
+
+function cache_spell!(spell::Spell)
+    key = (spell.n, spell.type, spell.flag)
+    lock(F_cache_lock) do
+        F_cache[key] = spell
+    end
+end
+
+@inline function generate_and_cache_fft!(n::Int, ::Type{T}, flag::FLAG)::Function where {T <: AbstractFloat}
     fft_func = if n == 1
         (y, x) -> (y .= x)
     elseif is_power_of(n, 2) || is_power_of(n, 3) || is_power_of(n, 5) || is_power_of(n, 7)
@@ -90,13 +106,12 @@ end
     end
 
     # Cache-in
-    F_cache[key] = fft_func
+    #F_cache[key] = fft_func
     return fft_func
 end
 
 
-@inline function fft_kernel!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}, p::FLAG) where T <: AbstractFloat
-    n = length(x)
+@inline function fft_kernel!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}, p::FLAG, n::Int) where T <: AbstractFloat
     fft_func = generate_and_cache_fft!(n, T, p) # NO_FLAG for fft(x) normal calls
     Base.invokelatest(fft_func,y, x) # FUNCTION EXECUTION
     #fft_func(y, x) # FUNCTION EXECUTION

@@ -44,7 +44,7 @@ end
 
 # in-place manipulation of given signal
 @inline function fft!(x::AbstractVector{Complex{T}}) where T <: AbstractFloat
-    fft_kernel!(x, x, CatabraFFT.NO_FLAG)
+    fft_kernel!(x, x, CatabraFFT.NO_FLAG, n)
     return x
 end
 
@@ -67,7 +67,7 @@ X = fft(x)
     workspace = get_workspace(n, T)
     copyto!(workspace.x_work, x)  # Fast copy into preallocated space
     y = similar(x)
-    fft_kernel!(y, workspace.x_work, CatabraFFT.NO_FLAG)
+    fft_kernel!(y, workspace.x_work, CatabraFFT.NO_FLAG, n)
     return y
 end
 
@@ -93,7 +93,7 @@ x = ifft(X)
     
     # IFFT using the FFT with complex conjugate and normalization
     conj!(workspace.x_work)
-    fft_kernel!(y, workspace.x_work, CatabraFFT.NO_FLAG)
+    fft_kernel!(y, workspace.x_work, CatabraFFT.NO_FLAG, n)
     conj!(y)
     y ./= n
     
@@ -108,7 +108,7 @@ end
     
     # IFFT using the FFT with complex conjugate and NOT normalization (BFFT)
     conj!(workspace.x_work)
-    fft_kernel!(y, workspace.x_work, CatabraFFT.NO_FLAG)
+    fft_kernel!(y, workspace.x_work, CatabraFFT.NO_FLAG, n)
     conj!(y)
     
     return y
@@ -146,6 +146,19 @@ FFT --> Spell
 ↓        ↓
 IFFT --> ISpell
 =#
+
+function plan_fft(x::AbstractVector{Complex{T}}, flags::FLAG) where T <: AbstractFloat
+    n = length(x)
+    cached = get_cached_spell(n, T, flags)
+    cached !== nothing && return cached
+    
+    fft_func = generate_and_cache_fft!(n, T, flags)
+    spell = Spell{T}(n, flags, fft_func)
+    cache_spell!(spell)
+    return spell
+end
+
+#=
 function plan_fft(x::AbstractVector{Complex{T}}, flags::FLAG)::Spell{T} where T <: AbstractFloat
     n = length(x)
 
@@ -165,6 +178,7 @@ function plan_fft(x::AbstractVector{Complex{T}}, flags::FLAG)::Spell{T} where T 
     #println("Spell: $spell")
     return get_spell_from_function(func)
 end
+=#
 
 function AbstractFFTs.plan_fft(x::AbstractVector{Complex{T}}, region=1:1; flags::FLAG=NO_FLAG) where T <: AbstractFloat
     plan_fft(x, flags)
@@ -186,7 +200,8 @@ end
 function Base.:*(p::Spell, x::AbstractVector{Complex{T}}) where T
     n = length(x)
     workspace = get_workspace(n, T)
-    fft_kernel!(workspace.x_work, x, p.flag) # immutable x
+    p.fft_func(workspace.x_work, x)
+    #fft_kernel!(workspace.x_work, x, p.flag, n) # immutable x
     return workspace.x_work
 end
 

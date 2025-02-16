@@ -85,8 +85,10 @@ function generate_mat_execute_function!(plan::RadixPlan, show_function=true)
         return nothing
     end)
 
+    runtime_generated_function = Core.eval(@__MODULE__, ex)
+
     
-    runtime_generated_function = @RuntimeGeneratedFunction(ex)
+    #runtime_generated_function = @RuntimeGeneratedFunction(ex)
     #runtime_generated_function = Core.eval(Radix_Execute, ex)
     if check_ivdep && ivdep_change_exists
         # Create a similar function with ivdep turned off to compare

@@ -33,6 +33,7 @@ end
 
 # FFT8 optimized with SIMD and reduced temporaries
 @inline function fft8_shell!(y::AbstractVector{ComplexF64}, x::AbstractVector{ComplexF64})
+    inv_sqrt2 = 1 /sqrt(2)
     @inbounds begin
         # Load all elements first using SIMD-friendly pattern
         x1 = reim(x[1])
@@ -172,7 +173,8 @@ function recfft2(y, x, d=nothing, w=nothing, root=false)
               "($(w[n2+1]))*($(t[1]) - $(t[1+n2]))" *
               foldl(*, vmap(i -> ", ($(w[n2+i]))*($(t[i]) - $(t[i+n2]))", 2:n2)) * "\n"
     end
-    return   s1 * s2 * s3p * s3m 
+    #s = root ? load_reim(n) * "\n" * s1 * s2 * s3p * s3m : s1 * s2 * s3p * s3m
+    return s1 * s2 * s3p * s3m 
   end
   end
 end

@@ -2,7 +2,7 @@ module RadixGenerator
 
 include("helper_tools.jl")
 include("radix_plan.jl")
-#include("fft_seed.jl")
+include("fft_seed.jl")
 #include("radix_exec.jl")
 
 using LoopVectorization
@@ -250,6 +250,7 @@ end
 
 inc = inccounter()
 
+#=
 function recfft2(y, x, d=nothing, w=nothing)
   n = length(x)
   if n == 1
@@ -364,6 +365,7 @@ function makefftradix(n::Int,  suffixes::Vector{String}, D_status::Int, ::Type{T
 
     return kernel_code
 end
+=#
 
 # Function to generate kernel name
 function generate_kernel_names(radix::Int, suffixes::Vector{String})
@@ -566,7 +568,7 @@ end
 # ENCHANT KERNEL PRODUCER
 function create_kernel_module(plan_data::NamedTuple, ::Type{T}) where T <: AbstractFloat
     module_constants = generate_module_constants(plan_data.n, T)
-    custom_combinations = length(plan_data.operations) == 1 ? [String[], ["y"]] : [["mat"], ["y"]]
+    custom_combinations = length(plan_data.operations) == 1 ? [String[]] : [["mat"]]
     kernels = generate_all_kernels(plan_data, T; suffix_combinations=custom_combinations)
     D_kernels = generate_D_kernels(plan_data.operations, T)
 
