@@ -102,7 +102,7 @@ function benchmark_fft_over_range(xs::Vector; ctype=ComplexF64, fftw_plan_type=F
     end
     
     # System info
-    @show info = Sys.cpu_info()[1]
+    info = Sys.cpu_info()[1]
     cpu = "$(info.model)@$(info.speed) Julia $(VERSION)"
     ptype = fftwplantype2str(fftw_plan_type)
     
@@ -160,7 +160,7 @@ end
 
 fftwplan = FFTW.PATIENT
 save = false
-twoexp = 4
+twoexp = 9
 #for b in [2 3 5 7 10]
 for b in [2]
     xs = b .^ (2:Int64(floor(twoexp / log2(b))))

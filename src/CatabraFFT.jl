@@ -22,7 +22,7 @@ const WORKSPACE = Dict{Tuple{Int, DataType}, FFTWorkspace}()
 # Get or create workspace for a given size
 @inline function get_workspace(n::Int, ::Type{T})::FFTWorkspace where {T <: AbstractFloat}
     key = (n, T)
-    get!(WORKSPACE, key) do
+    @inbounds get!(WORKSPACE, key) do
         FFTWorkspace(n, T)
     end
 end
@@ -162,7 +162,7 @@ function plan_fft(x::AbstractVector{Complex{T}}, flags::FLAG)::Spell{T} where T 
     
     # The generate_and_cache_fft! function will have cached the function with the spell
     # We can return the spell we created, as it's now associated with the function
-    println("Spell: $spell")
+    #println("Spell: $spell")
     return get_spell_from_function(func)
 end
 
@@ -182,20 +182,11 @@ function AbstractFFTs.plan_inv(p::Spell{T}) where T
     return p.pinv
 end
 
-# Required mul! implementation
-function mul!(y::AbstractVector{Complex{T}}, p::Spell, x::AbstractVector{Complex{T}}) where T
-    fft_kernel!(y, x, p.flag)
-    return y
-end
-
 # Required * operation
 function Base.:*(p::Spell, x::AbstractVector{Complex{T}}) where T
-    #y = similar(x)
-    #mul!(y, p, x)
     n = length(x)
     workspace = get_workspace(n, T)
-    copyto!(workspace.x_work, x) # immutable x
-    fft_kernel!(workspace.x_work, workspace.x_work, p.flag)
+    fft_kernel!(workspace.x_work, x, p.flag) # immutable x
     return workspace.x_work
 end
 
