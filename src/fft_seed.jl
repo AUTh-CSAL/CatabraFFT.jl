@@ -46,27 +46,58 @@ function parse_cispi(s::String)
     return (num=num, den=den, q1=is_q1)
 end
 
-function sat_expr(sign, x1, x2, w, d=nothing) 
-  is_t =  startswith(x1, "t") || startswith(x2, "t") ? true : false
-   if w == "-im" 
-      return is_t ? "$(x1)_i $sign $(x2)_i, $(x2)_r $sign $(x1)_r" : "$x1[2] $sign $x2[2], $x2[1] $sign $x1[1]"
-  elseif w == "INV_SQRT2_Q4"
-      return is_t ? "INV_SQRT2*($(x1)_r $sign $(x2)_r), INV_SQRT2*($(x1)_i $sign $(x2)_i)" :  "INV_SQRT2*($x1[1] $sign $x2[1] + $x1[2] $sign $x2[2]), INV_SQRT2*($x1[2] $sign $x2[2] - ($x1[1] $sign $x2[1]))"
-  elseif w == "-INV_SQRT2_Q1"
-      return is_t ? "INV_SQRT2*($(x2)_r - $(x1)_r), INV_SQRT2*($(x2)_i - $(x1)_i)" : "-INV_SQRT2*($x1[1] + $x2[1] + $x1[2] + $x2[2]), -INV_SQRT2*($x1[2] + $x2[2] - $x1[1] - $x2[1])" # TODO FIX !is_t conditions
-  else
-    @show w, x1, sign, x2
-    num, den, is_q1 = parse_cispi(w)
-    if startswith(w, "CISPI")
-      return is_q1 ? "muladd(COSPI_$(num)_$(den), $(x1)_r $sign $(x2)_r, -SINPI_$(num)_$(den) * ($(x1)_i $sign $(x2)_i)), muladd(SINPI_$(num)_$(den), $(x1)_r $sign $(x2)_r, COSPI_$(num)_$(den) * ($(x1)_i $sign $(x2)_i))" :
-                     "muladd(COSPI_$(num)_$(den), $(x1)_r $sign $(x2)_r, SINPI_$(num)_$(den) * ($(x1)_i $sign $(x2)_i)), muladd(-SINPI_$(num)_$(den), $(x1)_r $sign $(x2)_r, COSPI_$(num)_$(den) * ($(x1)_i $sign $(x2)_i))"
-    elseif startswith(w, "-im*CISPI")
-      return is_q1 ? "muladd(SINPI_$(num)_$(den), $(x1)_r + $(x2)_r, -COSPI_$(num)_$(den) * ($(x1)_i + $(x2)_i)), muladd(-COSPI_$(num)_$(den), $(x1)_r + $(x2)_r, -SINPI_$(num)_$(den)*($(x1)_i + $(x2)_i))" : "muladd(COSPI_$(num)_$(den), $(x1)_r + $(x2)_r, -COSPI_$(num)_$(den) * ($(x1)_i + $(x2)_i)), muladd(-COSPI_$(num)_$(den), $(x1)_r + $(x2)_r, SINPI_$(num)_$(den)*($(x1)_i + $(x2)_i))"
-      #return is_q1 ? "SINPI_$(num)_$(den)*($(x1)_r $sign $(x2)_r), -COSPI_$(num)_$(den)*($(x1)_i $sign $(x2)_i)" : " -SINPI_$(num)_$(den) * ($(x1)_r $sign $(x2)_r), COSPI_$(num)_$(den) * ($(x1)_i $sign $(x2)_i)"
-    elseif startswith(w, "-CISPI")
-      return "muladd(-COSPI_$(num)_$(den), $(x1)_r $sign $(x2)_r, SINPI_$(num)_$(den) * ($(x1)_i $sign $(x2)_i)), muladd(-SINPI_$(num)_$(den), $(x1)_r $sign $(x2)_r, -COSPI_$(num)_$(den) * ($(x1)_i $sign $(x2)_i))"
+function sat_expr(sign, x1, x2, w, d=nothing)
+    
+    if w == "-im"
+        is_t = startswith(x1, "t") || startswith(x2, "t")
+        # -i*(a ± b) = ±(b_i ∓ a_i) ± i*(b_r ∓ a_r)
+        return is_t ? 
+            "$(x1)_i $sign $(x2)_i, $(x2)_r $sign $(x1)_r" :
+            "$x1[2] $sign $x2[2], $x2[1] $sign $x1[1]"
+    
+    elseif w == "INV_SQRT2_Q4"
+        # (a ± b) * (1-i)/√2 = [ (a_r ± b_r + a_i ± b_i)/√2 , (a_i ± b_i - a_r ∓ b_r)/√2 ]
+        return "INV_SQRT2*(($(x1)_r $sign $(x2)_r) + ($(x1)_i $sign $(x2)_i)), " *
+               "INV_SQRT2*(($(x1)_i $sign $(x2)_i) - ($(x1)_r $sign $(x2)_r))"
+    
+    elseif w == "-INV_SQRT2_Q1"
+        # -(a ± b) * (1+i)/√2 = [ -(a_r ± b_r - a_i ∓ b_i)/√2 , -(a_r ± b_r + a_i ∓ b_i)/√2 ]
+        return "INV_SQRT2*(($(x1)_i $sign $(x2)_i) - ($(x1)_r $sign $(x2)_r)), " *
+               "-INV_SQRT2*(($(x1)_r $sign $(x2)_r) + ($(x1)_i $sign $(x2)_i))"
+    
+    else
+        num, den, is_q1 = parse_cispi(w)
+        c = "COSPI_$(num)_$(den)"
+        s = "SINPI_$(num)_$(den)"
+        
+        if startswith(w, "CISPI")
+            return is_q1 ?
+                # Q1: cosθ + i sinθ
+                "muladd($c, $(x1)_r $sign $(x2)_r, -$s * ($(x1)_i $sign $(x2)_i)), " *
+                "muladd($s, $(x1)_r $sign $(x2)_r, $c * ($(x1)_i $sign $(x2)_i))" :
+                # Q4: cosθ - i sinθ
+                "muladd($c, $(x1)_r $sign $(x2)_r, $s * ($(x1)_i $sign $(x2)_i)), " *
+                "muladd(-$s, $(x1)_r $sign $(x2)_r, $c * ($(x1)_i $sign $(x2)_i))"
+        
+        elseif startswith(w, "-im*CISPI")
+            return is_q1 ?
+                # -i*(cosθ + i sinθ) = sinθ - i cosθ
+                "muladd($s, $(x1)_r $sign $(x2)_r, -$c * ($(x1)_i $sign $(x2)_i)), " *
+                "muladd(-$c, $(x1)_r $sign $(x2)_r, -$s * ($(x1)_i $sign $(x2)_i))" :
+                # -i*(cosθ - i sinθ) = -sinθ - i cosθ
+                "muladd(-$s, $(x1)_r $sign $(x2)_r, -$c * ($(x1)_i $sign $(x2)_i)), " *
+                "muladd(-$c, $(x1)_r $sign $(x2)_r, $s * ($(x1)_i $sign $(x2)_i))"
+        
+        elseif startswith(w, "-CISPI")
+            return is_q1 ?
+                # -cosθ - i sinθ
+                "muladd(-$c, $(x1)_r $sign $(x2)_r, $s * ($(x1)_i $sign $(x2)_i)), " *
+                "muladd(-$s, $(x1)_r $sign $(x2)_r, -$c * ($(x1)_i $sign $(x2)_i))" :
+                # -cosθ + i sinθ
+                "muladd(-$c, $(x1)_r $sign $(x2)_r, -$s * ($(x1)_i $sign $(x2)_i)), " *
+                "muladd($s, $(x1)_r $sign $(x2)_r, -$c * ($(x1)_i $sign $(x2)_i))"
+        end
     end
-  end
 end
 
 function recfft2(y, x, d, w, root, ::Type{T}) where T <: AbstractFloat
