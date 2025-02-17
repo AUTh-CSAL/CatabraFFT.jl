@@ -25,10 +25,10 @@ function generate_module_constants(n::Int, ::Type{T}) where T <: AbstractFloat
         for i in 1:2:s
             # Calculate angle once and reuse
             angle = 2 * (n4-i) / current_n
-            angle_cis_1 = Complex{T}(cispi(angle))
-            angle_cis_2 = Complex{T}(cispi(-angle))
-            str *= "const CISPI_$(n4-i)_$(n2)_Q1::Complex{$T} = $angle_cis_1\n"
-            str *= "const CISPI_$(n4-i)_$(n2)_Q4::Complex{$T} = $angle_cis_2\n"
+            angle_cos = T(cospi(angle))
+            angle_sin = T(sinpi(angle))
+            str *= "const COSPI_$(n4-i)_$(n2)::$T = $angle_cos\n"
+            str *= "const SINPI_$(n4-i)_$(n2)::$T = $angle_sin\n"
         end
         str *= "\n"
         current_n >>= 1
@@ -36,11 +36,7 @@ function generate_module_constants(n::Int, ::Type{T}) where T <: AbstractFloat
     
     # Add only essential special constants
     if n >= 8
-        str *= "const INV_SQRT2_Q1 = $(Complex{T}(1/sqrt(2) + im * 1/sqrt(2)))\n"
-        str *= "const INV_SQRT2_Q4 = $(Complex{T}(1/sqrt(2) - im * 1/sqrt(2)))\n"
-
-        # Add the extract_view lamda in module definition for layered kernels
-        str *= "extract_view = (x::Vector{Complex{$T}}, q::Int, p::Int, s::Int, n1::Int, N::Int) -> [@inbounds x[q + s*(p + i*n1)] for i in 0:N-1]"
+        str *= "const INV_SQRT2::$T = $(T(1/sqrt(2)))\n"
     end
     
     return str

@@ -197,7 +197,7 @@ function AbstractFFTs.plan_inv(p::Spell{T}) where T
 end
 
 # Required * operation
-function Base.:*(p::Spell, x::AbstractVector{Complex{T}}) where T
+@inline function Base.:*(p::Spell, x::AbstractVector{Complex{T}}) where T
     n = length(x)
     workspace = get_workspace(n, T)
     Base.invokelatest(p.fft_func, workspace.x_work, x)

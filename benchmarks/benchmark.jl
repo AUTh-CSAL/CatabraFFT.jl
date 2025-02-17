@@ -160,7 +160,7 @@ end
 
 fftwplan = FFTW.PATIENT
 save = false
-twoexp = 9
+twoexp = 3
 #for b in [2 3 5 7 10]
 for b in [2]
     xs = b .^ (2:Int64(floor(twoexp / log2(b))))
