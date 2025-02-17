@@ -200,7 +200,7 @@ end
 function Base.:*(p::Spell, x::AbstractVector{Complex{T}}) where T
     n = length(x)
     workspace = get_workspace(n, T)
-    p.fft_func(workspace.x_work, x)
+    Base.invokelatest(p.fft_func, workspace.x_work, x)
     #fft_kernel!(workspace.x_work, x, p.flag, n) # immutable x
     return workspace.x_work
 end
