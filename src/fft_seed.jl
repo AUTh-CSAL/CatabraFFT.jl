@@ -47,6 +47,7 @@ function parse_cispi(s::String)
 end
 
 function sat_expr(sign, x1, x2, w, d=nothing)
+  @show w, x1, sign, x2
     
     if w == "-im"
         is_t = startswith(x1, "t") || startswith(x2, "t")
@@ -82,11 +83,11 @@ function sat_expr(sign, x1, x2, w, d=nothing)
         elseif startswith(w, "-im*CISPI")
             return is_q1 ?
                 # -i*(cosθ + i sinθ) = sinθ - i cosθ
-                "muladd($s, $(x1)_r $sign $(x2)_r, -$c * ($(x1)_i $sign $(x2)_i)), " *
-                "muladd(-$c, $(x1)_r $sign $(x2)_r, -$s * ($(x1)_i $sign $(x2)_i))" :
+                "muladd($s, $(x1)_r $sign $(x2)_r, $c * ($(x1)_i $sign $(x2)_i)), " *
+                "muladd(-$c, $(x1)_r $sign $(x2)_r, $s * ($(x1)_i $sign $(x2)_i))" :
                 # -i*(cosθ - i sinθ) = -sinθ - i cosθ
-                "muladd(-$s, $(x1)_r $sign $(x2)_r, -$c * ($(x1)_i $sign $(x2)_i)), " *
-                "muladd(-$c, $(x1)_r $sign $(x2)_r, $s * ($(x1)_i $sign $(x2)_i))"
+                "muladd(-$s, $(x1)_r $sign $(x2)_r, $c * ($(x1)_i $sign $(x2)_i)), " *
+                "muladd(-$c, $(x1)_r $sign $(x2)_r, -$s * ($(x1)_i $sign $(x2)_i))"
         
         elseif startswith(w, "-CISPI")
             return is_q1 ?
