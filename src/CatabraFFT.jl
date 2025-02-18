@@ -18,12 +18,26 @@ end
 
 # Thread-local workspace to avoid allocations in parallel code
 const WORKSPACE = Dict{Tuple{Int, DataType}, FFTWorkspace}()
+const WORKSPACE_LOCK = ReentrantLock()
 
-# Get or create workspace for a given size
+#=
 @inline function get_workspace(n::Int, ::Type{T})::FFTWorkspace where {T <: AbstractFloat}
     key = (n, T)
     @inbounds get!(WORKSPACE, key) do
         FFTWorkspace(n, T)
+    end
+end
+=#
+
+# Get or create workspace for a given size
+@inline function get_workspace(n::Int, ::Type{T})::FFTWorkspace where {T <: AbstractFloat}
+    key = (n, T)
+    @inbounds workplace = get(WORKSPACE, key, nothing)
+    workplace === nothing || return workplace
+    lock(WORKSPACE_LOCK) do
+        return get!(WORKSPACE, key) do
+            FFTWorkspace(n, T)
+        end
     end
 end
 
@@ -198,11 +212,9 @@ end
 
 # Required * operation
 @inline function Base.:*(p::Spell, x::AbstractVector{Complex{T}}) where T
-    n = length(x)
-    workspace = get_workspace(n, T)
+    workspace = get_workspace(length(x), T)
     Base.invokelatest(p.fft_func, workspace.x_work, x)
-    #fft_kernel!(workspace.x_work, x, p.flag, n) # immutable x
-    return workspace.x_work
+    workspace.x_work
 end
 
 # Support for real FFTs

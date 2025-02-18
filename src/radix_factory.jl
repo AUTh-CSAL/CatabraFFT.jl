@@ -589,6 +589,7 @@ function create_kernel_module(N::Int, ::Type{T}) where T <: AbstractFloat
 
     family_module_code = """
     module radix_2_family
+        Base.@assume_effects :total
         using LoopVectorization
 
         $module_constants
