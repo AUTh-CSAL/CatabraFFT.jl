@@ -160,10 +160,10 @@ end
 
 fftwplan = FFTW.PATIENT
 save = false
-twoexp = 6
+twoexp = 9
 #for b in [2 3 5 7 10]
 for b in [2]
-    xs = b .^ (2:Int64(floor(twoexp / log2(b))))
+    xs = b .^ (1:Int64(floor(twoexp / log2(b))))
     #for ctype in [ComplexF32, ComplexF64]
     for ctype in [ComplexF64]
         benchmark_fft_over_range(xs; ctype, fftw_plan_type=fftwplan, save, msg="FFT-$b")

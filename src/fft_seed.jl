@@ -1,6 +1,5 @@
-
-load_reim = n -> join(["$(i == 1 ? "" : " ") x$i = reim(x[$i])" for i in 1:n], ";")
-
+load_reim = t -> join(["$(i == 1 ? "" : " ") $(t[i]) = reim(x[$(match(r"\d+$", t[i]).match)])" for i in 1:length(t)], ";")
+#load_reim = t -> join(["$(i == 1 ? "" : " ") x$i = reim(x[$(match(r"\d+$", t[i]).match)])" for i in 1:length(t)], ";")
 # Wrapper for any other kernel shell strategy planer
 function makefftradix(n::Int,  suffixes::Vector{String}, D_status::Int, ::Type{T}) where T <: AbstractFloat
 
@@ -18,6 +17,7 @@ function makefftradix(n::Int,  suffixes::Vector{String}, D_status::Int, ::Type{T
     else
         #x = ["$input[$i]" for i in 1:n]
         x = ["$(input)$i" for i in 1:n]
+        #x = ["$(input)$(mod(i-1, 4) + 1)" for i in 1:n]
         y = ["$output[$i]" for i in 1:n]
         d = nothing
     end
@@ -107,7 +107,7 @@ function recfft2(y, x, d, w, root, ::Type{T}) where T <: AbstractFloat
     ""
   elseif n == 2
     if root
-    s = """
+    s = load_reim(x) * "\n" * """
         $(y[1]), $(y[2]) = Complex{$T}($(x[1])[1] + $(x[2])[1], $(x[1])[2] + $(x[2])[2]), Complex{$T}($(x[1])[1] - $(x[2])[1], $(x[1])[2] - $(x[2])[2])
         """
     else
@@ -141,7 +141,7 @@ function recfft2(y, x, d, w, root, ::Type{T}) where T <: AbstractFloat
       end
     end
     end
-    s = root ? load_reim(n) * "\n" * s : s
+    #s = root ? load_reim(n) * "\n" * s : s
     return s
   else
     t = vmap(i -> "t$(inc())", 1:n)
@@ -199,7 +199,7 @@ function recfft2(y, x, d, w, root, ::Type{T}) where T <: AbstractFloat
               "$(sat_expr("-", "$(t[1])", "$(t[1+n2])", "$(w[n2+1])"))" *
               foldl(*, vmap(i -> ", $(sat_expr("-", "$(t[i])", "$(t[i+n2])", "$(w[n2+i])"))", 2:n2)) * "\n"
     end
-    s = root ? load_reim(n) * "\n" * s1 * s2 * s3p * s3m : s1 * s2 * s3p * s3m
+    s = n == 4 ? load_reim(x) * "\n" * s1 * s2 * s3p * s3m : s1 * s2 * s3p * s3m
     return s
   end
   end
