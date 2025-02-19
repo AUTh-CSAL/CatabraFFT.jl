@@ -46,6 +46,77 @@ function parse_cispi(s::String)
     return (num=num, den=den, q1=is_q1)
 end
 
+function add_more_tmp_vars(x1, x2, wn, n)
+    index = 0
+    tmp_parts = String[]
+    x_parts = String[]
+    for w in wn
+        if w ∉  ("-im", "1")
+            for i in 1:n
+                push!(tmp_parts, "tmp$(index)_r", "tmp$(index)_i")
+                push!(x_parts, x1[i], x2[i])
+                index += 1
+            end
+        end
+    end
+    tmp_vars = join(tmp_parts, ", ")
+    x_vars = join(x_parts, ", ")
+    return "$tmp_vars = $x_vars"
+end
+
+function sat_expr(tmp, w, d=nothing)
+    
+    if w == "-im"
+        #is_t = startswith(x1, "t") || startswith(x2, "t")
+        # -i*(a ± b) = ±(b_i ∓ a_i) ± i*(b_r ∓ a_r)
+        #return is_t ? 
+            #"$(x1)_i $sign $(x2)_i, $(x2)_r $sign $(x1)_r" :
+            return "$(tmp)_i, $(tmp)_r"
+    
+    elseif w == "INV_SQRT2_Q4"
+        # (a ± b) * (1-i)/√2 = [ (a_r ± b_r + a_i ± b_i)/√2 , (a_i ± b_i - a_r ∓ b_r)/√2 ]
+        return "INV_SQRT2*($(tmp)_r + $(tmp)_i), " *
+               "INV_SQRT2*($(tmp)_i - $(tmp)_r)"
+    
+    elseif w == "-INV_SQRT2_Q1"
+        # -(a ± b) * (1+i)/√2 = [ -(a_r ± b_r - a_i ∓ b_i)/√2 , -(a_r ± b_r + a_i ∓ b_i)/√2 ]
+        return "INV_SQRT2*($(tmp)_i - $(tmp)_r), " *
+               "-INV_SQRT2*($(tmp)_r + $(tmp)_i)"
+    else
+        num, den, is_q1 = parse_cispi(w)
+        c = "COSPI_$(num)_$(den)"
+        s = "SINPI_$(num)_$(den)"
+        
+        if startswith(w, "CISPI")
+            return is_q1 ?
+                # Q1: cosθ + i sinθ
+                "muladd($c, $(tmp)_r, -$s * $(tmp)_i), " *
+                "muladd($s, $(tmp)_r, $c * $(tmp)_i)" :
+                # Q4: cosθ - i sinθ
+                "muladd($c, $(tmp)_r , $s * $(tmp)_i), " *
+                "muladd(-$s, $(tmp)_r, $c * $(tmp)_i) "
+        
+        elseif startswith(w, "-im*CISPI")
+            return is_q1 ?
+                # -i*(cosθ + i sinθ) = sinθ - i cosθ
+                "muladd($s, $(tmp)_r, $c * $(tmp)_i), " *
+                "muladd(-$c, $(tmp)_r, $s * $(tmp)_i)" :
+                # -i*(cosθ - i sinθ) = -sinθ - i cosθ
+                "muladd(-$s, $(tmp)_r, $c * $(tmp)_i), " *
+                "muladd(-$c, $(tmp)_r, -$s * $(tmp)_i)"
+        
+        elseif startswith(w, "-CISPI")
+            return is_q1 ?
+                # -cosθ - i sinθ
+                "muladd(-$c, $(tmp)_r, $s * $(tmp)_i), " *
+                "muladd(-$s, $(tmp)_r, -$c * $(tmp)_i)" :
+                # -cosθ + i sinθ
+                "muladd(-$c, $(tmp)_r, -$s * $(tmp)_i), " *
+                "muladd($s, $(tmp)_r, -$c * $(tmp)_i)"
+        end
+    end
+end
+
 function sat_expr(sign, x1, x2, w, d=nothing)
   @show w, x1, sign, x2
     
@@ -103,6 +174,8 @@ end
 
 function recfft2(y, x, d, w, root, ::Type{T}) where T <: AbstractFloat
   n = length(x)
+  use_vars = false
+
   if n == 1
     ""
   elseif n == 2
@@ -151,6 +224,7 @@ function recfft2(y, x, d, w, root, ::Type{T}) where T <: AbstractFloat
     # Recursively handle sub-transforms
     s1 = recfft2(t[1:n2], x[1:2:n], nothing, nothing, false, T)
     s2 = recfft2(t[n2+1:n], x[2:2:n], nothing, wn, false, T)
+    tmp = ""
     
     # Final layer combining with D matrix twiddles
     if !isnothing(d)
@@ -190,6 +264,17 @@ function recfft2(y, x, d, w, root, ::Type{T}) where T <: AbstractFloat
               "$(t[1])_r - $(t[1+n2])_r, $(t[1])_i - $(t[1+n2])_i" * foldl(*, vmap(i -> ", $(t[i])_r - $(t[i+n2])_r, $(t[i])_i - $(t[i+n2])_i", 2:n2)) * "\n"
         end
       else
+        if use_vars
+        s3p = add_more_tmp_vars(["$(t[i])_r + $(t[i+n2])_r, $(t[i])_i + $(t[i+n2])_i" for i in 2:n2], ["$(t[i])_r - $(t[i+n2])_r, $(t[i])_i - $(t[i+n2])_i" for i in 2:n2], ["$(w[i])" for i in 2:n2], n2-1) * "\n" *
+              "$(y[1])_r, $(y[1])_i" * foldl(*, vmap(i -> ", $(y[i])_r, $(y[i])_i", 2:n2)) *
+              " = " *
+              (w[1] == "1" ? "$(t[1])_r + $(t[1+n2])_r, $(t[1])_i + $(t[1+n2])_i" : "$(sat_expr("tmp$(t[1])", "$(w[1])"))") *
+              foldl(*, vmap(i -> ", $(sat_expr("tmp$(i-2)", "$(w[i])"))", 2:n2)) * "\n"
+        s3m = "$(y[n2+1])_r, $(y[n2+1])_i" * foldl(*, vmap(i -> ", $(y[i+n2])_r, $(y[i+n2])_i", 2:n2)) *
+              " = " *
+              "$(sat_expr("-", "$(t[1])", "$(t[1+n2])", "$(w[n2+1])"))" *
+              foldl(*, vmap(i -> ", $(sat_expr("tmp$(i-3+n2)", "$(w[n2+i])"))", 2:n2)) * "\n"
+        else
         s3p = "$(y[1])_r, $(y[1])_i" * foldl(*, vmap(i -> ", $(y[i])_r, $(y[i])_i", 2:n2)) *
               " = " *
               (w[1] == "1" ? "$(t[1])_r + $(t[1+n2])_r, $(t[1])_i + $(t[1+n2])_i" : "$(sat_expr("+", "$(t[1])", "$(t[1+n2])", "$(w[1])"))") *
@@ -198,6 +283,7 @@ function recfft2(y, x, d, w, root, ::Type{T}) where T <: AbstractFloat
               " = " *
               "$(sat_expr("-", "$(t[1])", "$(t[1+n2])", "$(w[n2+1])"))" *
               foldl(*, vmap(i -> ", $(sat_expr("-", "$(t[i])", "$(t[i+n2])", "$(w[n2+i])"))", 2:n2)) * "\n"
+        end
     end
     s = n == 4 ? load_reim(x) * "\n" * s1 * s2 * s3p * s3m : s1 * s2 * s3p * s3m
     return s
