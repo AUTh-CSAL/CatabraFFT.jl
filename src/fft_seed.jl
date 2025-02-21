@@ -1,5 +1,5 @@
-load_reim = t -> join(["$(i == 1 ? "" : " ") $(t[i]) = reim(x[$(match(r"\d+$", t[i]).match)])" for i in 1:length(t)], ";")
-#load_reim = t -> join(["$(i == 1 ? "" : " ") x$i = reim(x[$(match(r"\d+$", t[i]).match)])" for i in 1:length(t)], ";")
+load_reim = t -> join(["$(i == 1 ? "" : " ") x$(i) = reim(x[$(match(r"\d+$", t[i]).match)])" for i in 1:length(t)], ";")
+
 # Wrapper for any other kernel shell strategy planer
 function makefftradix(n::Int,  suffixes::Vector{String}, D_status::Int, ::Type{T}) where T <: AbstractFloat
 
@@ -17,7 +17,6 @@ function makefftradix(n::Int,  suffixes::Vector{String}, D_status::Int, ::Type{T
     else
         #x = ["$input[$i]" for i in 1:n]
         x = ["$(input)$i" for i in 1:n]
-        #x = ["$(input)$(mod(i-1, 4) + 1)" for i in 1:n]
         y = ["$output[$i]" for i in 1:n]
         d = nothing
     end
@@ -29,6 +28,18 @@ function makefftradix(n::Int,  suffixes::Vector{String}, D_status::Int, ::Type{T
             "#OUTPUT#" => output)
 
     return kernel_code
+end
+
+function parse_x(s::String)
+  pattern = r"\d+"
+  m = match(pattern, s)
+  return m !== nothing ? parse(Int, m.match) : nothing
+end
+
+parse_x(arr::AbstractArray{String}) = parse_x.(arr)
+
+function map_to_groups(numbers::AbstractArray{Int}, MODULO::Int)
+  return ((numbers .- 1) .÷ MODULO) .+ 1
 end
 
 function parse_cispi(s::String)
@@ -67,17 +78,11 @@ end
 function sat_expr(tmp, w, d=nothing)
     
     if w == "-im"
-        #is_t = startswith(x1, "t") || startswith(x2, "t")
-        # -i*(a ± b) = ±(b_i ∓ a_i) ± i*(b_r ∓ a_r)
-        #return is_t ? 
-            #"$(x1)_i $sign $(x2)_i, $(x2)_r $sign $(x1)_r" :
-            return "$(tmp)_i, $(tmp)_r"
-    
+        return "$(tmp)_i, $(tmp)_r"
     elseif w == "INV_SQRT2_Q4"
         # (a ± b) * (1-i)/√2 = [ (a_r ± b_r + a_i ± b_i)/√2 , (a_i ± b_i - a_r ∓ b_r)/√2 ]
         return "INV_SQRT2*($(tmp)_r + $(tmp)_i), " *
                "INV_SQRT2*($(tmp)_i - $(tmp)_r)"
-    
     elseif w == "-INV_SQRT2_Q1"
         # -(a ± b) * (1+i)/√2 = [ -(a_r ± b_r - a_i ∓ b_i)/√2 , -(a_r ± b_r + a_i ∓ b_i)/√2 ]
         return "INV_SQRT2*($(tmp)_i - $(tmp)_r), " *
@@ -118,8 +123,6 @@ function sat_expr(tmp, w, d=nothing)
 end
 
 function sat_expr(sign, x1, x2, w, d=nothing)
-  @show w, x1, sign, x2
-    
     if w == "-im"
         is_t = startswith(x1, "t") || startswith(x2, "t")
         # -i*(a ± b) = ±(b_i ∓ a_i) ± i*(b_r ∓ a_r)
@@ -175,6 +178,7 @@ end
 function recfft2(y, x, d, w, root, ::Type{T}) where T <: AbstractFloat
   n = length(x)
   use_vars = false
+  MODULO = 8
 
   if n == 1
     ""
@@ -199,6 +203,7 @@ function recfft2(y, x, d, w, root, ::Type{T}) where T <: AbstractFloat
         """
       end
     else
+      @show x = "x" .* string.(map_to_groups(parse_x(x), MODULO))
       if isnothing(w)
         """
         $(y[1])_r, $(y[1])_i, $(y[2])_r, $(y[2])_i = $(x[1])[1] + $(x[2])[1], $(x[1])[2] + $(x[2])[2], $(x[1])[1] - $(x[2])[1], $(x[1])[2] - $(x[2])[2]
@@ -213,9 +218,10 @@ function recfft2(y, x, d, w, root, ::Type{T}) where T <: AbstractFloat
         """
       end
     end
-    end
-    #s = root ? load_reim(n) * "\n" * s : s
+  end
     return s
+  #elseif n < MODULO
+    #return ""
   else
     t = vmap(i -> "t$(inc())", 1:n)
     n2 = n ÷ 2
@@ -285,7 +291,8 @@ function recfft2(y, x, d, w, root, ::Type{T}) where T <: AbstractFloat
               foldl(*, vmap(i -> ", $(sat_expr("-", "$(t[i])", "$(t[i+n2])", "$(w[n2+i])"))", 2:n2)) * "\n"
         end
     end
-    s = n == 4 ? load_reim(x) * "\n" * s1 * s2 * s3p * s3m : s1 * s2 * s3p * s3m
+    @show n
+    s = n == MODULO ? load_reim(x) * "\n" * s1 * s2 * s3p * s3m : s1 * s2 * s3p * s3m
     return s
   end
   end
