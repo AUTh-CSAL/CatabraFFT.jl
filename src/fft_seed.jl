@@ -1,4 +1,6 @@
-load_reim = t -> join(["$(i == 1 ? "" : " ") x$(i) = reim(x[$(match(r"\d+$", t[i]).match)])" for i in 1:length(t)], ";")
+#load_reim = t -> join(["$(i == 1 ? "" : " ") x$(i) = reim(x[$(match(r"\d+$", t[i]).match)])" for i in 1:length(t)], ";")
+
+load_reim = t -> join(["$(i == 1 ? "" : " ") $(t[i]) = reim(x[$(match(r"\d+$", t[i]).match)])" for i in 1:length(t)], ";")
 
 # Wrapper for any other kernel shell strategy planer
 function makefftradix(n::Int,  suffixes::Vector{String}, D_status::Int, ::Type{T}) where T <: AbstractFloat
@@ -62,11 +64,13 @@ function add_more_tmp_vars(x1, x2, wn, n)
     tmp_parts = String[]
     x_parts = String[]
     for w in wn
+      @show w, n
+      @show x1, x2
         if w ∉  ("-im", "1")
             for i in 1:n
-                push!(tmp_parts, "tmp$(index)_r", "tmp$(index)_i")
+                push!(tmp_parts, "tmp$(index)_r", "tmp$(index)_i", "tmp$(index+1)_r", "tmp$(index+1)_i")
                 push!(x_parts, x1[i], x2[i])
-                index += 1
+                index += 2
             end
         end
     end
@@ -123,6 +127,7 @@ function sat_expr(tmp, w, d=nothing)
 end
 
 function sat_expr(sign, x1, x2, w, d=nothing)
+  if isnothing(d)
     if w == "-im"
         is_t = startswith(x1, "t") || startswith(x2, "t")
         # -i*(a ± b) = ±(b_i ∓ a_i) ± i*(b_r ∓ a_r)
@@ -173,12 +178,66 @@ function sat_expr(sign, x1, x2, w, d=nothing)
                 "muladd($s, $(x1)_r $sign $(x2)_r, -$c * ($(x1)_i $sign $(x2)_i))"
         end
     end
+  else
+    if w == "-im"
+        is_t = startswith(x1, "t") || startswith(x2, "t")
+        # -i*(a ± b) = ±(b_i ∓ a_i) ± i*(b_r ∓ a_r)
+        return is_t ? 
+            "$(x1)_i $sign $(x2)_i, $(x2)_r $sign $(x1)_r" :
+            "$x1[2] $sign $x2[2], $x2[1] $sign $x1[1]"
+    
+    elseif w == "INV_SQRT2_Q4"
+        # (a ± b) * (1-i)/√2 = [ (a_r ± b_r + a_i ± b_i)/√2 , (a_i ± b_i - a_r ∓ b_r)/√2 ]
+        return "INV_SQRT2*(($(x1)_r $sign $(x2)_r) + ($(x1)_i $sign $(x2)_i)), " *
+               "INV_SQRT2*(($(x1)_i $sign $(x2)_i) - ($(x1)_r $sign $(x2)_r))"
+    
+    elseif w == "-INV_SQRT2_Q1"
+        # -(a ± b) * (1+i)/√2 = [ -(a_r ± b_r - a_i ∓ b_i)/√2 , -(a_r ± b_r + a_i ∓ b_i)/√2 ]
+        return "INV_SQRT2*(($(x1)_i $sign $(x2)_i) - ($(x1)_r $sign $(x2)_r)), " *
+               "-INV_SQRT2*(($(x1)_r $sign $(x2)_r) + ($(x1)_i $sign $(x2)_i))"
+    
+    else
+        num, den, is_q1 = parse_cispi(w)
+        c = "COSPI_$(num)_$(den)"
+        s = "SINPI_$(num)_$(den)"
+        
+        if startswith(w, "CISPI")
+            return is_q1 ?
+                # Q1: cosθ + i sinθ
+                "muladd($c, $(x1)_r $sign $(x2)_r, -$s * ($(x1)_i $sign $(x2)_i)), " *
+                "muladd($s, $(x1)_r $sign $(x2)_r, $c * ($(x1)_i $sign $(x2)_i))" :
+                # Q4: cosθ - i sinθ
+                "muladd($c, $(x1)_r $sign $(x2)_r, $s * ($(x1)_i $sign $(x2)_i)), " *
+                "muladd(-$s, $(x1)_r $sign $(x2)_r, $c * ($(x1)_i $sign $(x2)_i))"
+        
+        elseif startswith(w, "-im*CISPI")
+            return is_q1 ?
+                # -i*(cosθ + i sinθ) = sinθ - i cosθ
+                "muladd($s, $(x1)_r $sign $(x2)_r, $c * ($(x1)_i $sign $(x2)_i)), " *
+                "muladd(-$c, $(x1)_r $sign $(x2)_r, $s * ($(x1)_i $sign $(x2)_i))" :
+                # -i*(cosθ - i sinθ) = -sinθ - i cosθ
+                "muladd(-$s, $(x1)_r $sign $(x2)_r, $c * ($(x1)_i $sign $(x2)_i)), " *
+                "muladd(-$c, $(x1)_r $sign $(x2)_r, -$s * ($(x1)_i $sign $(x2)_i))"
+        
+        elseif startswith(w, "-CISPI")
+            return is_q1 ?
+                # -cosθ - i sinθ
+                "muladd(-$c, $(x1)_r $sign $(x2)_r, $s * ($(x1)_i $sign $(x2)_i)), " *
+                "muladd(-$s, $(x1)_r $sign $(x2)_r, -$c * ($(x1)_i $sign $(x2)_i))" :
+                # -cosθ + i sinθ
+                "muladd(-$c, $(x1)_r $sign $(x2)_r, -$s * ($(x1)_i $sign $(x2)_i)), " *
+                "muladd($s, $(x1)_r $sign $(x2)_r, -$c * ($(x1)_i $sign $(x2)_i))"
+        end
+    end
+
+
+  end
 end
 
 function recfft2(y, x, d, w, root, ::Type{T}) where T <: AbstractFloat
   n = length(x)
   use_vars = false
-  MODULO = 8
+  MODULO = 4
 
   if n == 1
     ""
@@ -203,7 +262,7 @@ function recfft2(y, x, d, w, root, ::Type{T}) where T <: AbstractFloat
         """
       end
     else
-      @show x = "x" .* string.(map_to_groups(parse_x(x), MODULO))
+      #@show x = "x" .* string.(map_to_groups(parse_x(x), MODULO))
       if isnothing(w)
         """
         $(y[1])_r, $(y[1])_i, $(y[2])_r, $(y[2])_i = $(x[1])[1] + $(x[2])[1], $(x[1])[2] + $(x[2])[2], $(x[1])[1] - $(x[2])[1], $(x[1])[2] - $(x[2])[2]
@@ -235,21 +294,23 @@ function recfft2(y, x, d, w, root, ::Type{T}) where T <: AbstractFloat
     # Final layer combining with D matrix twiddles
     if !isnothing(d)
       if isnothing(w)
-        s3p = "$(y[1])" * foldl(*, vmap(i -> ",$(y[i])", 2:n2)) *
+            # DOES THIS CASE !isnothing(d) && isnothing(w) EVEN EXIST?!
+            println("WARNING!!!!")
+        s3p = "$(y[1])_r, $(y[1])_i" * foldl(*, vmap(i -> ", $(y[i])_r, $(y[i])_i", 2:n2)) *
               " = " *
-              "$(t[1]) + $(t[1+n2])" * foldl(*, vmap(i -> ",$(d[i-1])*($(t[i]) + $(t[i+n2]))", 2:n2)) * "\n"
+              "$(t[1])_r + $(t[1+n2])_r, $(t[1])_i $(t[1+n2])_i" * foldl(*, vmap(i -> ",$(d[i-1])*($(t[i]) + $(t[i+n2]))", 2:n2)) * "\n"
         s3m = "$(y[n2+1])" * foldl(*, vmap(i -> ",$(y[i+n2])", 2:n2)) *
               " = " *
               "$(d[n2])*($(t[1]) - $(t[1+n2]))" * foldl(*, vmap(i -> ",$(d[i+n2-1])*($(t[i]) - $(t[i+n2]))", 2:n2)) * "\n"
       else
-        s3p = "$(y[1])" * foldl(*, vmap(i -> ", $(y[i])", 2:n2)) *
+        s3p = "$(y[1])_r, $(y[1])_i" * foldl(*, vmap(i -> ", $(y[i])_r, $(y[i])_i", 2:n2)) *
               " = " *
-              (w[1] == "1" ? "$(t[1]) + $(t[1+n2])" : "($(w[1]))*($(t[1]) + $(t[1+n2]))") *
-              foldl(*, vmap(i -> ", $(d[i-1])*($(w[i]))*($(t[i]) + $(t[i+n2]))", 2:n2)) * "\n"
-        s3m = "$(y[n2+1])" * foldl(*, vmap(i -> ", $(y[i+n2])", 2:n2)) *
+              (w[1] == "1" ? "$(t[1])_r + $(t[1+n2])_r, $(t[1])_i + $(t[1+n2])_i" : "$(sat_expr("+", "$(t[1])", "$(t[1+n2])", "$(w[1])"))") *
+              foldl(*, vmap(i -> ", $(sat_expr("+", "$(t[i])", "$(t[i+n2])", "$(w[i])", "$(d[i-1])")) ", 2:n2)) * "\n"
+        s3m = "$(y[n2+1])_r, $(y[n2+1])_i" * foldl(*, vmap(i -> ", $(y[i+n2])_r, $(y[i+n2])_i", 2:n2)) *
               " = " *
-              "($(d[n2])*$(w[n2+1]))*($(t[1]) - $(t[1+n2]))" *
-              foldl(*, vmap(i -> ", ($(d[i+n2-1])*$(w[n2+i]))*($(t[i]) - $(t[i+n2]))", 2:n2)) * "\n"
+              "$(sat_expr("-", "$(t[1])", "$(t[1+n2])", "$(w[n2+1])", "$(d[n2])"))" *
+              foldl(*, vmap(i -> ",  $(sat_expr("-", "$(t[i])", "$(t[i+n2])", "$(w[n2+i])", "$(d[i+n2]-1)"))", 2:n2)) * "\n"
       end
     else
       if isnothing(w)
