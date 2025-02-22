@@ -1,6 +1,15 @@
 #load_reim = t -> join(["$(i == 1 ? "" : " ") x$(i) = reim(x[$(match(r"\d+$", t[i]).match)])" for i in 1:length(t)], ";")
-
-load_reim = t -> join(["$(i == 1 ? "" : " ") $(t[i]) = reim(x[$(match(r"\d+$", t[i]).match)])" for i in 1:length(t)], ";")
+#load_reim = t -> join(["$(i == 1 ? "" : " ") $(t[i]) = reim(x[$(match(r"\d+$", t[i]).match)])" for i in 1:length(t)], ";")
+load_reim = t -> join([
+    let
+        m = match(r"(\d+)\D*$", s)
+        num = m.captures[1]
+        rhs = occursin('[', s) ? replace(s, " " => "") : "x[$num]"
+        prefix = i == 1 ? "" : " "
+        "$(prefix)x$(num) = reim($rhs)"
+    end
+    for (i, s) in enumerate(t)
+], ";")
 
 # Wrapper for any other kernel shell strategy planer
 function makefftradix(n::Int,  suffixes::Vector{String}, D_status::Int, ::Type{T}) where T <: AbstractFloat
@@ -22,6 +31,7 @@ function makefftradix(n::Int,  suffixes::Vector{String}, D_status::Int, ::Type{T
         y = ["$output[$i]" for i in 1:n]
         d = nothing
     end
+    @show d, x
 
     s = recfft2(y, x, d, nothing, true, T) # Replace with any other recfft kernel family seed.
     
@@ -294,18 +304,17 @@ function recfft2(y, x, d, w, root, ::Type{T}) where T <: AbstractFloat
     # Final layer combining with D matrix twiddles
     if !isnothing(d)
       if isnothing(w)
-            # DOES THIS CASE !isnothing(d) && isnothing(w) EVEN EXIST?!
-            println("WARNING!!!!")
-        s3p = "$(y[1])_r, $(y[1])_i" * foldl(*, vmap(i -> ", $(y[i])_r, $(y[i])_i", 2:n2)) *
+        @show d, w, root
+        s3p = "$(y[1])" * foldl(*, vmap(i -> ", $(y[i])", 2:n2)) *
               " = " *
-              "$(t[1])_r + $(t[1+n2])_r, $(t[1])_i $(t[1+n2])_i" * foldl(*, vmap(i -> ",$(d[i-1])*($(t[i]) + $(t[i+n2]))", 2:n2)) * "\n"
-        s3m = "$(y[n2+1])" * foldl(*, vmap(i -> ",$(y[i+n2])", 2:n2)) *
+              "Complex{$T}($(t[1])_r + $(t[1+n2])_r, $(t[1])_i + $(t[1+n2])_i)" * foldl(*, vmap(i -> ", $(sat_expr("+", "$(t[i])", "$(t[i+n2])", "", "$(d[i-1])"))", 2:n2)) * "\n"
+        s3m = "$(y[n2+1])" * foldl(*, vmap(i -> ", $(y[i+n2])", 2:n2)) *
               " = " *
-              "$(d[n2])*($(t[1]) - $(t[1+n2]))" * foldl(*, vmap(i -> ",$(d[i+n2-1])*($(t[i]) - $(t[i+n2]))", 2:n2)) * "\n"
+              "$(sat_expr("-", "$(t[1])", "$(t[1+n2])", "", "$(d[n2])"))" * foldl(*, vmap(i -> ",$(d[i+n2-1])*($(t[i]) - $(t[i+n2]))", 2:n2)) * "\n"
       else
-        s3p = "$(y[1])_r, $(y[1])_i" * foldl(*, vmap(i -> ", $(y[i])_r, $(y[i])_i", 2:n2)) *
+        s3p = "$(y[1])" * foldl(*, vmap(i -> ", $(y[i])", 2:n2)) *
               " = " *
-              (w[1] == "1" ? "$(t[1])_r + $(t[1+n2])_r, $(t[1])_i + $(t[1+n2])_i" : "$(sat_expr("+", "$(t[1])", "$(t[1+n2])", "$(w[1])"))") *
+              (w[1] == "1" ? "Complex{$T}($(t[1])_r + $(t[1+n2])_r, $(t[1])_i + $(t[1+n2])_i)" : "$(sat_expr("+", "$(t[1])", "$(t[1+n2])", "$(w[1])"))") *
               foldl(*, vmap(i -> ", $(sat_expr("+", "$(t[i])", "$(t[i+n2])", "$(w[i])", "$(d[i-1])")) ", 2:n2)) * "\n"
         s3m = "$(y[n2+1])_r, $(y[n2+1])_i" * foldl(*, vmap(i -> ", $(y[i+n2])_r, $(y[i+n2])_i", 2:n2)) *
               " = " *
@@ -352,8 +361,8 @@ function recfft2(y, x, d, w, root, ::Type{T}) where T <: AbstractFloat
               foldl(*, vmap(i -> ", $(sat_expr("-", "$(t[i])", "$(t[i+n2])", "$(w[n2+i])"))", 2:n2)) * "\n"
         end
     end
-    @show n
     s = n == MODULO ? load_reim(x) * "\n" * s1 * s2 * s3p * s3m : s1 * s2 * s3p * s3m
+    #s = !isnothing(d) ? load_reim(d) * "\n" * s : s
     return s
   end
   end

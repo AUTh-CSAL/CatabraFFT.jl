@@ -84,6 +84,7 @@ function generate_mat_execute_function!(plan::RadixPlan, show_function=true)
         $function_body
         return nothing
     end)
+    @show ex
 
     #runtime_generated_function = Core.eval(@__MODULE__, ex)
     

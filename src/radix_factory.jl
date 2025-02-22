@@ -437,6 +437,17 @@ function generate_kernel(radix::Int, op, suffixes::Vector{String}, ::Type{T}) wh
     names = generate_kernel_names(radix, suffixes)
     s = op.stride; n_group = op.n_groups
     #TODO FIX D_status INTERVATION
+    @show get_radix_divisor(op.op_type) radix s n_group
+
+    if radix == n_group # NO D arg
+        D_status = 0 
+    elseif radix == n_group ÷ 2 # fftN/2 * fft2 D vector input
+        D_status = 1
+    else 
+        D_status = 2  # D matrix input
+    end
+
+    #=
     if radix == get_radix_divisor(op.op_type) 
         D_status = 0 
     elseif radix == 2*get_radix_divisor(op.op_type) # fftN/2 * fft2
@@ -444,9 +455,12 @@ function generate_kernel(radix::Int, op, suffixes::Vector{String}, ::Type{T}) wh
     else 
         D_status = 0 
     end
+    =#
 
+    @show suffixes
     println(" FFT: $(op.op_type) : Dstatus : $D_status")
     signature = generate_signature(suffixes, D_status, T)
+    @show signature
     
     kernel_code = makefftradix(radix, suffixes, D_status, T)
 
@@ -471,6 +485,7 @@ function generate_kernel(radix::Int, op, suffixes::Vector{String}, ::Type{T}) wh
     end
 end
 
+#=
 function generate_kernel(radix::Int, suffixes::Vector{String}, ::Type{T}) where T <: AbstractFloat
     names = generate_kernel_names(radix, suffixes)
     signature = generate_signature(radix, suffixes, T)
@@ -496,6 +511,7 @@ function generate_kernel(radix::Int, suffixes::Vector{String}, ::Type{T}) where 
         """
     end
 end
+=#
 
 # ENCHANT
 function generate_all_kernels(plan_data::NamedTuple, ::Type{T}; suffix_combinations::Union{Nothing, Vector{Vector{String}}}=nothing) where T <: AbstractFloat
