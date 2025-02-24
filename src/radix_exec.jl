@@ -34,9 +34,9 @@ function generate_mat_execute_function!(plan::RadixPlan, show_function=true)
         if !isnothing(future_op)
             push!(ops, :($current_input = reshape($current_input, $(future_op.n_groups), $(future_op.stride))))
             push!(ops, :($current_output = reshape($current_output, $(future_op.n_groups), $(future_op.stride))))
-            D_matrix = Symbol("D_", future_op.stride, "_", future_op.n_groups)
-            D_ref = get_function_reference(radix_family, D_matrix)
-            push!(ops, Expr(:call, func_ref, current_output, current_input, D_ref))
+            #D_matrix = Symbol("D_", future_op.stride, "_", future_op.n_groups)
+            #D_ref = get_function_reference(radix_family, D_matrix)
+            push!(ops, Expr(:call, func_ref, current_output, current_input))
         else
             if n1 == op.stride == 1 # single linear kernel 
                 push!(ops, Expr(:call, func_ref, current_output, current_input))
@@ -116,33 +116,16 @@ function generate_linear_execute_function!(plan::RadixPlan, show_function=true, 
     # Helper to push operations dynamically
     function push_operation!(ops, op, current_input, current_output, ivdep)
         radix_family = get_radix_family(op.op_type)
-        #=
-        suffix = if op === last(plan.operations)
-            if op.eo
-                ivdep ? :shell_y_ivdep! : :shell_y!
-            else
-                ivdep ? :shell_ivdep! : :shell!
-            end
-        else
-            ivdep ? :shell_layered_ivdep! : :shell_layered!
-        end
-        =#
         suffix = ivdep ? :shell_layered_ivdep! : :shell_layered!
         function_name = Symbol(String(op.op_type), "_", String(suffix))
         func_ref = get_function_reference(radix_family, function_name)
-
-        #if op === last(plan.operations)
-            #op.eo ? push!(ops, Expr(:call, func_ref, current_input, op.stride)) : push!(ops, Expr(:call, func_ref, current_output, current_input, op.stride))
-        #else
-            n1 = op.n_groups ÷ get_radix_divisor(op.op_type)
-            theta::T = T(2 / op.n_groups)
-            push!(ops, Expr(:call, func_ref, current_output, current_input, op.stride, n1, T(theta)))
-        #end
+        n1 = op.n_groups ÷ get_radix_divisor(op.op_type)
+        theta::T = T(2 / op.n_groups)
+        push!(ops, Expr(:call, func_ref, current_output, current_input, op.stride, n1, T(theta)))
     end
 
     # Main loop over operations
     for (i, op) ∈ enumerate(plan.operations)
-        #if op.op_type ∈ [:fft2, :fft3, :fft4, :fft5, :fft7, :fft8, :fft9, :fft16]
             if check_ivdep
                 # Determine if IVDEP is beneficial
                 radix_family = get_radix_family(op.op_type)
@@ -164,10 +147,7 @@ function generate_linear_execute_function!(plan::RadixPlan, show_function=true, 
                     ivdep_change_exists = true
                 end
             end
-            push_operation!(ops, op, current_input, current_output, ivdep)
-        #else
-            #error("Unsupported operation type: $(op.op_type)")
-        #end
+        push_operation!(ops, op, current_input, current_output, ivdep)
         current_input, current_output = current_output, current_input
     end
 

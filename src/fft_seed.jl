@@ -11,27 +11,25 @@ load_reim = t -> join([
 ], ";")
 
 # Wrapper for any other kernel shell strategy planer
-function makefftradix(n::Int,  suffixes::Vector{String}, D_status::Int, ::Type{T}) where T <: AbstractFloat
+function makefftradix(n::Int,  suffixes::Vector{String}, D::Array{String}, ::Type{T}) where T <: AbstractFloat
 
     global inc = inccounter() #nullify glabal tmp 't' var counter for each new kernel generated
 
     input = "y" ∈ suffixes ? "y" : "x"
     output = "y"
-    d_matrix = "D"
     is_mat = "mat" ∈ suffixes
     
     if is_mat
         #x = ["$input[k, $i]" for i in 1:n]
         x = ["$(input)$i" for i in 1:n]
         y = ["$output[k, $i]" for i in 1:n]
-        d = D_status == 2 ? ["$d_matrix[k, $i]" for i in 1:(n-1)] : D_status == 1 ? ["$d_matrix[$i]" for i in 1:(n-1)] : nothing
+        d = D
     else
         #x = ["$input[$i]" for i in 1:n]
         x = ["$(input)$i" for i in 1:n]
         y = ["$output[$i]" for i in 1:n]
         d = nothing
     end
-    @show d, x
 
     s = recfft2(y, x, d, nothing, true, T) # Replace with any other recfft kernel family seed.
     
@@ -56,6 +54,7 @@ end
 
 function parse_cispi(s::String)
     # Enhanced regex pattern with optional sign and im* prefix
+    @show s
     pattern = r"^([+-]?)(im\*)?CISPI_(\d+)_(\d+)_Q([14])$"
     
     m = match(pattern, s)
@@ -76,8 +75,6 @@ function add_more_tmp_vars(x1, x2, wn, n)
     tmp_parts = String[]
     x_parts = String[]
     for w in wn
-      @show w, n
-      @show x1, x2
         if w ∉  ("-im", "1")
             for i in 1:n
                 push!(tmp_parts, "tmp$(index)_r", "tmp$(index)_i", "tmp$(index+1)_r", "tmp$(index+1)_i")
@@ -190,10 +187,11 @@ function sat_expr(sign, x1, x2, w, d=nothing)
                 "muladd($s, $(x1)_r $sign $(x2)_r, -$c * ($(x1)_i $sign $(x2)_i))"
         end
     end
-  elseif w == ""
-    return "$(d)_r * ($(x1)_r $sign $(x2)_r) - $(d)_i * ($(x1)_i $sign $(x2)_i), $(d)_r * ($(x1)_i $sign $(x2)_i) + $(d)_i * ($(x1)_r $sign $(x2)_r)"
   else
-    if w == "-im"
+    num_d, den_d, is_q1_d = parse_cispi(d)
+    if w == ""
+      return "$(d)_r * ($(x1)_r $sign $(x2)_r) - $(d)_i * ($(x1)_i $sign $(x2)_i), $(d)_r * ($(x1)_i $sign $(x2)_i) + $(d)_i * ($(x1)_r $sign $(x2)_r)"
+    elseif w == "-im"
         is_t = startswith(x1, "t") || startswith(x2, "t")
         # -i*(a ± b) = ±(b_i ∓ a_i) ± i*(b_r ∓ a_r)
         return is_t ? 
@@ -243,14 +241,13 @@ function sat_expr(sign, x1, x2, w, d=nothing)
                 "muladd($s, $(x1)_r $sign $(x2)_r, -$c * ($(x1)_i $sign $(x2)_i))"
         end
     end
-  end
+end
 end
 
 function recfft2(y, x, d, w, root, ::Type{T}) where T <: AbstractFloat
   n = length(x)
   use_vars = false
   MODULO = 4
-  @show n y, x, root, w
 
   if n == 1
     ""
@@ -311,10 +308,9 @@ function recfft2(y, x, d, w, root, ::Type{T}) where T <: AbstractFloat
     # Final layer combining with D matrix twiddles
     if !isnothing(d)
       if isnothing(w)
-        @show d, w, root
         s3p = "$(y[1])" * foldl(*, vmap(i -> ", $(y[i])", 2:n2)) *
               " = " *
-              "Complex{$T}($(t[1])_r + $(t[1+n2])_r, $(t[1])_i + $(t[1+n2])_i)" * foldl(*, vmap(i -> ", $(sat_expr("+", "$(t[i])", "$(t[i+n2])", "", "$(d[i-1])"))", 2:n2)) * "\n"
+              "Complex{$T}($(t[1])_r + $(t[1+n2])_r, $(t[1])_i + $(t[1+n2])_i)" * foldl(*, vmap(i -> ", $(sat_expr("+", "$(t[i])", "$(t[i+n2])", "", "$(d[i])"))", 2:n2)) * "\n"
         s3m = "$(y[n2+1])" * foldl(*, vmap(i -> ", $(y[i+n2])", 2:n2)) *
               " = " *
               "$(sat_expr("-", "$(t[1])", "$(t[1+n2])", "", "$(d[n2])"))" * foldl(*, vmap(i -> ",$(d[i+n2-1])*($(t[i]) - $(t[i+n2]))", 2:n2)) * "\n"

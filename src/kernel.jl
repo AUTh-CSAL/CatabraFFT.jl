@@ -8,72 +8,7 @@ include("prime.jl")
 include("spells.jl")
 include("helper_tools.jl")
 
-#using .Radix_Plan 
 export Radix_Plan, RadixGenerator, Radix_Execute
-
-# BiMap (HashMap) struct for FFT caching
-#=
-mutable struct FFTCacheMap{T}
-    forward::Dict{Tuple{Int, DataType, Union{Nothing, Spell}}, Function}
-    backward::Dict{Function, Tuple{Int, DataType, Union{Nothing, Spell}}}
-
-    FFTCacheMap{T}() where T = new{T}(Dict(), Dict())
-end
-
-# Initialize the global cache if not already defined
-if !@isdefined(F_cache)
-    const F_cache = FFTCacheMap{Function}()
-end
-
-# BiMap operations
-@inline function Base.haskey(cache::FFTCacheMap, key::Union{Tuple{Int, DataType, Union{Nothing, Spell}}, Function})
-    if key isa Tuple
-        haskey(cache.forward, key)
-    else
-        haskey(cache.backward, key)
-    end
-end
-
-@inline function Base.getindex(cache::FFTCacheMap, key::Union{Tuple{Int, DataType, Union{Nothing, Spell}}, Function})
-    if key isa Tuple
-        cache.forward[key]
-    else
-        cache.backward[key]
-    end
-end
-
-@inline function Base.setindex!(cache::FFTCacheMap, value::Union{Function, Tuple{Int, DataType, Union{Nothing, Spell}}}, 
-                              key::Union{Tuple{Int, DataType, Union{Nothing, Spell}}, Function})
-    if key isa Tuple
-        cache.forward[key] = value
-        cache.backward[value] = key
-    else
-        cache.backward[key] = value
-        cache.forward[value] = key
-    end
-    value
-end
-
-# Lookup functions
-@inline function get_spell_from_function(func::Function)::Union{Nothing, Spell}
-    haskey(F_cache, func) ? F_cache[func][3] : nothing
-end
-
-@inline function get_cache_info_from_function(func::Function)::Union{Nothing, Tuple{Int, DataType, Union{Nothing, Spell}}}
-    haskey(F_cache, func) ? F_cache[func] : nothing
-end
-
-@inline function get_function_from_spell(spell::Spell{T})::Function where T <: AbstractFloat
-    # Iterate over the forward dictionary to find the function corresponding to the given spell
-    for ((_, _, cache_spell), func) in F_cache.forward
-        if cache_spell == spell
-            return func
-        end
-    end
-    error("Function not found for the given spell.")
-end
-
-=#
 
 const F_cache_lock = ReentrantLock()
 const F_cache = Dict{Tuple{Int,Type,FLAG}, Spell}()
@@ -104,9 +39,6 @@ end
         plan = MixedRadixFFT(p, m, T, flag)
         generate_formulation_fft(plan, T)
     end
-
-    # Cache-in
-    #F_cache[key] = fft_func
     return fft_func
 end
 
@@ -116,16 +48,6 @@ end
     Base.invokelatest(fft_func,y, x) # FUNCTION EXECUTION
     #fft_func(y, x) # FUNCTION EXECUTION
     return y
-end
-
-function is_power_of(n::Int, p::Int)
-    while n > 1
-        if n % p != 0
-            return false
-        end
-        n ÷= p
-    end
-    return true
 end
 
 function call_radix_families(n::Int, ::Type{T}, flag::FLAG)::Function where {T<:AbstractFloat}

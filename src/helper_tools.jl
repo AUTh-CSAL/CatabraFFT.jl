@@ -32,6 +32,16 @@ end
     v
 end
 
+function is_power_of(n::Int, p::Int)
+    while n > 1
+        if n % p != 0
+            return false
+        end
+        n ÷= p
+    end
+    return true
+end
+
 function subpowers_of_two(N::Int)
     # Check if N is a power of two
     @assert N > 1 && (N & (N - 1)) == 0 "N must be a power of two greater than 1"
