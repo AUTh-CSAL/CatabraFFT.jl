@@ -10,44 +10,6 @@ using .Radix_Plan
 
 export evaluate_fft_generated_module
 
-#=
-function generate_module_constants(n::Int, ::Type{T}) where T <: AbstractFloat
-    @assert ispow2(n) "n must be a power of 2"
-    str = "# Optimized twiddle factors for radix-2^s FFT size $n\n\n"
-    current_n = n
-    # Only store the minimal set of unique twiddle factors needed
-    while current_n >= 16
-        n2 = current_n >> 1
-        n4 = current_n >> 2
-        s = current_n >> 3
-        # Store only unique twiddle factors for this stage
-        # We exploit symmetry and periodicity to minimize storage
-        str *= "# Stage $current_n constants\n"
-        for i in 1:2:s
-            # Calculate angle once and reuse
-            angle = 2 * (n4-i) / current_n
-            angle_cis_1 = Complex{T}(cispi(angle))
-            angle_cis_2 = Complex{T}(cispi(-angle))
-            str *= "const CISPI_$(n4-i)_$(n2)_Q1::Complex{$T} = $angle_cis_1\n"
-            str *= "const CISPI_$(n4-i)_$(n2)_Q4::Complex{$T} = $angle_cis_2\n"
-        end
-        str *= "\n"
-        current_n >>= 1
-    end
-    
-    # Add only essential special constants
-    if n >= 8
-        str *= "const INV_SQRT2_Q1 = $(Complex{T}(1/sqrt(2) + im * 1/sqrt(2)))\n"
-        str *= "const INV_SQRT2_Q4 = $(Complex{T}(1/sqrt(2) - im * 1/sqrt(2)))\n"
-
-        # Add the extract_view lamda in module definition for layered kernels
-        str *= "extract_view = (x::Vector{Complex{$T}}, q::Int, p::Int, s::Int, n1::Int, N::Int) -> [@inbounds x[q + s*(p + i*n1)] for i in 0:N-1]"
-    end
-    
-    return str
-end
-=#
-
 function generate_module_constants(n::Int, ::Type{T}) where T <: AbstractFloat
     @assert ispow2(n) "n must be a power of 2"
     str = "# Optimized twiddle factors for radix-2^s FFT size $n\n\n"
@@ -484,34 +446,6 @@ function generate_kernel(radix::Int, op, suffixes::Vector{String}, ::Type{T}) wh
         """
     end
 end
-
-#=
-function generate_kernel(radix::Int, suffixes::Vector{String}, ::Type{T}) where T <: AbstractFloat
-    names = generate_kernel_names(radix, suffixes)
-    signature = generate_signature(radix, suffixes, T)
-    
-    kernel_code = makefftradix(radix, suffixes, T, nothing)
-    
-    # Generate the complete function
-    if "mat" ∈ suffixes
-        return """
-        @inline function $(names[2])$signature 
-            @inbounds @simd for k in axes(x,1)
-            $kernel_code
-            end
-        end
-        """
-    else
-        return """
-        @inline function $(names[2])$signature 
-        @inbounds begin
-            $kernel_code
-        end
-        end
-        """
-    end
-end
-=#
 
 # ENCHANT
 function generate_all_kernels(plan_data::NamedTuple, ::Type{T}; suffix_combinations::Union{Nothing, Vector{Vector{String}}}=nothing) where T <: AbstractFloat

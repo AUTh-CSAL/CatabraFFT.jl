@@ -1,12 +1,11 @@
-#load_reim = t -> join(["$(i == 1 ? "" : " ") x$(i) = reim(x[$(match(r"\d+$", t[i]).match)])" for i in 1:length(t)], ";")
-#load_reim = t -> join(["$(i == 1 ? "" : " ") $(t[i]) = reim(x[$(match(r"\d+$", t[i]).match)])" for i in 1:length(t)], ";")
 load_reim = t -> join([
     let
         m = match(r"(\d+)\D*$", s)
         num = m.captures[1]
+        var = Base.startswith(s, "x") ? "x" : Base.startswith(s, "D") ? "d" : error("unknown")
         rhs = occursin('[', s) ? replace(s, " " => "") : "x[$num]"
         prefix = i == 1 ? "" : " "
-        "$(prefix)x$(num) = reim($rhs)"
+        "$(prefix)$(var)$(num) = reim($rhs)"
     end
     for (i, s) in enumerate(t)
 ], ";")
@@ -22,7 +21,8 @@ function makefftradix(n::Int,  suffixes::Vector{String}, D_status::Int, ::Type{T
     is_mat = "mat" ∈ suffixes
     
     if is_mat
-        x = ["$input[k, $i]" for i in 1:n]
+        #x = ["$input[k, $i]" for i in 1:n]
+        x = ["$(input)$i" for i in 1:n]
         y = ["$output[k, $i]" for i in 1:n]
         d = D_status == 2 ? ["$d_matrix[k, $i]" for i in 1:(n-1)] : D_status == 1 ? ["$d_matrix[$i]" for i in 1:(n-1)] : nothing
     else
@@ -68,6 +68,8 @@ function parse_cispi(s::String)
 
     return (num=num, den=den, q1=is_q1)
 end
+
+parse_cispi(arr::AbstractArray{String}) = parse_cispi.(arr)
 
 function add_more_tmp_vars(x1, x2, wn, n)
     index = 0
@@ -188,6 +190,8 @@ function sat_expr(sign, x1, x2, w, d=nothing)
                 "muladd($s, $(x1)_r $sign $(x2)_r, -$c * ($(x1)_i $sign $(x2)_i))"
         end
     end
+  elseif w == ""
+    return "$(d)_r * ($(x1)_r $sign $(x2)_r) - $(d)_i * ($(x1)_i $sign $(x2)_i), $(d)_r * ($(x1)_i $sign $(x2)_i) + $(d)_i * ($(x1)_r $sign $(x2)_r)"
   else
     if w == "-im"
         is_t = startswith(x1, "t") || startswith(x2, "t")
@@ -239,8 +243,6 @@ function sat_expr(sign, x1, x2, w, d=nothing)
                 "muladd($s, $(x1)_r $sign $(x2)_r, -$c * ($(x1)_i $sign $(x2)_i))"
         end
     end
-
-
   end
 end
 
@@ -248,49 +250,54 @@ function recfft2(y, x, d, w, root, ::Type{T}) where T <: AbstractFloat
   n = length(x)
   use_vars = false
   MODULO = 4
+  @show n y, x, root, w
 
   if n == 1
     ""
   elseif n == 2
-    if root
-    s = load_reim(x) * "\n" * """
-        $(y[1]), $(y[2]) = Complex{$T}($(x[1])[1] + $(x[2])[1], $(x[1])[2] + $(x[2])[2]), Complex{$T}($(x[1])[1] - $(x[2])[1], $(x[1])[2] - $(x[2])[2])
-        """
-    else
     s = if !isnothing(d)
-      if isnothing(w)
-        """
-        $(y[1]), $(y[2]) = $(x[1]) + $(x[2]), $(d[1])*($(x[1]) - $(x[2]))
-        """
-      else
-        w[1] == "1" ? 
-        """
-        $(y[1]), $(y[2]) = ($(x[1]) + $(x[2])), ($(d[1])*$(w[2]))*($(x[1]) - $(x[2]))
-        """ : 
-        """
-        $(y[1]), $(y[2]) = ($(w[1]))*($(x[1]) + $(x[2])), ($(d[1])*$(w[2]))*($(x[1]) - $(x[2]))
-        """
-      end
-    else
-      #@show x = "x" .* string.(map_to_groups(parse_x(x), MODULO))
-      if isnothing(w)
-        """
-        $(y[1])_r, $(y[1])_i, $(y[2])_r, $(y[2])_i = $(x[1])[1] + $(x[2])[1], $(x[1])[2] + $(x[2])[2], $(x[1])[1] - $(x[2])[1], $(x[1])[2] - $(x[2])[2]
-        """
-      else
-        w[1] == "1" ? 
-        """
-        $(y[1])_r, $(y[1])_i, $(y[2])_r, $(y[2])_i = $(x[1])[1] + $(x[2])[1], $(x[1])[2] + $(x[2])[2], $(sat_expr("-", "$(x[1])", "$(x[2])", "$(w[2])"))
-        """ :
-        """
-        $(y[1]), $(y[2]) = ($(w[1]))*($(x[1]) + $(x[2])), ($(w[2]))*($(x[1]) - $(x[2]))
-        """
-      end
-    end
-  end
+          if isnothing(w)
+            if root
+              load_reim(d) * "\n" * load_reim(x) * "\n" * """
+            $(y[1]), $(y[2]) = Complex{$T}($(x[1])[1] + $(x[2])[1], $(x[1])[2] + $(x[2])[2]), Complex{$T}($(d[1])[1]*($(x[1])[1] - $(x[2])[1]) - $(d[1])[2]*($(x[1])[2] - $(x[2])[2]), $(d[1])[1]*($(x[1])[2] - $(x[2])[2]) + $(d[1])[2]*($(x[1])[1] - $(x[2])[2])
+            """
+            end
+
+            """
+            $(y[1]), $(y[2]) = $(x[1]) + $(x[2]), $(d[1])*($(x[1]) - $(x[2]))
+            """
+          else
+            w[1] == "1" ? 
+            """
+            $(y[1]), $(y[2]) = ($(x[1]) + $(x[2])), ($(d[1])*$(w[2]))*($(x[1]) - $(x[2]))
+            """ : 
+            """
+            $(y[1]), $(y[2]) = ($(w[1]))*($(x[1]) + $(x[2])), ($(d[1])*$(w[2]))*($(x[1]) - $(x[2]))
+            """
+          end
+        else
+          if root
+            load_reim(x) * "\n" * """
+            $(y[1]), $(y[2]) = Complex{$T}($(x[1])[1] + $(x[2])[1], $(x[1])[2] + $(x[2])[2]), Complex{$T}($(x[1])[1] - $(x[2])[1], $(x[1])[2] - $(x[2])[2])
+            """
+          else
+            #@show x = "x" .* string.(map_to_groups(parse_x(x), MODULO))
+            if isnothing(w)
+            """
+            $(y[1])_r, $(y[1])_i, $(y[2])_r, $(y[2])_i = $(x[1])[1] + $(x[2])[1], $(x[1])[2] + $(x[2])[2], $(x[1])[1] - $(x[2])[1], $(x[1])[2] - $(x[2])[2]
+            """
+            else
+            w[1] == "1" ? 
+                """
+                $(y[1])_r, $(y[1])_i, $(y[2])_r, $(y[2])_i = $(x[1])[1] + $(x[2])[1], $(x[1])[2] + $(x[2])[2], $(sat_expr("-", "$(x[1])", "$(x[2])", "$(w[2])"))
+                """ :
+                """
+                $(y[1]), $(y[2]) = ($(w[1]))*($(x[1]) + $(x[2])), ($(w[2]))*($(x[1]) - $(x[2]))
+                """
+            end
+          end
+        end
     return s
-  #elseif n < MODULO
-    #return ""
   else
     t = vmap(i -> "t$(inc())", 1:n)
     n2 = n ÷ 2
@@ -316,28 +323,27 @@ function recfft2(y, x, d, w, root, ::Type{T}) where T <: AbstractFloat
               " = " *
               (w[1] == "1" ? "Complex{$T}($(t[1])_r + $(t[1+n2])_r, $(t[1])_i + $(t[1+n2])_i)" : "$(sat_expr("+", "$(t[1])", "$(t[1+n2])", "$(w[1])"))") *
               foldl(*, vmap(i -> ", $(sat_expr("+", "$(t[i])", "$(t[i+n2])", "$(w[i])", "$(d[i-1])")) ", 2:n2)) * "\n"
-        s3m = "$(y[n2+1])_r, $(y[n2+1])_i" * foldl(*, vmap(i -> ", $(y[i+n2])_r, $(y[i+n2])_i", 2:n2)) *
+        s3m = "$(y[n2+1])" * foldl(*, vmap(i -> ", $(y[i+n2])", 2:n2)) *
               " = " *
               "$(sat_expr("-", "$(t[1])", "$(t[1+n2])", "$(w[n2+1])", "$(d[n2])"))" *
-              foldl(*, vmap(i -> ",  $(sat_expr("-", "$(t[i])", "$(t[i+n2])", "$(w[n2+i])", "$(d[i+n2]-1)"))", 2:n2)) * "\n"
+              foldl(*, vmap(i -> ",  $(sat_expr("-", "$(t[i])", "$(t[i+n2])", "$(w[n2+i])", "$(d[i+n2-1])"))", 2:n2)) * "\n"
       end
     else
       if isnothing(w)
         if root 
-        s3p = "$(y[1])" * foldl(*, vmap(i -> ",$(y[i])", 2:n2)) *
-              " = " *
-              "Complex{$T}($(t[1])_r + $(t[1+n2])_r, $(t[1])_i + $(t[1+n2])_i)" * foldl(*, vmap(i -> ", Complex{$T}($(t[i])_r + $(t[i+n2])_r, $(t[i])_i + $(t[i+n2])_i)", 2:n2)) * "\n"
-        s3m = "$(y[n2+1])" * foldl(*, vmap(i -> ",$(y[i+n2])", 2:n2)) *
-              " = " *
-              "Complex{$T}($(t[1])_r - $(t[1+n2])_r, $(t[1])_i - $(t[1+n2])_i)" * foldl(*, vmap(i -> ", Complex{$T}($(t[i])_r - $(t[i+n2])_r, $(t[i])_i - $(t[i+n2])_i)", 2:n2)) * "\n"
-
+          s3p = "$(y[1])" * foldl(*, vmap(i -> ",$(y[i])", 2:n2)) *
+                " = " *
+                "Complex{$T}($(t[1])_r + $(t[1+n2])_r, $(t[1])_i + $(t[1+n2])_i)" * foldl(*, vmap(i -> ", Complex{$T}($(t[i])_r + $(t[i+n2])_r, $(t[i])_i + $(t[i+n2])_i)", 2:n2)) * "\n"
+          s3m = "$(y[n2+1])" * foldl(*, vmap(i -> ",$(y[i+n2])", 2:n2)) *
+                " = " *
+                "Complex{$T}($(t[1])_r - $(t[1+n2])_r, $(t[1])_i - $(t[1+n2])_i)" * foldl(*, vmap(i -> ", Complex{$T}($(t[i])_r - $(t[i+n2])_r, $(t[i])_i - $(t[i+n2])_i)", 2:n2)) * "\n"
         else
-        s3p = "$(y[1])_r, $(y[1])_i" * foldl(*, vmap(i -> ", $(y[i])_r, $(y[i])_i", 2:n2)) *
-              " = " *
-              "$(t[1])_r + $(t[1+n2])_r, $(t[1])_i + $(t[1+n2])_i" * foldl(*, vmap(i -> ", $(t[i])_r + $(t[i+n2])_r, $(t[i])_i + $(t[i+n2])_i", 2:n2)) * "\n"
-        s3m = "$(y[n2+1])_r, $(y[n2+1])_i " * foldl(*, vmap(i -> ",$(y[i+n2])_r, $(y[i+n2])_i", 2:n2)) *
-              " = " *
-              "$(t[1])_r - $(t[1+n2])_r, $(t[1])_i - $(t[1+n2])_i" * foldl(*, vmap(i -> ", $(t[i])_r - $(t[i+n2])_r, $(t[i])_i - $(t[i+n2])_i", 2:n2)) * "\n"
+          s3p = "$(y[1])_r, $(y[1])_i" * foldl(*, vmap(i -> ", $(y[i])_r, $(y[i])_i", 2:n2)) *
+                " = " *
+                "$(t[1])_r + $(t[1+n2])_r, $(t[1])_i + $(t[1+n2])_i" * foldl(*, vmap(i -> ", $(t[i])_r + $(t[i+n2])_r, $(t[i])_i + $(t[i+n2])_i", 2:n2)) * "\n"
+          s3m = "$(y[n2+1])_r, $(y[n2+1])_i " * foldl(*, vmap(i -> ",$(y[i+n2])_r, $(y[i+n2])_i", 2:n2)) *
+                " = " *
+                "$(t[1])_r - $(t[1+n2])_r, $(t[1])_i - $(t[1+n2])_i" * foldl(*, vmap(i -> ", $(t[i])_r - $(t[i+n2])_r, $(t[i])_i - $(t[i+n2])_i", 2:n2)) * "\n"
         end
       else
         if use_vars
@@ -362,7 +368,6 @@ function recfft2(y, x, d, w, root, ::Type{T}) where T <: AbstractFloat
         end
     end
     s = n == MODULO ? load_reim(x) * "\n" * s1 * s2 * s3p * s3m : s1 * s2 * s3p * s3m
-    #s = !isnothing(d) ? load_reim(d) * "\n" * s : s
     return s
   end
   end
