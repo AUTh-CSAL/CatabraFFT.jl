@@ -22,8 +22,9 @@ function makefftradix(n::Int,  suffixes::Vector{String}, D::Array{String}, ::Typ
     if is_mat
         #x = ["$input[k, $i]" for i in 1:n]
         x = ["$(input)$i" for i in 1:n]
-        y = ["$output[k, $i]" for i in 1:n]
-        d = D
+        #y = ["$output[k, $i]" for i in 1:n]
+        y = ["$output[$i]" for i in 1:n]
+        d = D == String[] ? nothing : D
     else
         #x = ["$input[$i]" for i in 1:n]
         x = ["$(input)$i" for i in 1:n]
@@ -244,6 +245,17 @@ function sat_expr(sign, x1, x2, w, d=nothing)
 end
 end
 
+function inccounter()
+  let counter = 0
+    return () -> begin
+      counter += 1
+      return counter
+    end
+  end
+end
+
+inc = inccounter()
+
 function recfft2(y, x, d, w, root, ::Type{T}) where T <: AbstractFloat
   n = length(x)
   use_vars = false
@@ -255,7 +267,7 @@ function recfft2(y, x, d, w, root, ::Type{T}) where T <: AbstractFloat
     s = if !isnothing(d)
           if isnothing(w)
             if root
-              load_reim(d) * "\n" * load_reim(x) * "\n" * """
+            load_reim(x) * "\n" * """
             $(y[1]), $(y[2]) = Complex{$T}($(x[1])[1] + $(x[2])[1], $(x[1])[2] + $(x[2])[2]), Complex{$T}($(d[1])[1]*($(x[1])[1] - $(x[2])[1]) - $(d[1])[2]*($(x[1])[2] - $(x[2])[2]), $(d[1])[1]*($(x[1])[2] - $(x[2])[2]) + $(d[1])[2]*($(x[1])[1] - $(x[2])[2])
             """
             end
@@ -310,7 +322,7 @@ function recfft2(y, x, d, w, root, ::Type{T}) where T <: AbstractFloat
       if isnothing(w)
         s3p = "$(y[1])" * foldl(*, vmap(i -> ", $(y[i])", 2:n2)) *
               " = " *
-              "Complex{$T}($(t[1])_r + $(t[1+n2])_r, $(t[1])_i + $(t[1+n2])_i)" * foldl(*, vmap(i -> ", $(sat_expr("+", "$(t[i])", "$(t[i+n2])", "", "$(d[i])"))", 2:n2)) * "\n"
+              "Complex{$T}($(t[1])_r + $(t[1+n2])_r, $(t[1])_i + $(t[1+n2])_i)" * foldl(*, vmap(i -> ", $(sat_expr("+", "$(t[i])", "$(t[i+n2])", "", "$(d[i-1])"))", 2:n2)) * "\n"
         s3m = "$(y[n2+1])" * foldl(*, vmap(i -> ", $(y[i+n2])", 2:n2)) *
               " = " *
               "$(sat_expr("-", "$(t[1])", "$(t[1+n2])", "", "$(d[n2])"))" * foldl(*, vmap(i -> ",$(d[i+n2-1])*($(t[i]) - $(t[i+n2]))", 2:n2)) * "\n"
