@@ -55,7 +55,7 @@ end
 
 function parse_cispi(s::String)
     # Enhanced regex pattern with optional sign and im* prefix
-    @show s
+    #@show s
     pattern = r"^([+-]?)(im\*)?CISPI_(\d+)_(\d+)_Q([14])$"
     
     m = match(pattern, s)
@@ -72,21 +72,35 @@ end
 parse_cispi(arr::AbstractArray{String}) = parse_cispi.(arr)
 
 function add_more_tmp_vars(x1, x2, wn, n)
-    index = 0
-    tmp_parts = String[]
-    x_parts = String[]
-    for w in wn
-        if w ∉  ("-im", "1")
-            for i in 1:n
-                push!(tmp_parts, "tmp$(index)_r", "tmp$(index)_i", "tmp$(index+1)_r", "tmp$(index+1)_i")
-                push!(x_parts, x1[i], x2[i])
-                index += 2
-            end
-        end
+    tmp_vars = String[]
+    assignments = String[]
+    idx = 0
+
+    for i in 1:n
+      if wn[i] ∉ ("1", "-im")
+        real_plus = x1[2*i - 1]
+        imag_plus = x1[2*i]
+        push!(tmp_vars, "tmp$(idx)_r", "tmp$(idx)_i")
+        push!(assignments, real_plus, imag_plus)
+        idx += 1
+      end
     end
-    tmp_vars = join(tmp_parts, ", ")
-    x_vars = join(x_parts, ", ")
-    return "$tmp_vars = $x_vars"
+
+    for i in 1:n
+      if wn[i] ∉ ("1", "-im")
+        real_minus = x2[2*i - 1]
+        imag_minus = x2[2*i]
+        push!(tmp_vars, "tmp$(idx)_r", "tmp$(idx)_i")
+        push!(assignments, real_minus, imag_minus)
+        idx += 1
+      end
+    end
+
+    if !isempty(tmp_vars)
+      return "$(join(tmp_vars, ", ")) = $(join(assignments, ", "))\n"
+    end
+
+    return ""
 end
 
 function sat_expr(tmp, w, d=nothing)
@@ -313,6 +327,20 @@ function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1) where T <: AbstractFlo
     s1 = recfft2(t[1:n2], x[1:2:n], nothing, nothing, false, T, new_tmp_base)
     s2 = recfft2(t[n2+1:n], x[2:2:n], nothing, get_twiddle_expression(collect(0:n2-1), n), false, T, new_tmp_base)
     
+    tmp_decls = if use_vars && isnothing(d) && !isnothing(w)
+        x1_exprs = String[]
+        x2_exprs = String[]
+        for i in 2:n2
+            push!(x1_exprs, "$(t[i])_r + $(t[i+n2])_r")
+            push!(x1_exprs, "$(t[i])_i + $(t[i+n2])_i")
+            push!(x2_exprs, "$(t[i])_r - $(t[i+n2])_r")
+            push!(x2_exprs, "$(t[i])_i - $(t[i+n2])_i")
+        end
+        add_more_tmp_vars(x1_exprs, x2_exprs, w[2:n2], n2-1)
+    else
+        ""
+    end
+    
     # Final layer combining with D matrix twiddles
     if !isnothing(d)
       if isnothing(w)
@@ -351,7 +379,7 @@ function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1) where T <: AbstractFlo
         end
       else
         if use_vars
-        s3p = add_more_tmp_vars(["$(t[i])_r + $(t[i+n2])_r, $(t[i])_i + $(t[i+n2])_i" for i in 2:n2], ["$(t[i])_r - $(t[i+n2])_r, $(t[i])_i - $(t[i+n2])_i" for i in 2:n2], ["$(w[i])" for i in 2:n2], n2-1) * "\n" *
+        s3p = "$(tmp_decls)" * "\n" *
               "$(y[1])_r, $(y[1])_i" * foldl(*, vmap(i -> ", $(y[i])_r, $(y[i])_i", 2:n2)) *
               " = " *
               (w[1] == "1" ? "$(t[1])_r + $(t[1+n2])_r, $(t[1])_i + $(t[1+n2])_i" : "$(sat_expr("tmp$(t[1])", "$(w[1])"))") *

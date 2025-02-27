@@ -213,6 +213,7 @@ end
 # Required * operation
 @inline function Base.:*(p::Spell, x::AbstractVector{Complex{T}}) where T
     workspace = get_workspace(length(x), T)
+    #y = similar(x)
     Base.invokelatest(p.fft_func, workspace.x_work, x)
     workspace.x_work
 end
