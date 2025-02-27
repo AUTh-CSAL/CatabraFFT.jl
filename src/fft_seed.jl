@@ -247,16 +247,13 @@ end
 
 function inccounter()
   let counter = 0
-    return () -> begin
-      counter += 1
-      return counter
-    end
+    return () -> (counter += 1)
   end
 end
 
 inc = inccounter()
 
-function recfft2(y, x, d, w, root, ::Type{T}) where T <: AbstractFloat
+function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1) where T <: AbstractFloat
   n = length(x)
   use_vars = false
   MODULO = 4
@@ -308,14 +305,13 @@ function recfft2(y, x, d, w, root, ::Type{T}) where T <: AbstractFloat
         end
     return s
   else
-    t = vmap(i -> "t$(inc())", 1:n)
     n2 = n ÷ 2
-    wn = get_twiddle_expression(collect(0:n2-1), n)
+    t = ["t$i" for i in tmp_base:tmp_base + n - 1]
+    new_tmp_base = tmp_base + n
     
     # Recursively handle sub-transforms
-    s1 = recfft2(t[1:n2], x[1:2:n], nothing, nothing, false, T)
-    s2 = recfft2(t[n2+1:n], x[2:2:n], nothing, wn, false, T)
-    tmp = ""
+    s1 = recfft2(t[1:n2], x[1:2:n], nothing, nothing, false, T, new_tmp_base)
+    s2 = recfft2(t[n2+1:n], x[2:2:n], nothing, get_twiddle_expression(collect(0:n2-1), n), false, T, new_tmp_base)
     
     # Final layer combining with D matrix twiddles
     if !isnothing(d)

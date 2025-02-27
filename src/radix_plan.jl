@@ -67,7 +67,7 @@ function create_all_radix_plans(n::Int, valid_radices::Vector{Int}, ::Type{T}) w
 
     filtered = filter(is_valid, decompositions)
     @show filtered
-    #filtered = [[n]]
+    filtered = [[n]]
     
     # Create RadixPlan objects
     [create_radix_plan_from_decomposition(n, decomp, T) for decomp in filtered]
