@@ -55,7 +55,7 @@ end
 
 function parse_cispi(s::String)
     # Enhanced regex pattern with optional sign and im* prefix
-    #@show s
+    @show s
     pattern = r"^([+-]?)(im\*)?CISPI_(\d+)_(\d+)_Q([14])$"
     
     m = match(pattern, s)
@@ -146,6 +146,7 @@ function sat_expr(tmp, w, d=nothing)
                 # -cosθ + i sinθ
                 "muladd(-$c, $(tmp)_r, -$s * $(tmp)_i), " *
                 "muladd($s, $(tmp)_r, -$c * $(tmp)_i)"
+        else
         end
     end
 end
@@ -269,7 +270,7 @@ inc = inccounter()
 
 function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1) where T <: AbstractFloat
   n = length(x)
-  use_vars = false
+  use_vars = true
   MODULO = 4
 
   if n == 1
@@ -297,8 +298,11 @@ function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1) where T <: AbstractFlo
           end
         else
           if root
-            load_reim(x) * "\n" * """
+            isnothing(d) ? load_reim(x) * "\n" * """
             $(y[1]), $(y[2]) = Complex{$T}($(x[1])[1] + $(x[2])[1], $(x[1])[2] + $(x[2])[2]), Complex{$T}($(x[1])[1] - $(x[2])[1], $(x[1])[2] - $(x[2])[2])
+            """ :
+            load_reim(x) * "\n" * """
+            $(y[1]), $(y[2]) = Complex{$T}($(x[1])[1] + $(x[2])[1], $(sat_expr("-", "$(x[1])", "$(x[2])", "", "$(d[1])"))
             """
           else
             #@show x = "x" .* string.(map_to_groups(parse_x(x), MODULO))

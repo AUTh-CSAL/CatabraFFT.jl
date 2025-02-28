@@ -5,7 +5,7 @@ using LoopVectorization
 export RadixPlan
 
 # Struct to hold a single FFT operation using Stockham notation
-struct FFTOp
+mutable struct FFTOp
     op_type::Symbol  # :fft16, :fft8, :fft7, :fft5, :fft4, :fft3, :fft2
     input_buffer::Symbol  # :x or :y
     output_buffer::Symbol # :x or :y
@@ -67,7 +67,7 @@ function create_all_radix_plans(n::Int, valid_radices::Vector{Int}, ::Type{T}) w
 
     filtered = filter(is_valid, decompositions)
     @show filtered
-    filtered = [[n]]
+    #filtered = [[n]]
     
     # Create RadixPlan objects
     [create_radix_plan_from_decomposition(n, decomp, T) for decomp in filtered]

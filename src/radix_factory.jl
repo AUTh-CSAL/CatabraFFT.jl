@@ -208,11 +208,9 @@ function get_twiddle_expression(collect::Vector{Int}, n::Int)::Vector{String}
 end
 
 # Function to generate kernel name
-function generate_kernel_names(radix::Int, suffixes::Vector{String}, stride::Int)
+function generate_kernel_names(radix::Int, suffixes::Vector{String}, p::Int)
     if suffixes == ["mat"]
-        base = "fft$(radix)_$(stride)!"
-        #suffix = join(suffixes, "_")
-        #return (string(base, isempty(suffix) ? "" : "_$suffix", "!"), string(base, "!"))
+        base = "fft$(radix)_$(p)!"
         return base
     else
         base = "fft$(radix)_shell"
@@ -220,7 +218,6 @@ function generate_kernel_names(radix::Int, suffixes::Vector{String}, stride::Int
         return (string(base, isempty(suffix) ? "" : "_$suffix", "!"), string(base, "!"))
     end
 end
-
 
 # Function to generate function signature
 function generate_signature(suffixes::Vector{String}, ::Type{T}) where T <: AbstractFloat
@@ -237,13 +234,12 @@ function generate_signature(suffixes::Vector{String}, ::Type{T}) where T <: Abst
 end
 
 # Main function to generate kernel code
-function generate_kernel(radix::Int, op, suffixes::Vector{String}, stride::Int, ::Type{T}) where T <: AbstractFloat
-    @show suffixes
+function generate_kernel(radix::Int, op, suffixes::Vector{String}, p::Int, ::Type{T}) where T <: AbstractFloat
     if "mat" ∈ suffixes
-        println("WORKS")
-        @show name = generate_kernel_names(radix, suffixes, stride)
+        name = generate_kernel_names(radix, suffixes, p)
         signature = generate_signature(suffixes, T)
-        @show D =  generate_D_kernel(op, T)
+        D = generate_D_kernel(op, T)
+        @show name, signature, D
         kernel_code = makefftradix(radix, suffixes, D, T)
         return """
         @inline function $(name)$signature 
@@ -253,10 +249,10 @@ function generate_kernel(radix::Int, op, suffixes::Vector{String}, stride::Int, 
         end
         """
     else
-    @show names = generate_kernel_names(radix, suffixes, 0)
+    names = generate_kernel_names(radix, suffixes, 0)
 
     signature = generate_signature(suffixes, T)
-    @show signature
+    signature
 
     kernel_code = makefftradix(radix, suffixes, String[], T)
     
@@ -308,10 +304,21 @@ function generate_all_kernels(plan_data::NamedTuple, ::Type{T}; suffix_combinati
         push!(kernels, generate_kernel(radices[1], plan_data.operations[1], suffix_combinations[1], 0, T))
     elseif suffix_combinations == [["mat"]]
         for (i, (rad, op)) in enumerate(zip(radices, plan_data.operations))
-            stride = op.n_groups ÷ rad
-            for s in 1:stride
-                @show s
-                push!(kernels, generate_kernel(rad, op, suffix_combinations[1], s, T))
+            future_op = i < length(plan_data.operations) ? plan_data.operations[i+1] : nothing
+            #future_rad = i < length(radices) ? radices[i+1] : nothing
+
+            @show op, future_op
+            if !isnothing(future_op) 
+                n1 = op.n_groups ÷ rad
+                op.n_groups, op.stride = future_op.n_groups, future_op.stride
+                for p in 1:n1
+                    push!(kernels, generate_kernel(rad, op, suffix_combinations[1], p, T))
+                end
+            else
+                n1 = op.n_groups ÷ rad
+                for p in 1:n1
+                    push!(kernels, generate_kernel(rad, op, suffix_combinations[1], p, T))
+                end
             end
         end
     end
@@ -354,11 +361,12 @@ end
 
 function generate_D_kernel(op, ::Type{T}) where T <: AbstractFloat
     s = op.stride
-    if s == 1
+    n1 = op.n_groups
+    @show s, n1
+    if s == 1 || n1 == 1
         return String[]
     else
-        n_group = op.n_groups
-        return n_group == s ? create_D_kernel_square(s, T) : create_D_kernel_non_square(s, n_group, T)
+        return n1 == s ? create_D_kernel_square(s, T) : create_D_kernel_non_square(s, n1, T)
     end
 end
 

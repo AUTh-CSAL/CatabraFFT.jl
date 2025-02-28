@@ -34,8 +34,6 @@ function generate_mat_execute_function!(plan::RadixPlan, show_function=true)
         if !isnothing(future_op)
             push!(ops, :($current_input = reshape($current_input, $(future_op.n_groups), $(future_op.stride))))
             push!(ops, :($current_output = reshape($current_output, $(future_op.n_groups), $(future_op.stride))))
-            #D_matrix = Symbol("D_", future_op.stride, "_", future_op.n_groups)
-            #D_ref = get_function_reference(radix_family, D_matrix)
             push!(ops, Expr(:call, func_ref, current_output, current_input))
         else
             if n1 == op.stride == 1 # single linear kernel 
@@ -351,8 +349,8 @@ function return_best_static_linear_function(plans::Vector{RadixPlan{T}}, show_fu
     
     for plan in plans
         println("Creating new module")
-        evaluate_fft_generated_module(Radix_Execute, plan, T)
-        test_func = generate_mat_execute_function!(plan, true)
+        evaluate_fft_generated_module(Radix_Execute, plan, T) # CREATE ALL KERNEL PARTS
+        test_func = generate_mat_execute_function!(plan, true) # CONSTRUCT THEM AS A SIGNLE FUNCTION
         show_function && println("Testing module for plan: $plan")
         
         Base.invokelatest(test_func, x, x)

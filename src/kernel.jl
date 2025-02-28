@@ -59,7 +59,6 @@ function call_radix_families(n::Int, ::Type{T}, flag::FLAG)::Function where {T<:
 
     family_func = if flag >= ENCHANT
         if is_power_of(n, 2)
-            println("STATIC FUNC GEN")
             Radix_Execute.return_best_static_linear_function(Radix_Plan.create_all_radix_plans(n, subpowers_of_two(n), T), show_function, ivdep)
         end
         elseif flag >= MEASURE
