@@ -55,7 +55,6 @@ end
 
 function parse_cispi(s::String)
     # Enhanced regex pattern with optional sign and im* prefix
-    @show s
     pattern = r"^([+-]?)(im\*)?CISPI_(\d+)_(\d+)_Q([14])$"
     
     m = match(pattern, s)
@@ -103,8 +102,7 @@ function add_more_tmp_vars(x1, x2, wn, n)
     return ""
 end
 
-function sat_expr(tmp, w, d=nothing)
-    
+function sat_expr(tmp, w)
     if w == "-im"
         return "$(tmp)_i, $(tmp)_r"
     elseif w == "INV_SQRT2_Q4"
@@ -151,113 +149,84 @@ function sat_expr(tmp, w, d=nothing)
     end
 end
 
-function sat_expr(sign, x1, x2, w, d=nothing)
-  if isnothing(d)
-    if w == "-im"
-        is_t = startswith(x1, "t") || startswith(x2, "t")
-        # -i*(a ± b) = ±(b_i ∓ a_i) ± i*(b_r ∓ a_r)
-        return is_t ? 
-            "$(x1)_i $sign $(x2)_i, $(x2)_r $sign $(x1)_r" :
-            "$x1[2] $sign $x2[2], $x2[1] $sign $x1[1]"
-    
-    elseif w == "INV_SQRT2_Q4"
-        # (a ± b) * (1-i)/√2 = [ (a_r ± b_r + a_i ± b_i)/√2 , (a_i ± b_i - a_r ∓ b_r)/√2 ]
-        return "INV_SQRT2*(($(x1)_r $sign $(x2)_r) + ($(x1)_i $sign $(x2)_i)), " *
-               "INV_SQRT2*(($(x1)_i $sign $(x2)_i) - ($(x1)_r $sign $(x2)_r))"
-    
-    elseif w == "-INV_SQRT2_Q1"
-        # -(a ± b) * (1+i)/√2 = [ -(a_r ± b_r - a_i ∓ b_i)/√2 , -(a_r ± b_r + a_i ∓ b_i)/√2 ]
-        return "INV_SQRT2*(($(x1)_i $sign $(x2)_i) - ($(x1)_r $sign $(x2)_r)), " *
-               "-INV_SQRT2*(($(x1)_r $sign $(x2)_r) + ($(x1)_i $sign $(x2)_i))"
-    
-    else
-        num, den, is_q1 = parse_cispi(w)
-        c = "COSPI_$(num)_$(den)"
-        s = "SINPI_$(num)_$(den)"
-        
-        if startswith(w, "CISPI")
-            return is_q1 ?
-                # Q1: cosθ + i sinθ
-                "muladd($c, $(x1)_r $sign $(x2)_r, -$s * ($(x1)_i $sign $(x2)_i)), " *
-                "muladd($s, $(x1)_r $sign $(x2)_r, $c * ($(x1)_i $sign $(x2)_i))" :
-                # Q4: cosθ - i sinθ
-                "muladd($c, $(x1)_r $sign $(x2)_r, $s * ($(x1)_i $sign $(x2)_i)), " *
-                "muladd(-$s, $(x1)_r $sign $(x2)_r, $c * ($(x1)_i $sign $(x2)_i))"
-        
-        elseif startswith(w, "-im*CISPI")
-            return is_q1 ?
-                # -i*(cosθ + i sinθ) = sinθ - i cosθ
-                "muladd($s, $(x1)_r $sign $(x2)_r, $c * ($(x1)_i $sign $(x2)_i)), " *
-                "muladd(-$c, $(x1)_r $sign $(x2)_r, $s * ($(x1)_i $sign $(x2)_i))" :
-                # -i*(cosθ - i sinθ) = -sinθ - i cosθ
-                "muladd(-$s, $(x1)_r $sign $(x2)_r, $c * ($(x1)_i $sign $(x2)_i)), " *
-                "muladd(-$c, $(x1)_r $sign $(x2)_r, -$s * ($(x1)_i $sign $(x2)_i))"
-        
-        elseif startswith(w, "-CISPI")
-            return is_q1 ?
-                # -cosθ - i sinθ
-                "muladd(-$c, $(x1)_r $sign $(x2)_r, $s * ($(x1)_i $sign $(x2)_i)), " *
-                "muladd(-$s, $(x1)_r $sign $(x2)_r, -$c * ($(x1)_i $sign $(x2)_i))" :
-                # -cosθ + i sinθ
-                "muladd(-$c, $(x1)_r $sign $(x2)_r, -$s * ($(x1)_i $sign $(x2)_i)), " *
-                "muladd($s, $(x1)_r $sign $(x2)_r, -$c * ($(x1)_i $sign $(x2)_i))"
-        end
-    end
+function sat_expr(sign, x1, x2, w)
+  is_t = startswith(x1, "t") || startswith(x2, "t")
+  if w == "-im"
+      # -i*(a ± b) = ±(b_i ∓ a_i) ± i*(b_r ∓ a_r)
+      return is_t ? 
+          "$(x1)_i $sign $(x2)_i, $(x2)_r $sign $(x1)_r" :
+          "$x1[2] $sign $x2[2], $x2[1] $sign $x1[1]"
+  elseif w == "INV_SQRT2_Q4"
+      # (a ± b) * (1-i)/√2 = [ (a_r ± b_r + a_i ± b_i)/√2 , (a_i ± b_i - a_r ∓ b_r)/√2 ]
+      return is_t ?
+          "INV_SQRT2*(($(x1)_r $sign $(x2)_r) + ($(x1)_i $sign $(x2)_i)), " *
+          "INV_SQRT2*(($(x1)_i $sign $(x2)_i) - ($(x1)_r $sign $(x2)_r))" :
+          "INV_SQRT2*(($(x1)[1] $sign $(x2)[1]) + ($(x1)[2] $sign $(x2)[2])), " *
+          "INV_SQRT2*(($(x1)[2] $sign $(x2)[2]) - ($(x1)[1] $sign $(x2)[1]))"
+  elseif w == "-INV_SQRT2_Q1"
+      # -(a ± b) * (1+i)/√2 = [ -(a_r ± b_r - a_i ∓ b_i)/√2 , -(a_r ± b_r + a_i ∓ b_i)/√2 ]
+      return is_t ? 
+          "INV_SQRT2*(($(x1)_i $sign $(x2)_i) - ($(x1)_r $sign $(x2)_r)), " *
+          "-INV_SQRT2*(($(x1)_r $sign $(x2)_r) + ($(x1)_i $sign $(x2)_i))" :
+          "INV_SQRT2*(($(x1)[2] $sign $(x2)[2]) - ($(x1)[1] $sign $(x2)[1])), " *
+          "-INV_SQRT2*(($(x1)[1] $sign $(x2)[1]) + ($(x1)[2] $sign $(x2)[2]))"
   else
-    num_d, den_d, is_q1_d = parse_cispi(d)
-    if w == ""
-      return "$(d)_r * ($(x1)_r $sign $(x2)_r) - $(d)_i * ($(x1)_i $sign $(x2)_i), $(d)_r * ($(x1)_i $sign $(x2)_i) + $(d)_i * ($(x1)_r $sign $(x2)_r)"
-    elseif w == "-im"
-        is_t = startswith(x1, "t") || startswith(x2, "t")
-        # -i*(a ± b) = ±(b_i ∓ a_i) ± i*(b_r ∓ a_r)
-        return is_t ? 
-            "$(x1)_i $sign $(x2)_i, $(x2)_r $sign $(x1)_r" :
-            "$x1[2] $sign $x2[2], $x2[1] $sign $x1[1]"
-    
-    elseif w == "INV_SQRT2_Q4"
-        # (a ± b) * (1-i)/√2 = [ (a_r ± b_r + a_i ± b_i)/√2 , (a_i ± b_i - a_r ∓ b_r)/√2 ]
-        return "INV_SQRT2*(($(x1)_r $sign $(x2)_r) + ($(x1)_i $sign $(x2)_i)), " *
-               "INV_SQRT2*(($(x1)_i $sign $(x2)_i) - ($(x1)_r $sign $(x2)_r))"
-    
-    elseif w == "-INV_SQRT2_Q1"
-        # -(a ± b) * (1+i)/√2 = [ -(a_r ± b_r - a_i ∓ b_i)/√2 , -(a_r ± b_r + a_i ∓ b_i)/√2 ]
-        return "INV_SQRT2*(($(x1)_i $sign $(x2)_i) - ($(x1)_r $sign $(x2)_r)), " *
-               "-INV_SQRT2*(($(x1)_r $sign $(x2)_r) + ($(x1)_i $sign $(x2)_i))"
-    
-    else
-        num, den, is_q1 = parse_cispi(w)
-        c = "COSPI_$(num)_$(den)"
-        s = "SINPI_$(num)_$(den)"
-        
-        if startswith(w, "CISPI")
-            return is_q1 ?
-                # Q1: cosθ + i sinθ
-                "muladd($c, $(x1)_r $sign $(x2)_r, -$s * ($(x1)_i $sign $(x2)_i)), " *
-                "muladd($s, $(x1)_r $sign $(x2)_r, $c * ($(x1)_i $sign $(x2)_i))" :
-                # Q4: cosθ - i sinθ
-                "muladd($c, $(x1)_r $sign $(x2)_r, $s * ($(x1)_i $sign $(x2)_i)), " *
-                "muladd(-$s, $(x1)_r $sign $(x2)_r, $c * ($(x1)_i $sign $(x2)_i))"
-        
-        elseif startswith(w, "-im*CISPI")
-            return is_q1 ?
-                # -i*(cosθ + i sinθ) = sinθ - i cosθ
-                "muladd($s, $(x1)_r $sign $(x2)_r, $c * ($(x1)_i $sign $(x2)_i)), " *
-                "muladd(-$c, $(x1)_r $sign $(x2)_r, $s * ($(x1)_i $sign $(x2)_i))" :
-                # -i*(cosθ - i sinθ) = -sinθ - i cosθ
-                "muladd(-$s, $(x1)_r $sign $(x2)_r, $c * ($(x1)_i $sign $(x2)_i)), " *
-                "muladd(-$c, $(x1)_r $sign $(x2)_r, -$s * ($(x1)_i $sign $(x2)_i))"
-        
-        elseif startswith(w, "-CISPI")
-            return is_q1 ?
-                # -cosθ - i sinθ
-                "muladd(-$c, $(x1)_r $sign $(x2)_r, $s * ($(x1)_i $sign $(x2)_i)), " *
-                "muladd(-$s, $(x1)_r $sign $(x2)_r, -$c * ($(x1)_i $sign $(x2)_i))" :
-                # -cosθ + i sinθ
-                "muladd(-$c, $(x1)_r $sign $(x2)_r, -$s * ($(x1)_i $sign $(x2)_i)), " *
-                "muladd($s, $(x1)_r $sign $(x2)_r, -$c * ($(x1)_i $sign $(x2)_i))"
-        end
-    end
-end
+      num, den, is_q1 = parse_cispi(w)
+      c = "COSPI_$(num)_$(den)"
+      s = "SINPI_$(num)_$(den)"
+      
+      if startswith(w, "CISPI")
+          if is_q1
+              # Q1: cosθ + i sinθ
+              return is_t ?
+              "muladd($c, $(x1)_r $sign $(x2)_r, -$s * ($(x1)_i $sign $(x2)_i)), " *
+              "muladd($s, $(x1)_r $sign $(x2)_r, $c * ($(x1)_i $sign $(x2)_i))" :
+              "muladd($c, $(x1)[1] $sign $(x2)[1], -$s * ($(x1)[2] $sign $(x2)[2])), " *
+              "muladd($s, $(x1)[1] $sign $(x2)[1], $c * ($(x1)[2] $sign $(x2)[2]))"
+          else
+              # Q4: cosθ - i sinθ
+              return is_t ?
+              "muladd($c, $(x1)_r $sign $(x2)_r, $s * ($(x1)_i $sign $(x2)_i)), " *
+              "muladd(-$s, $(x1)_r $sign $(x2)_r, $c * ($(x1)_i $sign $(x2)_i))" :
+              "muladd($c, $(x1)[1] $sign $(x2)[1], $s * ($(x1)[2] $sign $(x2)[2])), " *
+              "muladd(-$s, $(x1)[1] $sign $(x2)[1], $c * ($(x1)[2] $sign $(x2)[2]))"
+          end
+      
+      elseif startswith(w, "-im*CISPI")
+          if is_q1 
+              # -i*(cosθ + i sinθ) = sinθ - i cosθ
+              return is_t ?
+              "muladd($s, $(x1)_r $sign $(x2)_r, $c * ($(x1)_i $sign $(x2)_i)), " *
+              "muladd(-$c, $(x1)_r $sign $(x2)_r, $s * ($(x1)_i $sign $(x2)_i))" :
+              "muladd($s, $(x1)[1] $sign $(x2)[1], $c * ($(x1)[2] $sign $(x2)[2])), " *
+              "muladd(-$c, $(x1)[1] $sign $(x2)[1], $s * ($(x1)[2] $sign $(x2)[2]))" 
+          else
+              # -i*(cosθ - i sinθ) = -sinθ - i cosθ
+              return is_t ?
+              "muladd(-$s, $(x1)_r $sign $(x2)_r, $c * ($(x1)_i $sign $(x2)_i)), " *
+              "muladd(-$c, $(x1)_r $sign $(x2)_r, -$s * ($(x1)_i $sign $(x2)_i))" :
+              "muladd(-$s, $(x1)[1] $sign $(x2)[1], $c * ($(x1)[2] $sign $(x2)[2])), " *
+              "muladd(-$c, $(x1)[1] $sign $(x2)[1], -$s * ($(x1)[2] $sign $(x2)[2]))"
+          end
+      
+      elseif startswith(w, "-CISPI")
+          if is_q1 
+              # -cosθ - i sinθ
+              return is_t ?
+              "muladd(-$c, $(x1)_r $sign $(x2)_r, $s * ($(x1)_i $sign $(x2)_i)), " *
+              "muladd(-$s, $(x1)_r $sign $(x2)_r, -$c * ($(x1)_i $sign $(x2)_i))" :
+              "muladd(-$c, $(x1)[1] $sign $(x2)[1], $s * ($(x1)[2] $sign $(x2)[2]])), " *
+              "muladd(-$s, $(x1)[1] $sign $(x2)[1], -$c * ($(x1)[2] $sign $(x2)[2]))" 
+          else
+              # -cosθ + i sinθ
+              return is_t ?
+              "muladd(-$c, $(x1)_r $sign $(x2)_r, -$s * ($(x1)_i $sign $(x2)_i)), " *
+              "muladd($s, $(x1)_r $sign $(x2)_r, -$c * ($(x1)_i $sign $(x2)_i))" :
+              "muladd(-$c, $(x1)[1] $sign $(x2)[1], -$s * ($(x1)[2] $sign $(x2)[2])), " *
+              "muladd($s, $(x1)[1] $sign $(x2)[1], -$c * ($(x1)[2] $sign $(x2)[2]))"
+          end
+      end
+  end
 end
 
 function inccounter()
@@ -270,7 +239,7 @@ inc = inccounter()
 
 function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1) where T <: AbstractFloat
   n = length(x)
-  use_vars = true
+  #use_vars = true
   MODULO = 4
 
   if n == 1
@@ -279,33 +248,29 @@ function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1) where T <: AbstractFlo
     s = if !isnothing(d)
           if isnothing(w)
             if root
-            load_reim(x) * "\n" * """
-            $(y[1]), $(y[2]) = Complex{$T}($(x[1])[1] + $(x[2])[1], $(x[1])[2] + $(x[2])[2]), Complex{$T}($(d[1])[1]*($(x[1])[1] - $(x[2])[1]) - $(d[1])[2]*($(x[1])[2] - $(x[2])[2]), $(d[1])[1]*($(x[1])[2] - $(x[2])[2]) + $(d[1])[2]*($(x[1])[1] - $(x[2])[2])
-            """
+              load_reim(x) * "\n" * """
+              $(y[1]), $(y[2]) = Complex{$T}($(x[1])[1] + $(x[2])[1], $(x[1])[2] + $(x[2])[2]), Complex{$T}($(sat_expr("-", "$(x[1])", "$(x[2])", "$(d[1])")))
+              """
+            #else
+              #"""
+              #$(y[1]), $(y[2]) = $(x[1]) + $(x[2]), $(sat_expr("-", "$(x[1])", "$(x[2])", "$(d[1])"))
+              #"""
             end
-
-            """
-            $(y[1]), $(y[2]) = $(x[1]) + $(x[2]), $(d[1])*($(x[1]) - $(x[2]))
-            """
-          else
-            w[1] == "1" ? 
-            """
-            $(y[1]), $(y[2]) = ($(x[1]) + $(x[2])), ($(d[1])*$(w[2]))*($(x[1]) - $(x[2]))
-            """ : 
-            """
-            $(y[1]), $(y[2]) = ($(w[1]))*($(x[1]) + $(x[2])), ($(d[1])*$(w[2]))*($(x[1]) - $(x[2]))
-            """
+          #else
+            #w[1] == "1" ? 
+            #"""
+            #$(y[1]), $(y[2]) = ($(x[1]) + $(x[2])), $(sat_expr("-", "$(x[1])", "$(x[2])", "$(d[1])"))
+            #""" : 
+            #"""
+            #$(y[1]), $(y[2]) = $(sat_expr("+", "$(x[1])", "$(x[2])", "$(w[1])")), $(sat_expr("-", "$(x[1])", "$(x[2])", "$(w[2])", "$(d[1])"))
+            #"""
           end
         else
           if root
-            isnothing(d) ? load_reim(x) * "\n" * """
-            $(y[1]), $(y[2]) = Complex{$T}($(x[1])[1] + $(x[2])[1], $(x[1])[2] + $(x[2])[2]), Complex{$T}($(x[1])[1] - $(x[2])[1], $(x[1])[2] - $(x[2])[2])
-            """ :
             load_reim(x) * "\n" * """
-            $(y[1]), $(y[2]) = Complex{$T}($(x[1])[1] + $(x[2])[1], $(sat_expr("-", "$(x[1])", "$(x[2])", "", "$(d[1])"))
-            """
+            $(y[1]), $(y[2]) = Complex{$T}($(x[1])[1] + $(x[2])[1], $(x[1])[2] + $(x[2])[2]), Complex{$T}($(x[1])[1] - $(x[2])[1], $(x[1])[2] - $(x[2])[2])
+            """ 
           else
-            #@show x = "x" .* string.(map_to_groups(parse_x(x), MODULO))
             if isnothing(w)
             """
             $(y[1])_r, $(y[1])_i, $(y[2])_r, $(y[2])_i = $(x[1])[1] + $(x[2])[1], $(x[1])[2] + $(x[2])[2], $(x[1])[1] - $(x[2])[1], $(x[1])[2] - $(x[2])[2]
@@ -316,7 +281,7 @@ function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1) where T <: AbstractFlo
                 $(y[1])_r, $(y[1])_i, $(y[2])_r, $(y[2])_i = $(x[1])[1] + $(x[2])[1], $(x[1])[2] + $(x[2])[2], $(sat_expr("-", "$(x[1])", "$(x[2])", "$(w[2])"))
                 """ :
                 """
-                $(y[1]), $(y[2]) = ($(w[1]))*($(x[1]) + $(x[2])), ($(w[2]))*($(x[1]) - $(x[2]))
+                $(y[1]), $(y[2]) = $(sat_expr("+", "$(x[1])", "$(x[2])", "$(w[1])")), $(sat_expr("-", "$(x[1])", "$(x[2])", "$(w[2])"))
                 """
             end
           end
@@ -331,7 +296,7 @@ function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1) where T <: AbstractFlo
     s1 = recfft2(t[1:n2], x[1:2:n], nothing, nothing, false, T, new_tmp_base)
     s2 = recfft2(t[n2+1:n], x[2:2:n], nothing, get_twiddle_expression(collect(0:n2-1), n), false, T, new_tmp_base)
     
-    tmp_decls = if use_vars && isnothing(d) && !isnothing(w)
+    tmp_decls = if isnothing(d) && !isnothing(w)
         x1_exprs = String[]
         x2_exprs = String[]
         for i in 2:n2
@@ -348,12 +313,15 @@ function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1) where T <: AbstractFlo
     # Final layer combining with D matrix twiddles
     if !isnothing(d)
       if isnothing(w)
+        if root
         s3p = "$(y[1])" * foldl(*, vmap(i -> ", $(y[i])", 2:n2)) *
               " = " *
-              "Complex{$T}($(t[1])_r + $(t[1+n2])_r, $(t[1])_i + $(t[1+n2])_i)" * foldl(*, vmap(i -> ", $(sat_expr("+", "$(t[i])", "$(t[i+n2])", "", "$(d[i-1])"))", 2:n2)) * "\n"
+              "Complex{$T}($(t[1])_r + $(t[1+n2])_r, $(t[1])_i + $(t[1+n2])_i)" * foldl(*, vmap(i -> ", Complex{$T}($(sat_expr("+", "$(t[i])", "$(t[i+n2])", "$(d[i-1])")))", 2:n2)) * "\n"
         s3m = "$(y[n2+1])" * foldl(*, vmap(i -> ", $(y[i+n2])", 2:n2)) *
               " = " *
-              "$(sat_expr("-", "$(t[1])", "$(t[1+n2])", "", "$(d[n2])"))" * foldl(*, vmap(i -> ",$(d[i+n2-1])*($(t[i]) - $(t[i+n2]))", 2:n2)) * "\n"
+              "Complex{$T}($(sat_expr("-", "$(t[1])", "$(t[1+n2])", "$(d[n2])")))" * foldl(*, vmap(i -> ", Complex{$T}($(sat_expr("-", "$(t[i])", "$(t[i+n2])", "$(d[i+n2-1])")))", 2:n2)) * "\n"
+        end
+              #=
       else
         s3p = "$(y[1])" * foldl(*, vmap(i -> ", $(y[i])", 2:n2)) *
               " = " *
@@ -363,6 +331,7 @@ function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1) where T <: AbstractFlo
               " = " *
               "$(sat_expr("-", "$(t[1])", "$(t[1+n2])", "$(w[n2+1])", "$(d[n2])"))" *
               foldl(*, vmap(i -> ",  $(sat_expr("-", "$(t[i])", "$(t[i+n2])", "$(w[n2+i])", "$(d[i+n2-1])"))", 2:n2)) * "\n"
+              =#
       end
     else
       if isnothing(w)
@@ -377,12 +346,12 @@ function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1) where T <: AbstractFlo
           s3p = "$(y[1])_r, $(y[1])_i" * foldl(*, vmap(i -> ", $(y[i])_r, $(y[i])_i", 2:n2)) *
                 " = " *
                 "$(t[1])_r + $(t[1+n2])_r, $(t[1])_i + $(t[1+n2])_i" * foldl(*, vmap(i -> ", $(t[i])_r + $(t[i+n2])_r, $(t[i])_i + $(t[i+n2])_i", 2:n2)) * "\n"
-          s3m = "$(y[n2+1])_r, $(y[n2+1])_i " * foldl(*, vmap(i -> ",$(y[i+n2])_r, $(y[i+n2])_i", 2:n2)) *
+          s3m = "$(y[n2+1])_r, $(y[n2+1])_i " * foldl(*, vmap(i -> ", $(y[i+n2])_r, $(y[i+n2])_i", 2:n2)) *
                 " = " *
                 "$(t[1])_r - $(t[1+n2])_r, $(t[1])_i - $(t[1+n2])_i" * foldl(*, vmap(i -> ", $(t[i])_r - $(t[i+n2])_r, $(t[i])_i - $(t[i+n2])_i", 2:n2)) * "\n"
         end
       else
-        if use_vars
+        #if use_vars
         s3p = "$(tmp_decls)" * "\n" *
               "$(y[1])_r, $(y[1])_i" * foldl(*, vmap(i -> ", $(y[i])_r, $(y[i])_i", 2:n2)) *
               " = " *
@@ -392,6 +361,7 @@ function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1) where T <: AbstractFlo
               " = " *
               "$(sat_expr("-", "$(t[1])", "$(t[1+n2])", "$(w[n2+1])"))" *
               foldl(*, vmap(i -> ", $(sat_expr("tmp$(i-3+n2)", "$(w[n2+i])"))", 2:n2)) * "\n"
+              #=
         else
         s3p = "$(y[1])_r, $(y[1])_i" * foldl(*, vmap(i -> ", $(y[i])_r, $(y[i])_i", 2:n2)) *
               " = " *
@@ -402,9 +372,10 @@ function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1) where T <: AbstractFlo
               "$(sat_expr("-", "$(t[1])", "$(t[1+n2])", "$(w[n2+1])"))" *
               foldl(*, vmap(i -> ", $(sat_expr("-", "$(t[i])", "$(t[i+n2])", "$(w[n2+i])"))", 2:n2)) * "\n"
         end
+        =#
     end
-    s = n == MODULO ? load_reim(x) * "\n" * s1 * s2 * s3p * s3m : s1 * s2 * s3p * s3m
-    return s
   end
   end
+  s = n == MODULO ? load_reim(x) * "\n" * s1 * s2 * s3p * s3m : s1 * s2 * s3p * s3m
+  return s
 end
