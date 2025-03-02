@@ -83,8 +83,6 @@ function get_constant_expression(w::Complex{T}, n::Integer)::String where T <: A
         s = current_n >> 3
         angles = [(n4-i,n2) for i in 1:2:s]
         for (num, den) in angles
-            #cp = cospi(num/den)
-            #sp = sinpi(num/den)
             cispi1, cispi2  = cispi(num/den), cispi(-num/den)
             if isclose(w, cispi1)
                 return "CISPI_$(num)_$(den)_Q1"
@@ -267,8 +265,7 @@ function generate_kernel(radix::Int, op, suffixes::Vector{String}, p::Int, D, ::
     if "mat" ∈ suffixes
         name = generate_kernel_names(radix, suffixes, p)
         signature = generate_signature(suffixes, T)
-        @show name, signature, D, op
-        kernel_code = makefftradix(radix, suffixes, D, T)
+        kernel_code = makefftradix(radix, suffixes, D, p, op.stride, T)
         return """
         @inline function $(name)$signature 
             @inbounds  begin
@@ -278,12 +275,8 @@ function generate_kernel(radix::Int, op, suffixes::Vector{String}, p::Int, D, ::
         """
     else
     names = generate_kernel_names(radix, suffixes, 0)
-
     signature = generate_signature(suffixes, T)
-    signature
-
-    kernel_code = makefftradix(radix, suffixes, String[], T)
-    
+    kernel_code = makefftradix(radix, suffixes, String[], 0, op.stride, T)
     # Generate the complete linear function
     return """
     @inline function $(names[2])$signature 
@@ -322,11 +315,6 @@ function generate_all_kernels(plan_data::NamedTuple, ::Type{T}; suffix_combinati
     end
     =#
 
-    for (i, (rad, op)) in enumerate(zip(radices, plan_data.operations))
-        println("Index: $i, Radix: $rad, Operation: $op")
-    end
-    
-    @show radices, symbols, suffix_combinations, plan_data.operations
     kernels = Vector{String}()
     if suffix_combinations == [String[]] #linear order
         push!(kernels, generate_kernel(radices[1], plan_data.operations[1], suffix_combinations[1], 0, String[], T))
@@ -334,19 +322,20 @@ function generate_all_kernels(plan_data::NamedTuple, ::Type{T}; suffix_combinati
         for (i, (rad, op)) in enumerate(zip(radices, plan_data.operations))
             future_op = i < length(plan_data.operations) ? plan_data.operations[i+1] : nothing
 
-            @show op, future_op
+            #@show op, future_op
             if !isnothing(future_op) 
                 n1 = op.n_groups ÷ rad
-                op.n_groups, op.stride = future_op.n_groups, future_op.stride
+                op.n_groups, op.stride = future_op.n_groups, future_op.stride # CRITICAL!
                 @show op
+                @show n1
                 for p in 1:n1
                     D = generate_D_kernel(p, op, T)
-                    push!(kernels, generate_kernel(rad, op, suffix_combinations[1], p, D, T))
+                    push!(kernels, generate_kernel(rad, op, suffix_combinations[1], p-1, D, T))
                 end
             else
                 n1 = op.n_groups ÷ rad
                 for p in 1:n1
-                    push!(kernels, generate_kernel(rad, op, suffix_combinations[1], p, String[], T))
+                    push!(kernels, generate_kernel(rad, op, suffix_combinations[1], p-1, String[], T))
                 end
             end
         end
@@ -391,7 +380,6 @@ end
 function generate_D_kernel(p, op, ::Type{T}) where T <: AbstractFloat
     s = op.stride
     n1 = op.n_groups
-    @show s, n1
     if s == 1 || n1 == 1
         return String[]
     else

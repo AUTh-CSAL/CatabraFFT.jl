@@ -11,34 +11,28 @@ load_reim = t -> join([
 ], ";")
 
 # Wrapper for any other kernel shell strategy planer
-function makefftradix(n::Int,  suffixes::Vector{String}, D::AbstractArray{String}, ::Type{T}) where T <: AbstractFloat
+function makefftradix(n::Int,  suffixes::Vector{String}, D::AbstractArray{String}, p::Int, s::Int, ::Type{T}) where T <: AbstractFloat
 
-    global inc = inccounter() #nullify glabal tmp 't' var counter for each new kernel generated
+  global inc = inccounter() #nullify glabal tmp 't' var counter for each new kernel generated
 
-    input = "y" ∈ suffixes ? "y" : "x"
-    output = "y"
-    is_mat = "mat" ∈ suffixes
-    
-    if is_mat
-        #x = ["$input[k, $i]" for i in 1:n]
-        x = ["$(input)$i" for i in 1:n]
-        #y = ["$output[k, $i]" for i in 1:n]
-        y = ["$output[$i]" for i in 1:n]
-        d = D == String[] ? nothing : D
-    else
-        #x = ["$input[$i]" for i in 1:n]
-        x = ["$(input)$i" for i in 1:n]
-        y = ["$output[$i]" for i in 1:n]
-        d = nothing
-    end
+  input = "y" ∈ suffixes ? "y" : "x"
+  output = "y"
+  is_mat = "mat" ∈ suffixes
+  
+  if is_mat
+      x = ["$(input)$(i + p*s)" for i in 1:n]
+      y = ["$output[$(i + p*s)]" for i in 1:n]
+      d = D == String[] ? nothing : D
+  else
+      x = ["$(input)$i" for i in 1:n]
+      y = ["$output[$i]" for i in 1:n]
+      d = nothing
+  end
 
-    s = recfft2(y, x, d, nothing, true, T) # Replace with any other recfft kernel family seed.
-    
-    kernel_code = replace(s, 
-            "#INPUT#" => input,
-            "#OUTPUT#" => output)
+  # Replace with any other recfftN kernel family seed.
+  kernel_code = recfft2(y, x, d, nothing, true, T) |> s -> replace(s, "#INPUT#" => input, "#OUTPUT#" => output)
 
-    return kernel_code
+  return kernel_code
 end
 
 function parse_x(s::String)
