@@ -107,6 +107,7 @@ function get_constant_expression(w::Complex{T}, n::Integer)::String where T <: A
     return "($(round(real_part, digits=16))$(sign_str(imag_part))$(abs(round(imag_part, digits=16)))*im)"
 end
 
+#=
 @inline function create_D_kernel_square(n::Int, ::Type{T}) where T <: AbstractFloat
     # Pre-allocate the array for twiddle factors
     w = cispi.(T(-2/(n*n)) * collect(1:n-1))
@@ -198,6 +199,35 @@ end
 
     return element_strings
 end
+=#
+
+@inline function create_D_kernel(n1::Int, n2::Int, ::Type{T}) where T <: AbstractFloat
+    # Initialize matrix
+    d_matrix = Matrix{Complex{T}}(undef, n1, n2)
+    
+    # Compute elements directly using i*j/(n1*n2) exponent
+    @inbounds for i in 1:n1
+        @inbounds for j in 1:n2
+            phase = T(-2 * i * j / (n1 * n2))
+            d_matrix[i, j] = cispi(phase)
+        end
+    end
+
+    # Generate constant expressions for all elements
+    element_strings = String[]
+    @inbounds for elem in d_matrix
+        expr = get_constant_expression(elem, n1*n2)
+        clean_expr = replace(string(expr), r"Expr\(:parameters,.*?\)" => "")
+        push!(element_strings, clean_expr)
+    end
+
+    @show element_strings
+    return element_strings
+end
+
+# Unified interface
+#create_D_kernel_square(n, T) = create_D_kernel(n, n, T)
+#create_D_kernel_non_square(n1, n2, T) = create_D_kernel(n1, n2, T)
 
 """
 Generate twiddle factor expressions for a given collection of indices
@@ -223,7 +253,6 @@ end
 function generate_signature(suffixes::Vector{String}, ::Type{T}) where T <: AbstractFloat
     y_only = "y" in suffixes
     layered = "layered" in suffixes
-    
     if y_only
         return "(y::AbstractVector{Complex{$T}})"
     elseif layered
@@ -234,12 +263,11 @@ function generate_signature(suffixes::Vector{String}, ::Type{T}) where T <: Abst
 end
 
 # Main function to generate kernel code
-function generate_kernel(radix::Int, op, suffixes::Vector{String}, p::Int, ::Type{T}) where T <: AbstractFloat
+function generate_kernel(radix::Int, op, suffixes::Vector{String}, p::Int, D, ::Type{T}) where T <: AbstractFloat
     if "mat" ∈ suffixes
         name = generate_kernel_names(radix, suffixes, p)
         signature = generate_signature(suffixes, T)
-        D = generate_D_kernel(op, T)
-        @show name, signature, D
+        @show name, signature, D, op
         kernel_code = makefftradix(radix, suffixes, D, T)
         return """
         @inline function $(name)$signature 
@@ -301,23 +329,24 @@ function generate_all_kernels(plan_data::NamedTuple, ::Type{T}; suffix_combinati
     @show radices, symbols, suffix_combinations, plan_data.operations
     kernels = Vector{String}()
     if suffix_combinations == [String[]] #linear order
-        push!(kernels, generate_kernel(radices[1], plan_data.operations[1], suffix_combinations[1], 0, T))
+        push!(kernels, generate_kernel(radices[1], plan_data.operations[1], suffix_combinations[1], 0, String[], T))
     elseif suffix_combinations == [["mat"]]
         for (i, (rad, op)) in enumerate(zip(radices, plan_data.operations))
             future_op = i < length(plan_data.operations) ? plan_data.operations[i+1] : nothing
-            #future_rad = i < length(radices) ? radices[i+1] : nothing
 
             @show op, future_op
             if !isnothing(future_op) 
                 n1 = op.n_groups ÷ rad
                 op.n_groups, op.stride = future_op.n_groups, future_op.stride
+                @show op
                 for p in 1:n1
-                    push!(kernels, generate_kernel(rad, op, suffix_combinations[1], p, T))
+                    D = generate_D_kernel(p, op, T)
+                    push!(kernels, generate_kernel(rad, op, suffix_combinations[1], p, D, T))
                 end
             else
                 n1 = op.n_groups ÷ rad
                 for p in 1:n1
-                    push!(kernels, generate_kernel(rad, op, suffix_combinations[1], p, T))
+                    push!(kernels, generate_kernel(rad, op, suffix_combinations[1], p, String[], T))
                 end
             end
         end
@@ -359,14 +388,19 @@ function generate_all_kernels(N::Int,  ::Type{T}; suffix_combinations::Union{Not
 end
 =#
 
-function generate_D_kernel(op, ::Type{T}) where T <: AbstractFloat
+function generate_D_kernel(p, op, ::Type{T}) where T <: AbstractFloat
     s = op.stride
     n1 = op.n_groups
     @show s, n1
     if s == 1 || n1 == 1
         return String[]
     else
-        return n1 == s ? create_D_kernel_square(s, T) : create_D_kernel_non_square(s, n1, T)
+        #return n1 == s ? create_D_kernel_square(s, T) : create_D_kernel_non_square(s, n1, T)
+        if p == 1 
+            return String[]
+        else
+            return view(create_D_kernel(s, n1, T), :, p-1)
+        end
     end
 end
 

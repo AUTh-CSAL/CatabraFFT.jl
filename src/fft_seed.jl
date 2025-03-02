@@ -11,7 +11,7 @@ load_reim = t -> join([
 ], ";")
 
 # Wrapper for any other kernel shell strategy planer
-function makefftradix(n::Int,  suffixes::Vector{String}, D::Array{String}, ::Type{T}) where T <: AbstractFloat
+function makefftradix(n::Int,  suffixes::Vector{String}, D::AbstractArray{String}, ::Type{T}) where T <: AbstractFloat
 
     global inc = inccounter() #nullify glabal tmp 't' var counter for each new kernel generated
 
