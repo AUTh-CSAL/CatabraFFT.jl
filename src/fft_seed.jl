@@ -239,7 +239,6 @@ inc = inccounter()
 
 function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1) where T <: AbstractFloat
   n = length(x)
-  #use_vars = true
   MODULO = 4
 
   if n == 1
@@ -248,22 +247,11 @@ function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1) where T <: AbstractFlo
     s = if !isnothing(d)
           if isnothing(w)
             if root
-              load_reim(x) * "\n" * """
-              $(y[1]), $(y[2]) = Complex{$T}($(x[1])[1] + $(x[2])[1], $(x[1])[2] + $(x[2])[2]), Complex{$T}($(sat_expr("-", "$(x[1])", "$(x[2])", "$(d[1])")))
+              load_reim(x) * "\n" * 
+              "tmp0_r, tmp0_i = x1[1] - x2[1], x1[2] - x2[2]" * "\n" * """
+              $(y[1]), $(y[2]) = Complex{$T}($(x[1])[1] + $(x[2])[1], $(x[1])[2] + $(x[2])[2]), Complex{$T}($(sat_expr("tmp0", "$(d[1])")))
               """
-            #else
-              #"""
-              #$(y[1]), $(y[2]) = $(x[1]) + $(x[2]), $(sat_expr("-", "$(x[1])", "$(x[2])", "$(d[1])"))
-              #"""
             end
-          #else
-            #w[1] == "1" ? 
-            #"""
-            #$(y[1]), $(y[2]) = ($(x[1]) + $(x[2])), $(sat_expr("-", "$(x[1])", "$(x[2])", "$(d[1])"))
-            #""" : 
-            #"""
-            #$(y[1]), $(y[2]) = $(sat_expr("+", "$(x[1])", "$(x[2])", "$(w[1])")), $(sat_expr("-", "$(x[1])", "$(x[2])", "$(w[2])", "$(d[1])"))
-            #"""
           end
         else
           if root
@@ -295,43 +283,38 @@ function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1) where T <: AbstractFlo
     # Recursively handle sub-transforms
     s1 = recfft2(t[1:n2], x[1:2:n], nothing, nothing, false, T, new_tmp_base)
     s2 = recfft2(t[n2+1:n], x[2:2:n], nothing, get_twiddle_expression(collect(0:n2-1), n), false, T, new_tmp_base)
-    
-    tmp_decls = if isnothing(d) && !isnothing(w)
-        x1_exprs = String[]
-        x2_exprs = String[]
-        for i in 2:n2
-            push!(x1_exprs, "$(t[i])_r + $(t[i+n2])_r")
-            push!(x1_exprs, "$(t[i])_i + $(t[i+n2])_i")
-            push!(x2_exprs, "$(t[i])_r - $(t[i+n2])_r")
-            push!(x2_exprs, "$(t[i])_i - $(t[i+n2])_i")
-        end
+
+    tmp_decls = if n > 2 
+      x1_exprs = String[]
+      x2_exprs = String[]
+      for i in 2:n2
+          push!(x1_exprs, "$(t[i])_r + $(t[i+n2])_r")
+          push!(x1_exprs, "$(t[i])_i + $(t[i+n2])_i")
+          push!(x2_exprs, "$(t[i])_r - $(t[i+n2])_r")
+          push!(x2_exprs, "$(t[i])_i - $(t[i+n2])_i")
+      end
+      if isnothing(d) && !isnothing(w) 
         add_more_tmp_vars(x1_exprs, x2_exprs, w[2:n2], n2-1)
+      elseif isnothing(w) && !isnothing(d)
+      add_more_tmp_vars(x1_exprs, x2_exprs, d[2:n2], n2-1)
+      end
     else
-        ""
+      ""
     end
+    
     
     # Final layer combining with D matrix twiddles
     if !isnothing(d)
       if isnothing(w)
         if root
-        s3p = "$(y[1])" * foldl(*, vmap(i -> ", $(y[i])", 2:n2)) *
+        s3p = "$(tmp_decls)" * "\n" *
+              "$(y[1])" * foldl(*, vmap(i -> ", $(y[i])", 2:n2)) *
               " = " *
-              "Complex{$T}($(t[1])_r + $(t[1+n2])_r, $(t[1])_i + $(t[1+n2])_i)" * foldl(*, vmap(i -> ", Complex{$T}($(sat_expr("+", "$(t[i])", "$(t[i+n2])", "$(d[i-1])")))", 2:n2)) * "\n"
+              "Complex{$T}($(t[1])_r + $(t[1+n2])_r, $(t[1])_i + $(t[1+n2])_i)" * foldl(*, vmap(i -> ", Complex{$T}($(sat_expr("tmp$(i-2)", "$(d[i-1])")))", 2:n2)) * "\n"
         s3m = "$(y[n2+1])" * foldl(*, vmap(i -> ", $(y[i+n2])", 2:n2)) *
               " = " *
-              "Complex{$T}($(sat_expr("-", "$(t[1])", "$(t[1+n2])", "$(d[n2])")))" * foldl(*, vmap(i -> ", Complex{$T}($(sat_expr("-", "$(t[i])", "$(t[i+n2])", "$(d[i+n2-1])")))", 2:n2)) * "\n"
+              "Complex{$T}($(sat_expr("-", "$(t[1])", "$(t[1+n2])", "$(d[n2])")))" * foldl(*, vmap(i -> ", Complex{$T}($(sat_expr("tmp$(i-3+n2)", "$(d[i+n2-1])")))", 2:n2)) * "\n"
         end
-              #=
-      else
-        s3p = "$(y[1])" * foldl(*, vmap(i -> ", $(y[i])", 2:n2)) *
-              " = " *
-              (w[1] == "1" ? "Complex{$T}($(t[1])_r + $(t[1+n2])_r, $(t[1])_i + $(t[1+n2])_i)" : "$(sat_expr("+", "$(t[1])", "$(t[1+n2])", "$(w[1])"))") *
-              foldl(*, vmap(i -> ", $(sat_expr("+", "$(t[i])", "$(t[i+n2])", "$(w[i])", "$(d[i-1])")) ", 2:n2)) * "\n"
-        s3m = "$(y[n2+1])" * foldl(*, vmap(i -> ", $(y[i+n2])", 2:n2)) *
-              " = " *
-              "$(sat_expr("-", "$(t[1])", "$(t[1+n2])", "$(w[n2+1])", "$(d[n2])"))" *
-              foldl(*, vmap(i -> ",  $(sat_expr("-", "$(t[i])", "$(t[i+n2])", "$(w[n2+i])", "$(d[i+n2-1])"))", 2:n2)) * "\n"
-              =#
       end
     else
       if isnothing(w)
@@ -351,7 +334,6 @@ function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1) where T <: AbstractFlo
                 "$(t[1])_r - $(t[1+n2])_r, $(t[1])_i - $(t[1+n2])_i" * foldl(*, vmap(i -> ", $(t[i])_r - $(t[i+n2])_r, $(t[i])_i - $(t[i+n2])_i", 2:n2)) * "\n"
         end
       else
-        #if use_vars
         s3p = "$(tmp_decls)" * "\n" *
               "$(y[1])_r, $(y[1])_i" * foldl(*, vmap(i -> ", $(y[i])_r, $(y[i])_i", 2:n2)) *
               " = " *
@@ -361,18 +343,6 @@ function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1) where T <: AbstractFlo
               " = " *
               "$(sat_expr("-", "$(t[1])", "$(t[1+n2])", "$(w[n2+1])"))" *
               foldl(*, vmap(i -> ", $(sat_expr("tmp$(i-3+n2)", "$(w[n2+i])"))", 2:n2)) * "\n"
-              #=
-        else
-        s3p = "$(y[1])_r, $(y[1])_i" * foldl(*, vmap(i -> ", $(y[i])_r, $(y[i])_i", 2:n2)) *
-              " = " *
-              (w[1] == "1" ? "$(t[1])_r + $(t[1+n2])_r, $(t[1])_i + $(t[1+n2])_i" : "$(sat_expr("+", "$(t[1])", "$(t[1+n2])", "$(w[1])"))") *
-              foldl(*, vmap(i -> ", $(sat_expr("+", "$(t[i])", "$(t[i+n2])", "$(w[i])"))", 2:n2)) * "\n"
-        s3m = "$(y[n2+1])_r, $(y[n2+1])_i" * foldl(*, vmap(i -> ", $(y[i+n2])_r, $(y[i+n2])_i", 2:n2)) *
-              " = " *
-              "$(sat_expr("-", "$(t[1])", "$(t[1+n2])", "$(w[n2+1])"))" *
-              foldl(*, vmap(i -> ", $(sat_expr("-", "$(t[i])", "$(t[i+n2])", "$(w[n2+i])"))", 2:n2)) * "\n"
-        end
-        =#
     end
   end
   end
