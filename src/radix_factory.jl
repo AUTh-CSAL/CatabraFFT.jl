@@ -237,7 +237,9 @@ end
 
 # Function to generate kernel name
 function generate_kernel_names(radix::Int, suffixes::Vector{String}, p::Int)
-    if suffixes == ["mat"]
+    println("GENERATE KERNEL NAMES")
+    @show radix, suffixes, p
+    if suffixes == ["mat"] || suffixes == ["mat", "y"]
         base = "fft$(radix)_$(p)!"
         return base
     else
@@ -267,6 +269,7 @@ function generate_kernel(radix::Int, op, suffixes::Vector{String}, p::Int, D, ::
     end
     if "mat" ∈ suffixes
         name = generate_kernel_names(radix, suffixes, p)
+        @show name
         signature = generate_signature(suffixes, T)
         kernel_code = makefftradix(radix, suffixes, D, p, op.stride, T)
         return """
