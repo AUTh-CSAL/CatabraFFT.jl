@@ -158,9 +158,9 @@ function benchmark_fft_over_range(xs::Vector; ctype=ComplexF64, fftw_plan_type=F
 end
 
 
-fftwplan = FFTW.PATIENT
+fftwplan = FFTW.EXHAUSTIVE
 save = false
-twoexp = 9
+twoexp = 10
 #for b in [2 3 5 7 10]
 for b in [2]
     xs = b .^ (1:Int64(floor(twoexp / log2(b))))

@@ -1,3 +1,4 @@
+#=
 load_reim = t -> join([
     let
         m = match(r"(\d+)\D*$", s)
@@ -9,6 +10,21 @@ load_reim = t -> join([
     end
     for (i, s) in enumerate(t)
 ], ";")
+=#
+
+load_reim = t -> join([
+    let
+        m = match(r"(\d+)\D*$", s)
+        num = m.captures[1]
+        var = startswith(s, "x") ? "x" :
+              startswith(s, "y") ? "y" :
+              startswith(s, "D") ? "d" : error("Unknown input: $s")
+        rhs = occursin('[', s) ? replace(s, " " => "") : "$var[$num]"
+        prefix = i == 1 ? "" : " "
+        "$(prefix)$(var)$num = reim($rhs)"
+    end
+    for (i, s) in enumerate(t)
+], "; ")
 
 # Wrapper for any other kernel shell strategy planer
 function makefftradix(n::Int,  suffixes::Vector{String}, D::AbstractArray{String}, p::Int, s::Int, ::Type{T}) where T <: AbstractFloat
@@ -70,23 +86,23 @@ function add_more_tmp_vars(x1, x2, wn, n)
     idx = 0
 
     for i in 1:n
-      if wn[i] ∉ ("1", "-im")
+      #if wn[i] ∉ ("1", "-im")
         real_plus = x1[2*i - 1]
         imag_plus = x1[2*i]
         push!(tmp_vars, "tmp$(idx)_r", "tmp$(idx)_i")
         push!(assignments, real_plus, imag_plus)
         idx += 1
-      end
+      #end
     end
 
     for i in 1:n
-      if wn[i] ∉ ("1", "-im")
+      #if wn[i] ∉ ("1", "-im")
         real_minus = x2[2*i - 1]
         imag_minus = x2[2*i]
         push!(tmp_vars, "tmp$(idx)_r", "tmp$(idx)_i")
         push!(assignments, real_minus, imag_minus)
         idx += 1
-      end
+      #end
     end
 
     if !isempty(tmp_vars)

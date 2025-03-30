@@ -31,8 +31,8 @@ function generate_mat_execute_function!(plan::RadixPlan, show_function=true)
         # Generate kernel calls with dynamic unrolling
         if radix != plan.n && !isnothing(future_op)
         # Reshape inputs
-            push!(ops, :($current_input = reshape($current_input, $(op.n_groups), $(op.stride))))
-            push!(ops, :($current_output = reshape($current_output, $(op.n_groups), $(op.stride))))
+            #push!(ops, :($current_input = reshape($current_input, $(op.n_groups), $(op.stride))))
+            #push!(ops, :($current_output = reshape($current_output, $(op.n_groups), $(op.stride))))
 
             # Generate loop with proper SIMD structure
             loop_var = gensym("i")
@@ -40,8 +40,10 @@ function generate_mat_execute_function!(plan::RadixPlan, show_function=true)
             for i in 0:op.n_groups-1
                 kernel = Symbol(func_base, "_$(i)!")
                 push!(loop_body.args,
-                    :(radix_2_family.$kernel(view($current_output, :, $i), view($current_input, :, $i))))
+                    :(radix_2_family.$kernel($current_output, $current_input)))
             end
+            
+            loop_iteration = Expr(:(=), loop_var, 1:(op.n_groups-1))
 
             # Build complete loop expression
             loop_expr = Expr(:macrocall,
@@ -50,12 +52,7 @@ function generate_mat_execute_function!(plan::RadixPlan, show_function=true)
                 Expr(:macrocall,
                     Symbol("@simd"),
                     LineNumberNode(@__LINE__, Symbol(@__FILE__)),
-                    Expr(:for,
-                        Expr(:block,
-                            :($loop_var in 1:$(op.n_groups-1))
-                        ),
-                        loop_body
-                    )
+                    Expr(:for, loop_iteration, loop_body)
                 )
             )
             push!(ops, loop_expr)

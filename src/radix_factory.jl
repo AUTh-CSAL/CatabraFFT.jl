@@ -252,7 +252,7 @@ function generate_signature(suffixes::Vector{String}, ::Type{T}) where T <: Abst
     y_only = "y" in suffixes
     layered = "layered" in suffixes
     if y_only
-        return "(y::AbstractVector{Complex{$T}})"
+        return "(y::AbstractArray{Complex{$T}, 1})"
     elseif layered
         return "(y::AbstractVector{Complex{$T}}, x::AbstractVector{Complex{$T}}, s::Int, n1::Int, theta::$T=$T(0.125))"
     else
@@ -262,6 +262,9 @@ end
 
 # Main function to generate kernel code
 function generate_kernel(radix::Int, op, suffixes::Vector{String}, p::Int, D, ::Type{T}) where T <: AbstractFloat
+    if op.eo
+        push!(suffixes, "y")
+    end
     if "mat" ∈ suffixes
         name = generate_kernel_names(radix, suffixes, p)
         signature = generate_signature(suffixes, T)
