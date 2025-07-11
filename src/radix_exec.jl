@@ -6,9 +6,9 @@ using ..RadixGenerator
 using BenchmarkTools, RuntimeGeneratedFunctions
 
 #include("radix_2_codelets.jl")
-include("radix_3_codelets.jl")
-include("radix_5_codelets.jl")
-include("radix_7_codelets.jl")
+#include("radix_3_codelets.jl")
+#include("radix_5_codelets.jl")
+#include("radix_7_codelets.jl")
 include("helper_tools.jl")
 
 RuntimeGeneratedFunctions.init(@__MODULE__)

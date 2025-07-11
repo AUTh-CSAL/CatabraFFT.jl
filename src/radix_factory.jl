@@ -215,6 +215,7 @@ end
     element_strings = String[]
     @inbounds for elem in d_matrix
         expr = get_constant_expression(elem, n1*n2)
+        # CIS CONSTANT NOT DEFINED BECAUSE OF MODULE IMPORT
         clean_expr = replace(string(expr), r"Expr\(:parameters,.*?\)" => "")
         push!(element_strings, clean_expr)
     end
