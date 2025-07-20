@@ -27,6 +27,7 @@ function generate_mat_execute_function!(plan::RadixPlan, show_function=true)
         radix = get_radix_divisor(op.op_type)  # Returns 8, 4, 2 etc.
         suffix = :shell!
         func_base = Symbol("fft$(radix)")
+        @show func_base, radix, plan.n, future_op
         
         # Generate kernel calls with dynamic unrolling
         if radix != plan.n && !isnothing(future_op)
@@ -55,34 +56,47 @@ function generate_mat_execute_function!(plan::RadixPlan, show_function=true)
                     Expr(:for, loop_iteration, loop_body)
                 )
             )
+            @show loop_expr
             push!(ops, loop_expr)
-        #=
-        if radix != plan.n && !isnothing(future_op)
-            # Reshape for current radix processing
-            push!(ops, :($current_input = reshape($current_input, ($(op.n_groups), $(op.stride)))))
-            push!(ops, :($current_output = reshape($current_output, ($(op.n_groups), $(op.stride)))))
-
-            next_radix = get_radix_divisor(future_op.op_type)
-            #unroll_factor = gcd(radix, next_radix)
-            push!(ops, :(@inbounds @simd ivdep for i in 1:$(op.n_groups-1)))
-            for i in 0:op.n_groups-1
-                kernel = Symbol(func_base, "_$(i)!")
-                push!(ops, :(radix_2_family.$kernel(view($current_output, :, $(i+1)), view($current_input, :, $(i+1)))))
-            end
-            push!(ops, :end)  # Close current radix loop
-            =#
         elseif radix == plan.n
-            # Final operation
+            println("Normal linear kernel call")
             radix_family = get_radix_family(op.op_type)
             function_name = Symbol(func_base, "_shell!")
             function_ref = get_function_reference(radix_family, function_name)
+            @show radix
             push!(ops, Expr(:call, function_ref, current_output, current_input))
+        elseif isnothing(future_op) # Last of decomposition calls of mixed-radix call
+        @show func_base, radix, plan.n, future_op
+        println("Last of decomposition calls of mixed-radix call")
+        loop_var = gensym("i")
+        loop_body = Expr(:block)
+            kernel = Symbol(func_base, "_0!")
+            push!(loop_body.args,
+                :(radix_2_family.$kernel($current_input)))
+        
+        loop_iteration = Expr(:(=), loop_var, 0:(op.stride-1))
+        # TODO: REWRITE VECTORIZED FINAL KERNEL LAYER. READ MAIN BRANCH VECT PERFORMANCE
+
+        # Build complete loop expression
+        loop_expr = Expr(:macrocall,
+            Symbol("@inbounds"),
+            LineNumberNode(@__LINE__, Symbol(@__FILE__)),
+            Expr(:macrocall,
+                Symbol("@simd"),
+                LineNumberNode(@__LINE__, Symbol(@__FILE__)),
+                Expr(:for, loop_iteration, loop_body)
+            )
+        )
+        @show loop_expr
+        push!(ops, loop_expr)
+
         end
     end
 
     # Main processing loop
     for (i, op) in enumerate(plan.operations)
         future_op = i < length(plan.operations) ? plan.operations[i+1] : nothing
+        @show op, future_op, i
         push_radix_operation!(op, future_op)
         current_input, current_output = current_output, current_input  # Swap buffers
     end
@@ -111,95 +125,6 @@ function generate_mat_execute_function!(plan::RadixPlan, show_function=true)
     end
     return runtime_generated_function
 end
-
-#=
-function generate_mat_execute_function!(plan::RadixPlan, show_function=true) 
-    T = typeof(plan).parameters[1]
-    current_input = :x
-    current_output = :y
-    ops = []
-    ivdep = false
-    ivdep_change_exists = false
-    check_ivdep = false
-
-    # Helper to push operations dynamically
-    function push_operation!(ops, op, future_op, current_input, current_output)
-        suffix = :shell!
-        radix_family = get_radix_family(op.op_type)
-        function_name = Symbol(String(op.op_type), "_", String(suffix))
-        func_ref = get_function_reference(radix_family, function_name)
-
-        n1 = op.n_groups ÷ get_radix_divisor(op.op_type)
-
-        if !isnothing(future_op)
-            push!(ops, :($current_input = reshape($current_input, $(future_op.n_groups), $(future_op.stride))))
-            push!(ops, :($current_output = reshape($current_output, $(future_op.n_groups), $(future_op.stride))))
-            push!(ops, :(@inbounds @simd for i in 1:$(future_op.n_groups) ))
-        else
-            if n1 == op.stride == 1 # single linear kernel 
-                push!(ops, Expr(:call, func_ref, current_output, current_input))
-            else
-            push!(ops, :($current_input = reshape($current_input, $(op.n_groups), $(op.stride))))
-            push!(ops, :($current_output = reshape($current_output, $(op.n_groups), $(op.stride))))
-            push!(ops, Expr(:call, func_ref, current_output, current_input))
-            end
-        end
-    end
-
-    # Main loop over operations
-    for (i, op) ∈ enumerate(plan.operations)
-            if check_ivdep
-                # Determine if IVDEP is beneficial
-                radix_family = get_radix_family(op.op_type)
-                suffix, is_layered = if op === last(plan.operations)
-                    if op.eo
-                        :shell_y, false
-                    else
-                        :shell, false
-                    end
-                else
-                    :shell_layered, true
-                end
-                std_func_name = Symbol(String(op.op_type), "_", String(suffix), "!")
-                ivdep_func_name = Symbol(String(op.op_type), "_", String(suffix), "_ivdep!")
-                std_func_ref = get_function_reference(radix_family, std_func_name)
-                ivdep_func_ref = get_function_reference(radix_family, ivdep_func_name)
-                ivdep = determine_ivdep_threshold(std_func_ref, ivdep_func_ref, op, is_layered, typeof(plan).parameters[1] , show_function)
-                if ivdep
-                    ivdep_change_exists = true
-                end
-            end
-            future_op = i < length(plan.operations) ? plan.operations[i+1] : nothing
-            push_operation!(ops, op, future_op, current_input, current_output)
-        current_input, current_output = current_output, current_input #swap
-    end
-
-    # Construct the function body
-    function_body = Expr(:block, ops...)
-
-    # Combine all operations into a runtime-generated function
-    ex = :(function execute_fft_linear!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}) where T <: AbstractFloat
-        $function_body
-        return nothing
-    end)
-    @show ex
-
-    #runtime_generated_function = Core.eval(@__MODULE__, ex)
-    
-    runtime_generated_function = @RuntimeGeneratedFunction(ex)
-    #runtime_generated_function = Core.eval(Radix_Execute, ex)
-    if check_ivdep && ivdep_change_exists
-        # Create a similar function with ivdep turned off to compare
-        clean_generated_function = generate_linear_execute_function!(plan, true, false, "CLEAN")
-        
-        if !benchmark_functions_performance(clean_generated_function, runtime_generated_function , plan.n, typeof(plan).parameters[1], show_function)
-            show_function && println("NON-IVDEP FUNCTION IS BETTER")
-            runtime_generated_function = clean_generated_function
-        end
-    end
-    return runtime_generated_function
-end
-=#
 
 function generate_linear_execute_function!(plan::RadixPlan, show_function=true, TECHNICAL_ACCELERATION=true, str="") 
     T = typeof(plan).parameters[1]

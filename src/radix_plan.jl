@@ -21,13 +21,9 @@ struct RadixPlan{T<:AbstractFloat}
 end
 
 function create_all_radix_plans(n::Int, valid_radices::Vector{Int}, ::Type{T}) where T <: AbstractFloat
-    # Handle single-digit inputs directly
-    n ≤ 9 && return [create_radix_plan_from_decomposition(n, [n], T)]
-
     if n > maximum(valid_radices)
         @assert all(n % radix == 0 for radix in valid_radices) "n must be divisible by all radices"
     end
-
     decompositions = Vector{Vector{Int}}()
     
     function backtrack(remaining::Int, current::Vector{Int}, last_radix::Int)
@@ -42,35 +38,26 @@ function create_all_radix_plans(n::Int, valid_radices::Vector{Int}, ::Type{T}) w
     end
     
     backtrack(n, Int[], typemax(Int))
-
-    # Get minimul element of valid radices list
     min_elem = minimum(valid_radices)
-
-    # Strict filtering logic
+    
     function is_valid(decomp)
         # Allow single-element decompositions
         length(decomp) == 1 && return true
-
-        # Reject any decomposition starting with min element
-        decomp[1] == min_elem && return false
-
-        # Reject non-uniform 4-based decompositions
-        decomp[1] == 4 && decomp != fill(4, length(decomp)) && return false
-
-        # Universal min elem ratio check
+        
+        # REMOVED: The restrictive rules that were blocking [2,4] and [4,2]
+        # OLD: decomp[1] == min_elem && return false
+        # OLD: decomp[1] == 4 && decomp != fill(4, length(decomp)) && return false
+        
         count_mins = count(==(min_elem), decomp)
-        max_allowed_mins = length(decomp) ÷ 2  # Integer division
+        max_allowed_mins = length(decomp) ÷ 2 + 1 
         count_mins > max_allowed_mins && return false
-
+        
         true
     end
-
+    
     filtered = filter(is_valid, decompositions)
     @show filtered
-    #filtered = [[n]]
-    
-    # Create RadixPlan objects
-    [create_radix_plan_from_decomposition(n, decomp, T) for decomp in filtered]
+    return [create_radix_plan_from_decomposition(n, decomp, T) for decomp in filtered]
 end
 
 # Create a RadixPlan from a specific decomposition

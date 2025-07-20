@@ -204,10 +204,10 @@ end
     d_matrix = Matrix{Complex{T}}(undef, n1, n2)
     
     # Compute elements directly using i*j/(n1*n2) exponent
+    phase = T(-2 / (n1 * n2))
     @inbounds for i in 1:n1
         @inbounds for j in 1:n2
-            phase = T(-2 * i * j / (n1 * n2))
-            d_matrix[i, j] = cispi(phase)
+            d_matrix[i, j] = cispi(phase * i * j)
         end
     end
 
@@ -421,6 +421,7 @@ end
 
 # ENCHANT KERNEL PRODUCER
 function create_kernel_module(plan_data::NamedTuple, ::Type{T}) where T <: AbstractFloat
+    @show plan_data
     module_constants = generate_module_constants(plan_data.n, T)
     custom_combinations = length(plan_data.operations) == 1 ? [String[]] : [["mat"]]
     kernels = generate_all_kernels(plan_data, T; suffix_combinations=custom_combinations)
