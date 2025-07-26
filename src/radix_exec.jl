@@ -374,6 +374,7 @@ function return_best_static_linear_function(plans::Vector{RadixPlan{T}}, show_fu
     x = rand(Complex{T}, N)
     
     for plan in plans
+        @show plan
         println("Creating new module")
         evaluate_fft_generated_module(Radix_Execute, plan, T) # CREATE ALL KERNEL PARTS
         test_func = generate_mat_execute_function!(plan, true) # CONSTRUCT THEM AS A SIGNLE FUNCTION

@@ -2,14 +2,14 @@ module RadixGenerator
 
 include("helper_tools.jl")
 include("radix_plan.jl")
+include("suffix.jl")
 include("fft_seed.jl")
-#include("radix_exec.jl")
+
 
 using LoopVectorization
 using .Radix_Plan
 
 export evaluate_fft_generated_module
-
 function generate_module_constants(n::Int, ::Type{T}) where T <: AbstractFloat
     @assert ispow2(n) "n must be a power of 2"
     str = "# Optimized twiddle factors for radix-2^s FFT size $n\n\n"
@@ -105,100 +105,6 @@ function get_constant_expression(w::Complex{T}, n::Integer)::String where T <: A
     return "($(round(real_part, digits=16))$(sign_str(imag_part))$(abs(round(imag_part, digits=16)))*im)"
 end
 
-#=
-@inline function create_D_kernel_square(n::Int, ::Type{T}) where T <: AbstractFloat
-    # Pre-allocate the array for twiddle factors
-    w = cispi.(T(-2/(n*n)) * collect(1:n-1))
-    d = zeros(Complex{T}, (n-1)*(n-1))
-    
-    # Fill the first row
-    @inbounds d[1:n-1] .= w
-
-    # Fill subsequent rows
-    @inbounds @simd for j in 2:n-1
-        row_start = (j-1)*(n-1)
-        prev_row_start = (j-2)*(n-1)
-        @views d[row_start+1:row_start+n-1] .= w .* d[prev_row_start+1:prev_row_start+n-1]
-    end
-
-    # Reshape the array into a matrix
-    d_matrix = reshape(d, (n-1, n-1))
-
-    # Create a collapsed array containing only the upper triangular elements
-    num_elements = div((n-1) * n, 2)
-    collapsed_array = Vector{Complex{T}}(undef, num_elements)
-
-    # Fill the collapsed array with upper triangular elements
-    index = 1
-    @inbounds for i in 1:n-1
-        @inbounds for j in i:n-1
-            collapsed_array[index] = d_matrix[i, j]
-            index += 1
-        end
-    end
-
-    # Generate array of strings from collapsed array
-    element_strings = String[]
-    @inbounds for i in 1:length(collapsed_array)
-        element_expr = get_constant_expression(collapsed_array[i], n*n)
-        # Clean up parameter expressions
-        element_expr = replace(string(element_expr), r"Expr\(:parameters,.*?\)" => "")
-        push!(element_strings, element_expr)
-    end
-
-    return element_strings
-end
-
-
-@inline function create_D_kernel_non_square(n1::Int, n2::Int, ::Type{T}) where T <: AbstractFloat
-    # Pre-allocate the array for twiddle factors
-    m, p = min(n1, n2), max(n1, n2)
-    w = cispi.(T(-2/(p*m)) * collect(1:m-1))
-    d = zeros(Complex{T}, (p-1)*(m-1))
-
-    # Fill the first row
-    @inbounds d[1:m-1] .= w
-
-    # Fill subsequent rows
-    @inbounds @simd for j in 2:p-1
-        row_start = (j-1)*(m-1)
-        prev_row_start = (j-2)*(m-1)
-        @views d[row_start+1:row_start+m-1] .= w .* d[prev_row_start+1:prev_row_start+m-1]
-    end
-
-    # Reshape the array into a matrix
-    d_matrix = reshape(d, (m-1, p-1))
-
-    # Generate an array of strings from the matrix elements
-    element_strings = String[]
-
-    if n2 == 2
-        # Vector case
-        @inbounds for i in 1:size(d_matrix, 1)
-            @inbounds for j in 1:size(d_matrix, 2)
-                element_expr = get_constant_expression(d_matrix[i, j], n1*n2)
-                element_expr = replace(string(element_expr), r"Expr\(:parameters,.*?\)" => "")
-                push!(element_strings, element_expr)
-            end
-        end
-    else
-        # Matrix case
-        @inbounds for i in 1:size(d_matrix, 1)
-            row_elements = String[]
-            @inbounds for j in 1:size(d_matrix, 2)
-                element_expr = get_constant_expression(d_matrix[i, j], n1*n2)
-                element_expr = replace(string(element_expr), r"Expr\(:parameters,.*?\)" => "")
-                push!(row_elements, element_expr)
-            end
-            # Add the entire row as a single string with elements separated by spaces
-            push!(element_strings, join(row_elements, " "))
-        end
-    end
-
-    return element_strings
-end
-=#
-
 @inline function create_D_kernel(n1::Int, n2::Int, ::Type{T}) where T <: AbstractFloat
     # Initialize matrix
     d_matrix = Matrix{Complex{T}}(undef, n1, n2)
@@ -224,10 +130,6 @@ end
     return element_strings
 end
 
-# Unified interface
-#create_D_kernel_square(n, T) = create_D_kernel(n, n, T)
-#create_D_kernel_non_square(n1, n2, T) = create_D_kernel(n1, n2, T)
-
 """
 Generate twiddle factor expressions for a given collection of indices
 """
@@ -237,66 +139,86 @@ function get_twiddle_expression(collect::Vector{Int}, n::Int)::Vector{String}
 end
 
 # Function to generate kernel name
-function generate_kernel_names(radix::Int, suffixes::Vector{String}, p::Int)
-    println("GENERATE KERNEL NAMES")
-    @show radix, suffixes, p
-    if suffixes == ["mat"] || suffixes == ["mat", "y"]
-        base = "fft$(radix)_$(p)!"
-        return base
-    else
-        base = "fft$(radix)_shell"
-        suffix = join(suffixes, "_")
-        return (string(base, isempty(suffix) ? "" : "_$suffix", "!"), string(base, "!"))
+function generate_kernel_names(radix::Int, suffix_flags::SuffixFlags, p::Int)
+    has_mat = has_flag(suffix_flags, MAT)
+    has_y = has_flag(suffix_flags, Y)
+    has_vec = has_flag(suffix_flags, VEC)
+    has_layare = has_flag(suffix_flags, LAYERED)
+    
+    # Special MAT cases
+    if has_mat && !has_layare &&
+       ((!has_y && !has_vec) ||
+        (has_y && !has_vec) ||
+        (has_y && has_vec))
+        
+        return "fft$(radix)_$(p)!"
     end
+    
+    # General cases with pattern matching
+    base = "fft$(radix)_shell"
+    
+    if is_empty(suffix_flags)
+        kernel_name = base
+    else
+        active_flags = get_active_flags(suffix_flags)
+        suffix_parts = [flag_to_string(flag) for flag in active_flags if flag != NONE]
+        suffix = join(suffix_parts, "_")
+        kernel_name = string(base, "_", suffix)
+    end
+    
+    return (string(kernel_name, "!"), string(base, "!"))
 end
 
 # Function to generate function signature
-function generate_signature(suffixes::Vector{String}, ::Type{T}) where T <: AbstractFloat
-    y_only = "y" in suffixes
-    layered = "layered" in suffixes
-    if y_only
-        return "(y::AbstractArray{Complex{$T}, 1})"
-    elseif layered
+function generate_signature(suffixes::SuffixFlags, ::Type{T}) where T <: AbstractFloat
+    @show suffixes
+    has_y = has_flag(suffixes, Y)
+    has_layered = has_flag(suffixes, LAYERED)
+    has_vec = has_flag(suffixes, VEC)
+    if has_layered
         return "(y::AbstractVector{Complex{$T}}, x::AbstractVector{Complex{$T}}, s::Int, n1::Int, theta::$T=$T(0.125))"
+    elseif has_y
+        return has_vec ? "(y::AbstractArray{Complex{$T}, 1}, offset::Int)" : "(y::AbstractArray{Complex{$T}, 1})"
     else
-        return "(y::AbstractArray{Complex{$T}, 1}, x::AbstractArray{Complex{$T}, 1})"
+        return has_vec ? "(y::AbstractArray{Complex{$T}, 1}, x::AbstractArray{Complex{$T}, 1}, offset::Int)" : "(y::AbstractArray{Complex{$T}, 1}, x::AbstractArray{Complex{$T}, 1})"
     end
 end
 
 # Main function to generate kernel code
-function generate_kernel(radix::Int, op, suffixes::Vector{String}, p::Int, D, ::Type{T}) where T <: AbstractFloat
+function generate_kernel(radix::Int, op, suffixes::SuffixFlags, p::Int, D, ::Type{T}) where T <: AbstractFloat
     if op.eo
-        push!(suffixes, "y")
+        add_flag(suffixes, Y)
     end
-    if "mat" ∈ suffixes
+    if has_flag(suffixes, NONE)
         name = generate_kernel_names(radix, suffixes, p)
         @show name
         signature = generate_signature(suffixes, T)
         kernel_code = makefftradix(radix, suffixes, D, p, op.stride, T)
         return """
-        @inline function $(name)$signature 
+        @inline function $(name[2])$signature 
             @inbounds  begin
             $kernel_code
             end
         end
         """
     else
-    names = generate_kernel_names(radix, suffixes, 0)
-    signature = generate_signature(suffixes, T)
-    kernel_code = makefftradix(radix, suffixes, String[], 0, op.stride, T)
-    # Generate the complete linear function
-    return """
-    @inline function $(names[2])$signature 
-        @inbounds begin
-        $kernel_code
+        @show suffixes
+        names = generate_kernel_names(radix, [String[]], 0)
+        signature = generate_signature([String[]], T)
+        kernel_code = makefftradix(radix, String[], String[], 0, op.stride, T)
+        # Generate the complete linear function
+        return """
+        @inline function $(names[2])$signature 
+            @inbounds begin
+            $kernel_code
+            end
         end
-    end
-    """
+        """
     end
 end
 
 # ENCHANT
-function generate_all_kernels(plan_data::NamedTuple, ::Type{T}; suffix_combinations::Union{Nothing, Vector{Vector{String}}}=nothing) where T <: AbstractFloat
+function generate_all_kernels(plan_data::NamedTuple, ::Type{T}; suffix_combinations::Union{Nothing, SuffixFlags}=nothing) where T <: AbstractFloat
     # Extract unique radices from the operations in plan_data
     symbols = Vector{Symbol}()
     radices = Vector{Int}()
@@ -312,24 +234,15 @@ function generate_all_kernels(plan_data::NamedTuple, ::Type{T}; suffix_combinati
         push!(radices, parse(Int, num_str))
     end
 
-    #=
-    if isnothing(suffix_combinations)
-        suffix_combinations = Vector{Vector{String}}([
-            String[],
-            ["mat"],
-            ["layered"]
-        ])
-    end
-    =#
-
     kernels = Vector{String}()
-    if suffix_combinations == [String[]] #linear order
-        push!(kernels, generate_kernel(radices[1], plan_data.operations[1], suffix_combinations[1], 0, String[], T))
-    elseif suffix_combinations == [["mat"]]
+    if has_flag(suffix_combinations, NONE) # Linear Order
+        @show plan_data.operations
+        push!(kernels, generate_kernel(radices[1], plan_data.operations[1], suffix_combinations, 0, String[], T))
+    elseif has_flag(suffix_combinations, MAT)
         for (i, (rad, op)) in enumerate(zip(radices, plan_data.operations))
             future_op = i < length(plan_data.operations) ? plan_data.operations[i+1] : nothing
 
-            #@show op, future_op
+            @show op, future_op
             if !isnothing(future_op) 
                 n1 = op.n_groups ÷ rad
                 op.n_groups, op.stride = future_op.n_groups, future_op.stride # CRITICAL!
@@ -337,12 +250,16 @@ function generate_all_kernels(plan_data::NamedTuple, ::Type{T}; suffix_combinati
                 @show n1
                 for p in 1:n1
                     D = generate_D_kernel(p, op, T)
-                    push!(kernels, generate_kernel(rad, op, suffix_combinations[1], p-1, D, T))
+                    push!(kernels, generate_kernel(rad, op, suffix_combinations, p-1, D, T))
                 end
             else
+                # We will add the vectorize suffix_combination for the colunm-wise Fm opeation
+                add_flag(suffix_combinations, VEC)
                 n1 = op.n_groups ÷ rad
+                @show n1 op
+                @show op.stride suffix_combinations
                 for p in 1:n1
-                    push!(kernels, generate_kernel(rad, op, suffix_combinations[1], p-1, String[], T))
+                    push!(kernels, generate_kernel(rad, op, suffix_combinations, p-1, String[], T))
                 end
             end
         end
@@ -350,39 +267,6 @@ function generate_all_kernels(plan_data::NamedTuple, ::Type{T}; suffix_combinati
     
     return kernels
 end
-
-# MEASURE
-#=
-function generate_all_kernels(N::Int,  ::Type{T}; suffix_combinations::Union{Nothing, Vector{Vector{String}}}=nothing) where T <: AbstractFloat
-    if N < 2 || (N & (N - 1)) != 0  # Check if N is less than 2 or not a power of 2
-        error("N must be a power of 2 and greater than or equal to 2")
-    end
-        
-    radices = subpowers_of_two(N)
-
-    if isnothing(suffix_combinations)
-    suffix_combinations = Vector{Vector{String}}([
-        #String[],
-        ["mat"],
-        #["ivdep"],
-        #["y"],
-        #["y", "ivdep"],
-        #["layered"], # Must have generated normal kernels to produces functional layered kernels
-        #["layered", "ivdep"]
-    ])
-    end
-    
-    kernels = Vector{String}()
-    
-    @inbounds for radix ∈ radices
-        @inbounds for suffixes ∈ suffix_combinations
-            push!(kernels, generate_kernel(radix, suffixes, T))
-        end
-    end
-    
-    return kernels
-end
-=#
 
 function generate_D_kernel(p, op, ::Type{T}) where T <: AbstractFloat
     s = op.stride
@@ -423,7 +307,8 @@ end
 function create_kernel_module(plan_data::NamedTuple, ::Type{T}) where T <: AbstractFloat
     @show plan_data
     module_constants = generate_module_constants(plan_data.n, T)
-    custom_combinations = length(plan_data.operations) == 1 ? [String[]] : [["mat"]]
+    custom_combinations = empty_flags()
+    if length(plan_data.operations) != 1 add_flag(custom_combinations, MAT) end
     kernels = generate_all_kernels(plan_data, T; suffix_combinations=custom_combinations)
 
     family_module_code = """

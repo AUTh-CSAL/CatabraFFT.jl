@@ -1,16 +1,4 @@
-#=
-load_reim = t -> join([
-    let
-        m = match(r"(\d+)\D*$", s)
-        num = m.captures[1]
-        var = Base.startswith(s, "x") ? "x" : Base.startswith(s, "D") ? "d" : error("unknown")
-        rhs = occursin('[', s) ? replace(s, " " => "") : "x[$num]"
-        prefix = i == 1 ? "" : " "
-        "$(prefix)$(var)$(num) = reim($rhs)"
-    end
-    for (i, s) in enumerate(t)
-], ";")
-=#
+include("suffix.jl")
 
 load_reim = t -> join([
     let
@@ -27,15 +15,16 @@ load_reim = t -> join([
 ], "; ")
 
 # Wrapper for any other kernel shell strategy planer
-function makefftradix(n::Int,  suffixes::Vector{String}, D::AbstractArray{String}, p::Int, s::Int, ::Type{T}) where T <: AbstractFloat
+function makefftradix(n::Int,  suffixes::SuffixFlags, D::AbstractArray{String}, p::Int, s::Int, ::Type{T}) where T <: AbstractFloat
 
   global inc = inccounter() #nullify glabal tmp 't' var counter for each new kernel generated
 
-  input = "y" ∈ suffixes ? "y" : "x"
+  has_y = has_flag(suffixes, Y)
+  has_mat = has_flag(suffixes, MAT)
+  input = has_y ? "y" : "x"
   output = "y"
-  is_mat = "mat" ∈ suffixes
   
-  if is_mat
+  if has_mat
       x = ["$(input)$(i + p*s)" for i in 1:n]
       y = ["$output[$(i + p*s)]" for i in 1:n]
       d = D == String[] ? nothing : D
@@ -47,6 +36,7 @@ function makefftradix(n::Int,  suffixes::Vector{String}, D::AbstractArray{String
 
   # Replace with any other recfftN kernel family seed.
   kernel_code = recfft2(y, x, d, nothing, true, T) |> s -> replace(s, "#INPUT#" => input, "#OUTPUT#" => output)
+  #recfft3/5/7/11/13/17...????
 
   return kernel_code
 end
