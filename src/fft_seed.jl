@@ -15,7 +15,7 @@ load_reim = t -> join([
 ], "; ")
 
 # Wrapper for any other kernel shell strategy planer
-function makefftradix(n::Int,  suffixes::SuffixFlags, D::AbstractArray{String}, p::Int, s::Int, ::Type{T}) where T <: AbstractFloat
+function makefftradix(n::Int,  suffixes::SuffixFlags, D::AbstractArray{String}, p::Int, s::Int, SIZE::Int, ::Type{T}) where T <: AbstractFloat
 
   global inc = inccounter() # nullify glabal tmp 't' var counter for each new kernel generated
 
@@ -24,14 +24,16 @@ function makefftradix(n::Int,  suffixes::SuffixFlags, D::AbstractArray{String}, 
   has_vec = has_flag(suffixes, VEC)
   input = has_y ? "y" : "x"
   output = "y"
-  @show has_mat has_vec
+  groups = SIZE ÷ s
   
   if has_mat
       if has_vec
         x = ["$(input)$(i + p*s)" for i in 1:n]
         y = ["$output[$(i + p*s)]" for i in 1:n]
       else
-        x = ["$(input)$(i + p*s)" for i in 1:n]
+        #x = ["$(input)$(i + p*s)" for i in 1:n]
+        #y = ["$output[$(i + p*s)]" for i in 1:n]
+        x = ["$(input)$(p + 1 + (i-1)*groups)" for i in 1:n]
         y = ["$output[$(i + p*s)]" for i in 1:n]
       end
       d = D == String[] ? nothing : D

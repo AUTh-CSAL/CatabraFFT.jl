@@ -27,7 +27,6 @@ function generate_mat_execute_function!(plan::RadixPlan, show_function=true)
         radix = get_radix_divisor(op.op_type)  # Returns 8, 4, 2 etc.
         suffix = :shell!
         func_base = Symbol("fft$(radix)")
-        @show func_base, radix, plan.n, future_op
         
         # Generate kernel calls with dynamic unrolling
         if radix != plan.n && !isnothing(future_op)
@@ -40,58 +39,42 @@ function generate_mat_execute_function!(plan::RadixPlan, show_function=true)
                 push!(loop_body.args,
                     :(radix_2_family.$kernel($current_output, $current_input)))
             end
-            
-            #loop_iteration = Expr(:(=), loop_var, 1:(op.n_groups-1))
-
-            # Build complete loop expression
-            #=
-            loop_expr = Expr(:macrocall,
-                Symbol("@inbounds"),
-                LineNumberNode(@__LINE__, Symbol(@__FILE__)),
-                Expr(:macrocall,
-                    Symbol("@simd"),
-                    LineNumberNode(@__LINE__, Symbol(@__FILE__)),
-                    Expr(:for, loop_iteration, loop_body)
-                )
-            )
-            @show loop_expr
-            push!(ops, loop_expr)
-            =#
             push!(ops, loop_body)
+
         elseif radix == plan.n
-            println("Normal linear kernel call")
             radix_family = get_radix_family(op.op_type)
             function_name = Symbol(func_base, "_shell!")
             function_ref = get_function_reference(radix_family, function_name)
-            @show radix
             push!(ops, Expr(:call, function_ref, current_output, current_input))
+
         elseif isnothing(future_op) # Last of decomposition calls of mixed-radix call
-        @show func_base, radix, plan.n, future_op
-        n = op.n_groups
+        SIZE = op.n_groups * op.stride
         stride = op.stride
-        println("Last of decomposition calls of mixed-radix call")
-        #push!(ops, :(reshape(y, $stride, $n)))
-        loop_var = gensym("offset")
+        loop_var = gensym("_")
         loop_body = Expr(:block)
             kernel = Symbol(func_base, "_0!")
             push!(loop_body.args,
-                :(radix_2_family.$kernel(view($current_input, ($loop_var):$stride:($n*$stride)))))
+                :(radix_2_family.$kernel(view($current_input, ($loop_var):$stride:$SIZE))))
                 #:(radix_2_family.$kernel($current_input, $loop_var)))
         
         loop_iteration = Expr(:(=), loop_var, 1:(op.stride))
-        # TODO: REWRITE VECTORIZED FINAL KERNEL LAYER. READ MAIN BRANCH VECT PERFORMANCE
 
         # Build complete loop expression
         loop_expr = Expr(:macrocall,
             Symbol("@inbounds"),
             LineNumberNode(@__LINE__, Symbol(@__FILE__)),
+            ivdep ? Expr(:macrocall,
+                Symbol("@simd"),
+                LineNumberNode(@__LINE__, Symbol(@__FILE__)),
+                :ivdep,
+                Expr(:for, loop_iteration, loop_body)
+            ) :
             Expr(:macrocall,
                 Symbol("@simd"),
                 LineNumberNode(@__LINE__, Symbol(@__FILE__)),
                 Expr(:for, loop_iteration, loop_body)
             )
         )
-        @show loop_expr
         push!(ops, loop_expr)
 
         end
@@ -100,7 +83,6 @@ function generate_mat_execute_function!(plan::RadixPlan, show_function=true)
     # Main processing loop
     for (i, op) in enumerate(plan.operations)
         future_op = i < length(plan.operations) ? plan.operations[i+1] : nothing
-        @show op, future_op, i
         push_radix_operation!(op, future_op)
         current_input, current_output = current_output, current_input  # Swap buffers
     end
@@ -112,7 +94,6 @@ function generate_mat_execute_function!(plan::RadixPlan, show_function=true)
         $function_body
         return nothing
     end)
-    @show ex
 
     #runtime_generated_function = Core.eval(@__MODULE__, ex)
     
@@ -378,8 +359,6 @@ function return_best_static_linear_function(plans::Vector{RadixPlan{T}}, show_fu
     x = rand(Complex{T}, N)
     
     for plan in plans
-        @show plan
-        println("Creating new module")
         evaluate_fft_generated_module(Radix_Execute, plan, T) # CREATE ALL KERNEL PARTS
         test_func = generate_mat_execute_function!(plan, true) # CONSTRUCT THEM AS A SIGNLE FUNCTION
         show_function && println("Testing module for plan: $plan")
