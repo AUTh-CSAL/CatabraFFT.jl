@@ -143,14 +143,16 @@ function generate_kernel_names(radix::Int, suffix_flags::SuffixFlags, p::Int)
     has_mat = has_flag(suffix_flags, MAT)
     has_y = has_flag(suffix_flags, Y)
     has_vec = has_flag(suffix_flags, VEC)
-    has_layare = has_flag(suffix_flags, LAYERED)
+    has_layared = has_flag(suffix_flags, LAYERED)
     
-    # Special MAT cases
-    if has_mat && !has_layare &&
+    # Special MAT case
+    #=
+    if has_mat && !has_layared &&
        ((!has_y && !has_vec) ||
         (has_y && !has_vec) ||
         (has_y && has_vec))
-        
+       =#
+    if has_mat && !has_layared 
         return "fft$(radix)_$(p)!"
     end
     
@@ -186,12 +188,12 @@ end
 
 # Main function to generate kernel code
 function generate_kernel(radix::Int, op, suffixes::SuffixFlags, p::Int, D, ::Type{T}) where T <: AbstractFloat
+    #show_flags(suffixes, "")
     if op.eo
-        add_flag(suffixes, Y)
+        suffixes = add_flag(suffixes, Y)
     end
     if has_flag(suffixes, NONE)
         name = generate_kernel_names(radix, suffixes, p)
-        @show name
         signature = generate_signature(suffixes, T)
         kernel_code = makefftradix(radix, suffixes, D, p, op.stride, T)
         return """
@@ -202,13 +204,12 @@ function generate_kernel(radix::Int, op, suffixes::SuffixFlags, p::Int, D, ::Typ
         end
         """
     else
-        @show suffixes
-        names = generate_kernel_names(radix, [String[]], 0)
-        signature = generate_signature([String[]], T)
-        kernel_code = makefftradix(radix, String[], String[], 0, op.stride, T)
+        name = generate_kernel_names(radix, suffixes, p)
+        signature = generate_signature(suffixes, T)
+        kernel_code = makefftradix(radix, suffixes, D, p, op.stride, T)
         # Generate the complete linear function
         return """
-        @inline function $(names[2])$signature 
+        @inline function $name$signature 
             @inbounds begin
             $kernel_code
             end
@@ -254,7 +255,7 @@ function generate_all_kernels(plan_data::NamedTuple, ::Type{T}; suffix_combinati
                 end
             else
                 # We will add the vectorize suffix_combination for the colunm-wise Fm opeation
-                add_flag(suffix_combinations, VEC)
+                suffix_combinations = add_flag(suffix_combinations, VEC)
                 n1 = op.n_groups ÷ rad
                 @show n1 op
                 @show op.stride suffix_combinations
@@ -308,7 +309,9 @@ function create_kernel_module(plan_data::NamedTuple, ::Type{T}) where T <: Abstr
     @show plan_data
     module_constants = generate_module_constants(plan_data.n, T)
     custom_combinations = empty_flags()
-    if length(plan_data.operations) != 1 add_flag(custom_combinations, MAT) end
+    @show length(plan_data.operations)
+    if length(plan_data.operations) != 1 custom_combinations = add_flag(custom_combinations, MAT) end
+    show_flags(custom_combinations, "")
     kernels = generate_all_kernels(plan_data, T; suffix_combinations=custom_combinations)
 
     family_module_code = """
