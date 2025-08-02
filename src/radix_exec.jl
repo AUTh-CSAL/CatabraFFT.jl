@@ -35,7 +35,7 @@ function generate_mat_execute_function!(plan::RadixPlan, show_function=true)
             # Generate loop with proper SIMD structure
             loop_var = gensym("i")
             loop_body = Expr(:block)
-            for i in 0:op.stride
+            for i in 0:op.n_groups-1
                 kernel = Symbol(func_base, "_$(i)!")
                 push!(loop_body.args,
                     :(radix_2_family.$kernel($current_output, $current_input)))
@@ -67,14 +67,18 @@ function generate_mat_execute_function!(plan::RadixPlan, show_function=true)
             push!(ops, Expr(:call, function_ref, current_output, current_input))
         elseif isnothing(future_op) # Last of decomposition calls of mixed-radix call
         @show func_base, radix, plan.n, future_op
+        n = op.n_groups
+        stride = op.stride
         println("Last of decomposition calls of mixed-radix call")
-        loop_var = gensym("i")
+        #push!(ops, :(reshape(y, $stride, $n)))
+        loop_var = gensym("offset")
         loop_body = Expr(:block)
             kernel = Symbol(func_base, "_0!")
             push!(loop_body.args,
-                :(radix_2_family.$kernel($current_input)))
+                :(radix_2_family.$kernel(view($current_input, ($loop_var):$stride:($n*$stride)))))
+                #:(radix_2_family.$kernel($current_input, $loop_var)))
         
-        loop_iteration = Expr(:(=), loop_var, 0:(op.stride-1))
+        loop_iteration = Expr(:(=), loop_var, 1:(op.stride))
         # TODO: REWRITE VECTORIZED FINAL KERNEL LAYER. READ MAIN BRANCH VECT PERFORMANCE
 
         # Build complete loop expression

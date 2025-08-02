@@ -180,7 +180,8 @@ function generate_signature(suffixes::SuffixFlags, ::Type{T}) where T <: Abstrac
     if has_layered
         return "(y::AbstractVector{Complex{$T}}, x::AbstractVector{Complex{$T}}, s::Int, n1::Int, theta::$T=$T(0.125))"
     elseif has_y
-        return has_vec ? "(y::AbstractArray{Complex{$T}, 1}, offset::Int)" : "(y::AbstractArray{Complex{$T}, 1})"
+        #return has_vec ? "(y::AbstractArray{Complex{$T}, 1}, offset::Int)" : "(y::AbstractArray{Complex{$T}, 1})"
+        return "(y::AbstractArray{Complex{$T}, 1})"
     else
         return has_vec ? "(y::AbstractArray{Complex{$T}, 1}, x::AbstractArray{Complex{$T}, 1}, offset::Int)" : "(y::AbstractArray{Complex{$T}, 1}, x::AbstractArray{Complex{$T}, 1})"
     end

@@ -17,21 +17,33 @@ load_reim = t -> join([
 # Wrapper for any other kernel shell strategy planer
 function makefftradix(n::Int,  suffixes::SuffixFlags, D::AbstractArray{String}, p::Int, s::Int, ::Type{T}) where T <: AbstractFloat
 
-  global inc = inccounter() #nullify glabal tmp 't' var counter for each new kernel generated
+  global inc = inccounter() # nullify glabal tmp 't' var counter for each new kernel generated
 
   has_y = has_flag(suffixes, Y)
   has_mat = has_flag(suffixes, MAT)
+  has_vec = has_flag(suffixes, VEC)
   input = has_y ? "y" : "x"
   output = "y"
+  @show has_mat has_vec
   
   if has_mat
-      x = ["$(input)$(i + p*s)" for i in 1:n]
-      y = ["$output[$(i + p*s)]" for i in 1:n]
+      if has_vec
+        x = ["$(input)$(i + p*s)" for i in 1:n]
+        y = ["$output[$(i + p*s)]" for i in 1:n]
+      else
+        x = ["$(input)$(i + p*s)" for i in 1:n]
+        y = ["$output[$(i + p*s)]" for i in 1:n]
+      end
       d = D == String[] ? nothing : D
   else
-      x = ["$(input)$i" for i in 1:n]
+    if has_vec
+      x = ["$(input)($i + offset)" for i in 1:n]
+      y = ["$output[$i + offset]" for i in 1:n]
+    else
+      x = ["$(input)$i" for i in 1:s:n]
       y = ["$output[$i]" for i in 1:n]
-      d = nothing
+    end
+    d = nothing
   end
 
   # Replace with any other recfftN kernel family seed.
