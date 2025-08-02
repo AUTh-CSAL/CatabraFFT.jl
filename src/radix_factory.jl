@@ -10,6 +10,7 @@ using LoopVectorization
 using .Radix_Plan
 
 export evaluate_fft_generated_module
+
 function generate_module_constants(n::Int, ::Type{T}) where T <: AbstractFloat
     @assert ispow2(n) "n must be a power of 2"
     str = "# Optimized twiddle factors for radix-2^s FFT size $n\n\n"
@@ -96,6 +97,10 @@ function get_constant_expression(w::Complex{T}, n::Integer)::String where T <: A
                 return "-im*CISPI_$(num)_$(den)_Q1"
             elseif isclose(w, -im*cispi2)
                 return "-im*CISPI_$(num)_$(den)_Q4"
+            elseif isclose(w, im*cispi1)
+                return "im*CISPI_$(num)_$(den)_Q1"
+            elseif isclose(w, im*cispi2)
+                return "im*CISPI_$(num)_$(den)_Q4)"
             end
         end
         current_n >>= 1
@@ -125,6 +130,7 @@ end
         clean_expr = replace(string(expr), r"Expr\(:parameters,.*?\)" => "")
         push!(element_strings, clean_expr)
     end
+    @show element_strings
 
     return element_strings
 end
@@ -145,12 +151,6 @@ function generate_kernel_names(radix::Int, suffix_flags::SuffixFlags, p::Int)
     has_layared = has_flag(suffix_flags, LAYERED)
     
     # Special MAT case
-    #=
-    if has_mat && !has_layared &&
-       ((!has_y && !has_vec) ||
-        (has_y && !has_vec) ||
-        (has_y && has_vec))
-       =#
     if has_mat && !has_layared 
         return "fft$(radix)_$(p)!"
     end
@@ -175,11 +175,14 @@ function generate_signature(suffixes::SuffixFlags, ::Type{T}) where T <: Abstrac
     has_y = has_flag(suffixes, Y)
     has_layered = has_flag(suffixes, LAYERED)
     has_vec = has_flag(suffixes, VEC)
+    has_mat = has_flag(suffixes, MAT)
+    @show has_y has_vec has_mat
     if has_layered
         return "(y::AbstractVector{Complex{$T}}, x::AbstractVector{Complex{$T}}, s::Int, n1::Int, theta::$T=$T(0.125))"
     elseif has_y
         return "(y::AbstractArray{Complex{$T}, 1})"
     else
+        #if has_y
         return has_vec ? "(y::AbstractArray{Complex{$T}, 1}, x::AbstractArray{Complex{$T}, 1}, offset::Int)" : "(y::AbstractArray{Complex{$T}, 1}, x::AbstractArray{Complex{$T}, 1})"
     end
 end
@@ -245,7 +248,7 @@ function generate_all_kernels(plan_data::NamedTuple, ::Type{T}; suffix_combinati
                 n1 = op.n_groups ÷ rad
                 op.n_groups, op.stride = future_op.n_groups, future_op.stride # CRITICAL!
                 for p in 1:n1
-                    D = generate_D_kernel(p, op, T)
+                    D = generate_D_kernel(p, op.stride, op.n_groups, T)
                     push!(kernels, generate_kernel(rad, op, suffix_combinations, p-1, D, T))
                 end
             else
@@ -262,17 +265,16 @@ function generate_all_kernels(plan_data::NamedTuple, ::Type{T}; suffix_combinati
     return kernels
 end
 
-function generate_D_kernel(p, op, ::Type{T}) where T <: AbstractFloat
-    s = op.stride
-    n1 = op.n_groups
+function generate_D_kernel(p, s, n1, ::Type{T}) where T <: AbstractFloat
     if s == 1 || n1 == 1
         return String[]
     else
-        #return n1 == s ? create_D_kernel_square(s, T) : create_D_kernel_non_square(s, n1, T)
         if p == 1 
             return String[]
         else
-            return view(create_D_kernel(s, n1, T), :, p-1)
+            D_flat = create_D_kernel(s, n1, T)  # 1D vector
+            D_matrix = reshape(D_flat, s, n1)   # Reshape to 2D matrix
+            return view(D_matrix, :, p-1)       # Now this works
         end
     end
 end
@@ -299,6 +301,7 @@ end
 
 # ENCHANT KERNEL PRODUCER
 function create_kernel_module(plan_data::NamedTuple, ::Type{T}) where T <: AbstractFloat
+    @show plan_data
     module_constants = generate_module_constants(plan_data.n, T)
     custom_combinations = empty_flags()
     if length(plan_data.operations) != 1 custom_combinations = add_flag(custom_combinations, MAT) end
@@ -336,6 +339,7 @@ function evaluate_fft_generated_module(target_module::Module, plan::P, ::Type{T}
     
     # Create module expression using the extracted data
     module_expr = create_kernel_module(extract_plan_data(plan), T)
+    @show module_expr
     Core.eval(target_module, module_expr)
 end
 

@@ -158,7 +158,15 @@ function sat_expr(tmp, w)
                 # -cosθ + i sinθ
                 "muladd(-$c, $(tmp)_r, -$s * $(tmp)_i), " *
                 "muladd($s, $(tmp)_r, -$c * $(tmp)_i)"
-        else
+
+        elseif startswith(w, "im*CISPI")
+            return is_q1 ?
+                # i*(cosθ + i sinθ) = -sinθ + i cosθ
+                "muladd(-$s, $(tmp)_r, -$c * $(tmp)_i), " *
+                "muladd($c, $(tmp)_r, -$s * $(tmp)_i)" :
+                # i*(cosθ - i sinθ) = sinθ + i cosθ
+                "muladd($s, $(tmp)_r, -$c * $(tmp)_i), " *
+                "muladd($c, $(tmp)_r, $s * $(tmp)_i)"
         end
     end
 end
@@ -238,6 +246,23 @@ function sat_expr(sign, x1, x2, w)
               "muladd($s, $(x1)_r $sign $(x2)_r, -$c * ($(x1)_i $sign $(x2)_i))" :
               "muladd(-$c, $(x1)[1] $sign $(x2)[1], -$s * ($(x1)[2] $sign $(x2)[2])), " *
               "muladd($s, $(x1)[1] $sign $(x2)[1], -$c * ($(x1)[2] $sign $(x2)[2]))"
+          end
+
+      elseif startswith(w, "im*CISPI")
+          if is_q1 
+              # i*(cosθ + i sinθ) = -sinθ + i cosθ
+              return is_t ?
+              "muladd(-$s, $(x1)_r $sign $(x2)_r, -$c * ($(x1)_i $sign $(x2)_i)), " *
+              "muladd($c, $(x1)_r $sign $(x2)_r, -$s * ($(x1)_i $sign $(x2)_i))" :
+              "muladd(-$s, $(x1)[1] $sign $(x2)[1], -$c * ($(x1)[2] $sign $(x2)[2])), " *
+              "muladd($c, $(x1)[1] $sign $(x2)[1], -$s * ($(x1)[2] $sign $(x2)[2]))" 
+          else
+              # i*(cosθ - i sinθ) = sinθ + i cosθ
+              return is_t ?
+              "muladd($s, $(x1)_r $sign $(x2)_r, -$c * ($(x1)_i $sign $(x2)_i)), " *
+              "muladd($c, $(x1)_r $sign $(x2)_r, $s * ($(x1)_i $sign $(x2)_i))" :
+              "muladd($s, $(x1)[1] $sign $(x2)[1], -$c * ($(x1)[2] $sign $(x2)[2])), " *
+              "muladd($c, $(x1)[1] $sign $(x2)[1], $s * ($(x1)[2] $sign $(x2)[2]))"
           end
       end
   end
