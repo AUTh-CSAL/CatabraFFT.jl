@@ -144,15 +144,17 @@ function get_twiddle_expression(collect::Vector{Int}, n::Int)::Vector{String}
 end
 
 # Function to generate kernel name
-function generate_kernel_names(radix::Int, suffix_flags::SuffixFlags, p::Int)
+function generate_kernel_names(radix::Int, suffix_flags::SuffixFlags, p::Int, op)
     has_mat = has_flag(suffix_flags, MAT)
     has_y = has_flag(suffix_flags, Y)
     has_vec = has_flag(suffix_flags, VEC)
     has_layared = has_flag(suffix_flags, LAYERED)
     
+    s = op.stride
+    n_g = op.n_groups
     # Special MAT case
     if has_mat && !has_layared 
-        return "fft$(radix)_$(p)!"
+        return "fft$(radix)_$(s)x$(n_g)_$(p)!"
     end
     
     # General cases with pattern matching
@@ -171,6 +173,7 @@ function generate_kernel_names(radix::Int, suffix_flags::SuffixFlags, p::Int)
 end
 
 # Function to generate function signature
+#TODO FIX SATURATED MORE THAN TWO LAYERED KERNELS
 function generate_signature(suffixes::SuffixFlags, ::Type{T}) where T <: AbstractFloat
     has_y = has_flag(suffixes, Y)
     has_layered = has_flag(suffixes, LAYERED)
@@ -193,7 +196,7 @@ function generate_kernel(radix::Int, op, suffixes::SuffixFlags, p::Int, D, ::Typ
         suffixes = add_flag(suffixes, Y)
     end
     if has_flag(suffixes, NONE)
-        name = generate_kernel_names(radix, suffixes, p)
+        name = generate_kernel_names(radix, suffixes, p, op)
         signature = generate_signature(suffixes, T)
         SIZE = op.n_groups * op.stride
         kernel_code = makefftradix(radix, suffixes, D, p, op.stride, SIZE, T) # CREATE EMBEDDED F⊗D KERNEL
@@ -205,7 +208,7 @@ function generate_kernel(radix::Int, op, suffixes::SuffixFlags, p::Int, D, ::Typ
         end
         """
     else
-        name = generate_kernel_names(radix, suffixes, p)
+        name = generate_kernel_names(radix, suffixes, p, op)
         signature = generate_signature(suffixes, T)
         SIZE = op.n_groups * op.stride
         kernel_code = makefftradix(radix, suffixes, D, p, op.stride, SIZE, T)

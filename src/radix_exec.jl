@@ -27,6 +27,8 @@ function generate_mat_execute_function!(plan::RadixPlan, show_function=true)
         radix = get_radix_divisor(op.op_type)  # Returns 8, 4, 2 etc.
         suffix = :shell!
         func_base = Symbol("fft$(radix)")
+        n_g, stride = op.n_groups, op.stride
+        SIZE = n_g * stride
         
         # Generate kernel calls with dynamic unrolling
         if radix != plan.n && !isnothing(future_op)
@@ -35,7 +37,7 @@ function generate_mat_execute_function!(plan::RadixPlan, show_function=true)
             loop_var = gensym("i")
             loop_body = Expr(:block)
             for i in 0:op.n_groups-1
-                kernel = Symbol(func_base, "_$(i)!")
+                kernel = Symbol(func_base, "_$(stride)x$(n_g)_$(i)!")
                 push!(loop_body.args,
                     :(radix_2_family.$kernel($current_output, $current_input)))
             end
@@ -48,14 +50,11 @@ function generate_mat_execute_function!(plan::RadixPlan, show_function=true)
             push!(ops, Expr(:call, function_ref, current_output, current_input))
 
         elseif isnothing(future_op) # Last of decomposition calls of mixed-radix call
-        SIZE = op.n_groups * op.stride
-        stride = op.stride
         loop_var = gensym("_")
         loop_body = Expr(:block)
-            kernel = Symbol(func_base, "_0!")
+            kernel = Symbol(func_base, "_$(stride)x$(n_g)_0!")
             push!(loop_body.args,
                 :(radix_2_family.$kernel(view($current_input, ($loop_var):$stride:$SIZE))))
-                #:(radix_2_family.$kernel($current_input, $loop_var)))
         
         loop_iteration = Expr(:(=), loop_var, 1:(op.stride))
 
