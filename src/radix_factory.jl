@@ -173,7 +173,6 @@ function generate_kernel_names(radix::Int, suffix_flags::SuffixFlags, p::Int, op
 end
 
 # Function to generate function signature
-#TODO FIX SATURATED MORE THAN TWO LAYERED KERNELS
 function generate_signature(suffixes::SuffixFlags, ::Type{T}) where T <: AbstractFloat
     has_y = has_flag(suffixes, Y)
     has_layered = has_flag(suffixes, LAYERED)
@@ -185,14 +184,13 @@ function generate_signature(suffixes::SuffixFlags, ::Type{T}) where T <: Abstrac
     elseif has_y
         return "(y::AbstractArray{Complex{$T}, 1})"
     else
-        #if has_y
-        return has_vec ? "(y::AbstractArray{Complex{$T}, 1}, x::AbstractArray{Complex{$T}, 1}, offset::Int)" : "(y::AbstractArray{Complex{$T}, 1}, x::AbstractArray{Complex{$T}, 1})"
+        return "(y::AbstractArray{Complex{$T}, 1}, x::AbstractArray{Complex{$T}, 1})" 
     end
 end
 
 # Main function to generate kernel code
-function generate_kernel(radix::Int, op, suffixes::SuffixFlags, p::Int, D, ::Type{T}) where T <: AbstractFloat
-    if op.eo
+function generate_kernel(radix::Int, op, suffixes::SuffixFlags, p::Int, D, is_last::Bool, ::Type{T}) where T <: AbstractFloat
+    if op.eo && is_last
         suffixes = add_flag(suffixes, Y)
     end
     if has_flag(suffixes, NONE)
@@ -242,24 +240,32 @@ function generate_all_kernels(plan_data::NamedTuple, ::Type{T}; suffix_combinati
 
     kernels = Vector{String}()
     if has_flag(suffix_combinations, NONE) # Linear Order
-        push!(kernels, generate_kernel(radices[1], plan_data.operations[1], suffix_combinations, 0, String[], T))
+        push!(kernels, generate_kernel(radices[1], plan_data.operations[1], suffix_combinations, 0, String[], true, T))
     elseif has_flag(suffix_combinations, MAT)
         for (i, (rad, op)) in enumerate(zip(radices, plan_data.operations))
             future_op = i < length(plan_data.operations) ? plan_data.operations[i+1] : nothing
+            #=
+            if !op.eo
+                tmp = op.stride
+                op.stride = op.n_groups
+                op.n_groups = tmp
+                println("SWAPPED")
+            end
+            =#
+            n1 = op.n_groups ÷ rad
+            @show rad op n1
 
             if !isnothing(future_op) 
-                n1 = op.n_groups ÷ rad
                 op.n_groups, op.stride = future_op.n_groups, future_op.stride # CRITICAL!
                 for p in 1:n1
                     D = generate_D_kernel(p, op.stride, op.n_groups, T)
-                    push!(kernels, generate_kernel(rad, op, suffix_combinations, p-1, D, T))
+                    push!(kernels, generate_kernel(rad, op, suffix_combinations, p-1, D, false, T))
                 end
             else
                 # We will add the vectorize suffix_combination for the colunm-wise Fm opeation
                 suffix_combinations = add_flag(suffix_combinations, VEC)
-                n1 = op.n_groups ÷ rad
                 for p in 1:n1
-                    push!(kernels, generate_kernel(rad, op, suffix_combinations, p-1, String[], T))
+                    push!(kernels, generate_kernel(rad, op, suffix_combinations, p-1, String[], true, T))
                 end
             end
         end

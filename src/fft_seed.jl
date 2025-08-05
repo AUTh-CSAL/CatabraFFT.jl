@@ -287,7 +287,7 @@ function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1) where T <: AbstractFlo
           if isnothing(w)
             if root
               load_reim(x) * "\n" * 
-              "tmp0_r, tmp0_i = x1[1] - x2[1], x1[2] - x2[2]" * "\n" * """
+              "tmp0_r, tmp0_i = $(x[1])[1] - $(x[2])[1], $(x[1])[2] - $(x[2])[2]" * "\n" * """
               $(y[1]), $(y[2]) = Complex{$T}($(x[1])[1] + $(x[2])[1], $(x[1])[2] + $(x[2])[2]), Complex{$T}($(sat_expr("tmp0", "$(d[1])")))
               """
             end

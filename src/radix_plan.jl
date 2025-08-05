@@ -44,6 +44,9 @@ function create_all_radix_plans(n::Int, valid_radices::Vector{Int}, ::Type{T}) w
         # Allow single-element decompositions
         length(decomp) == 1 && return true
         
+        #TESTING ONLY TWO LAYERED DECOMPOSITIONS
+        length(decomp) > 2 && return false
+        
         # REMOVED: The restrictive rules that were blocking [2,4] and [4,2]
         # OLD: decomp[1] == min_elem && return false
         # OLD: decomp[1] == 4 && decomp != fill(4, length(decomp)) && return false
