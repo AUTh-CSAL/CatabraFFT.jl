@@ -118,9 +118,10 @@ end
     phase = T(-2 / (n1 * n2))
     @inbounds for i in 1:n1
         @inbounds for j in 1:n2
-            d_matrix[i, j] = cispi(phase * i * j)
+            d_matrix[i, j] = cispi(phase * (i) * (j))
         end
     end
+    @show d_matrix
 
     # Generate constant expressions for all elements
     element_strings = String[]

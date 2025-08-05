@@ -42,7 +42,7 @@ function create_all_radix_plans(n::Int, valid_radices::Vector{Int}, ::Type{T}) w
     
     function is_valid(decomp)
         # Allow single-element decompositions
-        length(decomp) == 1 && return true
+        length(decomp) == 1 && return false
         
         #TESTING ONLY TWO LAYERED DECOMPOSITIONS
         length(decomp) > 2 && return false

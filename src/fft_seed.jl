@@ -117,7 +117,9 @@ function add_more_tmp_vars(x1, x2, wn, n)
 end
 
 function sat_expr(tmp, w)
-    if w == "-im"
+    if w == "1"
+        return "$(tmp)_r, $(tmp)_i"
+    elseif w == "-im"
         return "$(tmp)_i, $(tmp)_r"
     elseif w == "INV_SQRT2_Q4"
         # (a ± b) * (1-i)/√2 = [ (a_r ± b_r + a_i ± b_i)/√2 , (a_i ± b_i - a_r ∓ b_r)/√2 ]
@@ -173,7 +175,11 @@ end
 
 function sat_expr(sign, x1, x2, w)
   is_t = startswith(x1, "t") || startswith(x2, "t")
-  if w == "-im"
+  if w == "1"
+      return is_t ? 
+          "$(x1)_r $sign $(x2)_r, $(x1)_i $sign $(x2)_i" :
+          "$x1[2] $sign $x2[2], $x2[1] $sign $x1[1]"
+  elseif w == "-im"
       # -i*(a ± b) = ±(b_i ∓ a_i) ± i*(b_r ∓ a_r)
       return is_t ? 
           "$(x1)_i $sign $(x2)_i, $(x2)_r $sign $(x1)_r" :
