@@ -163,9 +163,9 @@ save = false
 twoexp = 7
 #for b in [2 3 5 7 10]
 for b in [2]
-    xs = b .^ (1:Int64(floor(twoexp / log2(b))))
-    #for ctype in [ComplexF32, ComplexF64]
-    for ctype in [ComplexF64]
+    xs = b .^ (3:Int64(floor(twoexp / log2(b))))
+    for ctype in [ComplexF32, ComplexF64]
+    #for ctype in [ComplexF64]
         benchmark_fft_over_range(xs; ctype, fftw_plan_type=fftwplan, save, msg="FFT-$b")
     end
 end

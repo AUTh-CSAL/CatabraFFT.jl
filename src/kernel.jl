@@ -52,14 +52,17 @@ end
 
 function call_radix_families(n::Int, ::Type{T}, flag::FLAG)::Function where {T<:AbstractFloat}
     @assert (is_power_of(n, 2) || is_power_of(n, 3) || is_power_of(n, 5) || is_power_of(n, 7)) "n: $n is not divisible by 2, 3, 5, or 7"
-    
     show_function = true
 
+    if is_power_of(n, 2)
+        Radix_Execute.return_best_static_linear_function(Radix_Plan.create_all_radix_plans(n, subpowers_of_two(n), T), show_function)
+    end
+    
+    #=
     ivdep = false
-
     family_func = if flag >= ENCHANT
         if is_power_of(n, 2)
-            Radix_Execute.return_best_static_linear_function(Radix_Plan.create_all_radix_plans(n, subpowers_of_two(n), T), show_function, ivdep)
+            Radix_Execute.return_best_static_linear_function(Radix_Plan.create_all_radix_plans(n, subpowers_of_two(n), T), show_function)
         end
         elseif flag >= MEASURE
         #ivdep = flag >= ENCHANT ? true : false
@@ -86,56 +89,9 @@ function call_radix_families(n::Int, ::Type{T}, flag::FLAG)::Function where {T<:
             Radix_Execute.generate_linear_execute_function!(Radix_Plan.create_std_radix_plan(n, [7], T), show_function, ivdep)
         end
     end
+    =#
 
     return family_func
-end
-
-
-function return_sorted_prime_powers(n::Int)
-    primes = [2,3,5,7] # Primes I have families of
-    prime_powers = []
-
-    for prime in primes
-        pow = prime
-        while pow <= n
-            push!(prime_powers, pow)
-            if pow > typemax(Int) ÷ prime #stack overflow protection
-                break
-            end
-            pow *= prime
-        end
-    end
-
-    # Insertion sort (descending order)
-    sort!(prime_powers, rev=true)
-    return prime_powers
-end
-
-#When p ≈ m fewer matrices are recomputed => better runtime.
-# Special strided FFT kernels with lower radix rank for special computation of n
-# => mixed-radix-(m,p) !!!
-function find_closest_factors(n::Int, prime_powers_preference=true)
-    if isprime(n)
-        return 1, n
-    end
-    if prime_powers_preference
-        prime_powers = return_sorted_prime_powers(n)
-
-        for p in prime_powers
-            if n % p == 0
-                return p, div(n,p)
-            end
-        end
-    end
-    p = isqrt(n) # Start with p as the floor of sqrt(n)
-
-    while n % p != 0 # Adjust p until it divides n evenly
-        p -= 1
-        if p == 1
-            error("Unable to find non-prime factors for $n")
-        end
-    end
-    return p, div(n, p)
 end
 
 # Update the recursive_F function to use the new generator
