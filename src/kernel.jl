@@ -54,7 +54,7 @@ function call_radix_families(n::Int, ::Type{T}, flag::FLAG)::Function where {T<:
     @assert (is_power_of(n, 2) || is_power_of(n, 3) || is_power_of(n, 5) || is_power_of(n, 7)) "n: $n is not divisible by 2, 3, 5, or 7"
     show_function = true
 
-    if is_power_of(n, 2)
+    family_func = if is_power_of(n, 2)
         Radix_Execute.return_best_static_linear_function(Radix_Plan.create_all_radix_plans(n, subpowers_of_two(n), T), show_function)
     end
     

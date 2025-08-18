@@ -121,6 +121,7 @@ function time_limited_benchmark(f, args...; time_limit=0.1)
     return result / count
 end
 
+#=
 function return_best_static_linear_function(plans::Vector{RadixPlan{T}}, show_function::Bool) where T <: AbstractFloat
     N = plans[1].n
     best_time = Inf
@@ -135,6 +136,36 @@ function return_best_static_linear_function(plans::Vector{RadixPlan{T}}, show_fu
         Base.invokelatest(test_func, x, x)
         
         test_time = time_limited_benchmark(@elapsed Base.invokelatest(test_func, x, x))
+        
+        println("Test elapsed time: $test_time seconds")
+        
+        if test_time < best_time
+            best_func = test_func
+            best_time = test_time
+        end
+    end
+
+    show_function && println("Best function: $best_func with time: $best_time seconds")
+    
+    return best_func
+end
+=#
+
+function return_best_static_linear_function(plans::Vector{RadixPlan{T}}, show_function::Bool) where T <: AbstractFloat
+    N = plans[1].n
+    best_time = Inf
+    best_func = nothing
+    x = rand(Complex{T}, N)
+    
+    for plan in plans
+        evaluate_fft_generated_module(Radix_Execute, plan, T) # CREATE ALL KERNEL PARTS
+        test_func = generate_mat_execute_function!(plan, true) # CONSTRUCT THEM AS A SIGNLE FUNCTION
+        show_function && println("Testing module for plan: $plan")
+        
+        Base.invokelatest(test_func, x, x)
+        
+        # Fixed line: pass a function instead of @elapsed result
+        test_time = time_limited_benchmark(() -> Base.invokelatest(test_func, x, x))
         
         println("Test elapsed time: $test_time seconds")
         
