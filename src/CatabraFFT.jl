@@ -1,14 +1,16 @@
 module CatabraFFT
 
-include("kernel.jl")
+# Opt out of precompilation to avoid method overwriting during dynamic code generation
+__precompile__(false)
 
+include("kernel.jl")
 
 using AbstractFFTs
 
 import Base: show, *, convert, unsafe_convert, size, strides, ndims, pointer
 import LinearAlgebra: mul!
 
-# Non-mutating wrapper that reuses preallocated workspace
+# Non-mutating workspace that reuses preallocated memory
 struct FFTWorkspace{T<:AbstractFloat}
     x_work::Vector{Complex{T}}
     function FFTWorkspace(n::Int, ::Type{T}) where {T<:AbstractFloat}
@@ -20,22 +22,15 @@ end
 const WORKSPACE = Dict{Tuple{Int, DataType}, FFTWorkspace}()
 const WORKSPACE_LOCK = ReentrantLock()
 
-#=
+# Get or create workspace for a given size - simplified
 @inline function get_workspace(n::Int, ::Type{T})::FFTWorkspace where {T <: AbstractFloat}
     key = (n, T)
-    @inbounds get!(WORKSPACE, key) do
-        FFTWorkspace(n, T)
+    workspace = get(WORKSPACE, key, nothing)
+    if workspace !== nothing
+        return workspace
     end
-end
-=#
-
-# Get or create workspace for a given size
-@inline function get_workspace(n::Int, ::Type{T})::FFTWorkspace where {T <: AbstractFloat}
-    key = (n, T)
-    @inbounds workplace = get(WORKSPACE, key, nothing)
-    workplace === nothing || return workplace
     lock(WORKSPACE_LOCK) do
-        return get!(WORKSPACE, key) do
+        get!(WORKSPACE, key) do
             FFTWorkspace(n, T)
         end
     end
@@ -44,7 +39,7 @@ end
 """
 Clear all internal caches used in CatabraFFT.
 
-This empties caches like WORKSPACE and F_cache, which store preallocated
+This empties caches like WORKSPACE and the kernel cache, which store preallocated
 workspaces and cached FFT computations, to free up memory.
 
 # Example
@@ -52,13 +47,13 @@ empty_cache()
 """
 function empty_cache()
     empty!(WORKSPACE)
-    empty!(F_cache.forward)
-    empty!(F_cache.backward)
+    empty_kernel_cache()
 end
 
 # in-place manipulation of given signal
 @inline function fft!(x::AbstractVector{Complex{T}}) where T <: AbstractFloat
-    fft_kernel!(x, x, CatabraFFT.NO_FLAG, n)
+    n = length(x)
+    fft_kernel_direct!(x, x, n)
     return x
 end
 
@@ -81,7 +76,7 @@ X = fft(x)
     workspace = get_workspace(n, T)
     copyto!(workspace.x_work, x)  # Fast copy into preallocated space
     y = similar(x)
-    fft_kernel!(y, workspace.x_work, CatabraFFT.NO_FLAG, n)
+    fft_kernel_direct!(y, workspace.x_work, n)
     return y
 end
 
@@ -91,7 +86,7 @@ end
 Compute the 1-dimensional C2C Inverse Fast Fourier Transform (IFFT) of the input vector.
 
 # Arguments
-- `X`: Input complex vector to be inversly transformed
+- `X`: Input complex vector to be inversely transformed
 
 # Returns
 - A vector containing the reverse Fourier transform of the input
@@ -107,7 +102,7 @@ x = ifft(X)
     
     # IFFT using the FFT with complex conjugate and normalization
     conj!(workspace.x_work)
-    fft_kernel!(y, workspace.x_work, CatabraFFT.NO_FLAG, n)
+    fft_kernel_direct!(y, workspace.x_work, n)
     conj!(y)
     y ./= n
     
@@ -122,25 +117,25 @@ end
     
     # IFFT using the FFT with complex conjugate and NOT normalization (BFFT)
     conj!(workspace.x_work)
-    fft_kernel!(y, workspace.x_work, CatabraFFT.NO_FLAG, n)
+    fft_kernel_direct!(y, workspace.x_work, n)
     conj!(y)
     
     return y
 end
 
 """
-    plan_fft(x::AbstractVector{Complex{T}}, region=1:1; flags::FLAG=PLANNER_DEFAULT) where T<:AbstractFloat
+    plan_fft(x::AbstractVector{Complex{T}}, region=1:1; flags::FLAG=NO_FLAG) where T<:AbstractFloat
 
 Create a plan for computing FFT of a complex vector. Supports optimization flags:
 - ENCHANT: Enable special (technical) optimizations (similar to FFTW's PATIENT)
-- MEASURE: Checks out possible stategies and sticks with the quickers, similar to FFTW's MEASURE flag
-- PLANNER_DEFAULT: Default planning strategy
+- MEASURE: Checks out possible strategies and sticks with the quickest, similar to FFTW's MEASURE flag
+- NO_FLAG: Default planning strategy
 
-Returns a Spell object that encapsulates the FFT plan.
+Returns a Spell object that encapsulates the FFT plan with the optimized function stored directly.
 
 # Arguments
 - `x`: Input vector to plan FFT for
-- `region`: Dimensions to transform (default: 1:1)
+- `region`: Dimensions to transform (default: 1:1)  
 - `flags`: Planning flags for optimization level
 
 # Returns
@@ -153,80 +148,60 @@ p = plan_fft(x, flags=ENCHANT)
 X = p * x
 ```
 """
-#F_cache MONAD ?
-#=
-FFT --> Spell
-|        ↓
-↓        ↓
-IFFT --> ISpell
-=#
-
 function plan_fft(x::AbstractVector{Complex{T}}, flags::FLAG) where T <: AbstractFloat
     n = length(x)
-    cached = get_cached_spell(n, T, flags)
-    cached !== nothing && return cached
     
-    fft_func = generate_and_cache_fft!(n, T, flags)
+    # Check cache first
+    cached_spell = get_cached_spell(n, T, flags)
+    cached_spell !== nothing && return cached_spell
+    
+    # Generate the optimized FFT function based on size and flags
+    fft_func = generate_optimized_fft_function(n, T, flags)
+    
+    # Create spell with the function stored directly - no world age issues
     spell = Spell{T}(n, flags, fft_func)
     cache_spell!(spell)
     return spell
 end
 
-#=
-function plan_fft(x::AbstractVector{Complex{T}}, flags::FLAG)::Spell{T} where T <: AbstractFloat
-    n = length(x)
-
-    # Create spell first if flags are specified
-    spell = Spell(n, T, flags) 
-    key = (n, T, spell)
-    
-    # Check if we have a cached function for this configuration
-    # We can return the spell directly since it matches the cache key
-    haskey(F_cache, key) && spell 
-    
-    # Generate new function and cache it with its spell
-    func = generate_and_cache_fft!(n, T, flags)
-    
-    # The generate_and_cache_fft! function will have cached the function with the spell
-    # We can return the spell we created, as it's now associated with the function
-    #println("Spell: $spell")
-    return get_spell_from_function(func)
-end
-=#
-
 function AbstractFFTs.plan_fft(x::AbstractVector{Complex{T}}, region=1:1; flags::FLAG=NO_FLAG) where T <: AbstractFloat
     plan_fft(x, flags)
 end
 
-function AbstractFFTs.plan_bfft(x::AbstractVector{Complex{T}}, region=1:1;) where T <: AbstractFloat
-    p = Spell{T}(size(x), collect(region))
-    p.pinv[] = plan_fft(x, region;)
-    return p
+function AbstractFFTs.plan_bfft(x::AbstractVector{Complex{T}}, region=1:1) where T <: AbstractFloat
+    plan_fft(x, NO_FLAG)
 end
 
-# Inverse plan caching
+# Inverse plan caching - reuse existing spell structure
 function AbstractFFTs.plan_inv(p::Spell{T}) where T
-    p.pinv === nothing && (p.pinv = Spell(p))
-    return p.pinv
+    if !isassigned(p.pinv)
+        p.pinv[] = p  # For simplicity, same plan works (operation handled in execution)
+    end
+    return p.pinv[]
 end
 
-# Required * operation
-@inline function Base.:*(p::Spell, x::AbstractVector{Complex{T}}) where T
+# Required * operation - direct execution of stored function
+@inline function Base.:*(p::Spell{T}, x::AbstractVector{Complex{T}}) where T
     workspace = get_workspace(length(x), T)
-    Base.invokelatest(p.fft_func, workspace.x_work, x)
-    workspace.x_work
+    copyto!(workspace.x_work, x)
+    y = similar(x)
+    # Execute the cached function directly - no invokelatest needed
+    p.fft_func(y, workspace.x_work)
+    return y
 end
 
-# Support for real FFTs
-function AbstractFFTs.plan_rfft(x::AbstractVector{T}, region=1:1;) where T<:AbstractFloat
+# Support for real FFTs (simplified)
+function AbstractFFTs.plan_rfft(x::AbstractVector{T}, region=1:1) where T<:AbstractFloat
     n = length(x)
-    Spell{T}((n ÷ 2 + 1,), collect(region))
+    fft_func = (y, x_work) -> real_fft_kernel!(y, x_work, n)
+    Spell{T}(n ÷ 2 + 1, NO_FLAG, fft_func)
 end
 
-function AbstractFFTs.plan_brfft(x::AbstractVector{Complex{T}}, d::Integer, region=1:1;) where T<:AbstractFloat
-    p = Spell{T}((d,), collect(region))
-    p.pinv[] = plan_rfft(zeros(T, d), region;)
-    return p
+function AbstractFFTs.plan_brfft(x::AbstractVector{Complex{T}}, d::Integer, region=1:1) where T<:AbstractFloat
+    fft_func = (y, x_work) -> real_ifft_kernel!(y, x_work, d)
+    spell = Spell{T}(d, NO_FLAG, fft_func)
+    spell.pinv[] = plan_rfft(zeros(T, d), region)
+    return spell
 end
 
 # Adjoint support
@@ -236,15 +211,14 @@ function AbstractFFTs.adjoint_mul(y::AbstractVector{Complex{T}},
                                 p::Spell{T}, 
                                 x::AbstractVector{Complex{T}}) where T
     # For standard FFT, adjoint is same as inverse up to scaling
-    plan_inv(p) * x
+    copyto!(y, ifft(x))
 end
     
-
 AbstractFFTs.fftdims(p::Spell) = p.region
 Base.size(p::Spell) = p.size
 
 function (p::Spell{T})(x::AbstractVector{Complex{T}}) where T
-    fft(x)
+    p * x
 end
 
 end

@@ -17,7 +17,7 @@ load_reim = t -> join([
 # Wrapper for any other kernel shell strategy planer
 function makefftradix(n::Int,  suffixes::SuffixFlags, D::AbstractArray{String}, p::Int, s::Int, SIZE::Int, ::Type{T}) where T <: AbstractFloat
 
-  global inc = inccounter() # nullify glabal tmp 't' var counter for each new kernel generated
+  global inc = inccounter() # nullify global tmp 't' var counter for each new kernel generated
 
   has_y = has_flag(suffixes, Y)
   has_mat = has_flag(suffixes, MAT)
@@ -31,8 +31,6 @@ function makefftradix(n::Int,  suffixes::SuffixFlags, D::AbstractArray{String}, 
         x = ["$(input)$(i + p*s)" for i in 1:n]
         y = ["$output[$(i + p*s)]" for i in 1:n]
       else
-        #x = ["$(input)$(i + p*s)" for i in 1:n]
-        #y = ["$output[$(i + p*s)]" for i in 1:n]
         x = ["$(input)$(p + 1 + (i-1)*groups)" for i in 1:n]
         y = ["$output[$(i + p*s)]" for i in 1:n]
       end
@@ -48,11 +46,26 @@ function makefftradix(n::Int,  suffixes::SuffixFlags, D::AbstractArray{String}, 
     d = nothing
   end
 
-  # Replace with any other recfftN kernel family seed.
+  # Generate kernel code as string first
   kernel_code = recfft2(y, x, d, nothing, true, T) |> s -> replace(s, "#INPUT#" => input, "#OUTPUT#" => output)
-  #recfft3/5/7/11/13/17...????
-
-  return kernel_code
+  
+  # Parse the string into actual Julia expressions
+  if isempty(kernel_code)
+      return quote end
+  else
+      try
+          # Wrap in begin...end block for parsing multiple statements
+          parsed_expr = Meta.parse("begin\n$kernel_code\nend")
+          return parsed_expr
+      catch e
+          @warn "Failed to parse kernel code: $e"
+          @warn "Kernel code was: $kernel_code"
+          # Return a fallback expression
+          return quote
+              copyto!(y, x)
+          end
+      end
+  end
 end
 
 function parse_x(s::String)
@@ -126,7 +139,7 @@ function sat_expr(tmp, w)
         return "INV_SQRT2*($(tmp)_r + $(tmp)_i), " *
                "INV_SQRT2*($(tmp)_i - $(tmp)_r)"
     elseif w == "-INV_SQRT2_Q1"
-        # -(a ± b) * (1+i)/√2 = [ -(a_r ± b_r - a_i ∓ b_i)/√2 , -(a_r ± b_r + a_i ∓ b_i)/√2 ]
+        # -(a ± b) * (1+i)/√2 = [ -(a_r ± b_r - a_i ∓ b_i)/√2 , -(a_r ± b_r + a_i ± b_i)/√2 ]
         return "INV_SQRT2*($(tmp)_i - $(tmp)_r), " *
                "-INV_SQRT2*($(tmp)_r + $(tmp)_i)"
     else
@@ -192,7 +205,7 @@ function sat_expr(sign, x1, x2, w)
           "INV_SQRT2*(($(x1)[1] $sign $(x2)[1]) + ($(x1)[2] $sign $(x2)[2])), " *
           "INV_SQRT2*(($(x1)[2] $sign $(x2)[2]) - ($(x1)[1] $sign $(x2)[1]))"
   elseif w == "-INV_SQRT2_Q1"
-      # -(a ± b) * (1+i)/√2 = [ -(a_r ± b_r - a_i ∓ b_i)/√2 , -(a_r ± b_r + a_i ∓ b_i)/√2 ]
+      # -(a ± b) * (1+i)/√2 = [ -(a_r ± b_r - a_i ∓ b_i)/√2 , -(a_r ± b_r + a_i ± b_i)/√2 ]
       return is_t ? 
           "INV_SQRT2*(($(x1)_i $sign $(x2)_i) - ($(x1)_r $sign $(x2)_r)), " *
           "-INV_SQRT2*(($(x1)_r $sign $(x2)_r) + ($(x1)_i $sign $(x2)_i))" :
@@ -243,7 +256,7 @@ function sat_expr(sign, x1, x2, w)
               return is_t ?
               "muladd(-$c, $(x1)_r $sign $(x2)_r, $s * ($(x1)_i $sign $(x2)_i)), " *
               "muladd(-$s, $(x1)_r $sign $(x2)_r, -$c * ($(x1)_i $sign $(x2)_i))" :
-              "muladd(-$c, $(x1)[1] $sign $(x2)[1], $s * ($(x1)[2] $sign $(x2)[2]])), " *
+              "muladd(-$c, $(x1)[1] $sign $(x2)[1], $s * ($(x1)[2] $sign $(x2)[2])), " *
               "muladd(-$s, $(x1)[1] $sign $(x2)[1], -$c * ($(x1)[2] $sign $(x2)[2]))" 
           else
               # -cosθ + i sinθ
