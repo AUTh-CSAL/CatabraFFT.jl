@@ -90,10 +90,12 @@ function generate_mat_execute_function!(plan::RadixPlan, show_function=false)
     # Check if we need a final copy
     # After all stages, the result should be in y
     # current_input now points to where the result is
+    #=
     if current_input != :y
         show_function && println("Adding final copy from $current_input to y")
         push!(ops, :(copyto!(y, x)))
     end
+    =#
     
     # Build the complete monolithic function
     function_body = if isempty(ops)
@@ -112,10 +114,12 @@ function generate_mat_execute_function!(plan::RadixPlan, show_function=false)
         end
     end
     
-    show_function && println("Generated monolithic FFT function with $(length(ops)) operations")
+    show_function && println("Generated monolithic FFT function with $(length(ops)) operations. \n $func_expr")
     
     # Evaluate in the current module context
-    return Core.eval(@__MODULE__, func_expr)
+    #return Core.eval(@__MODULE__, func_expr)
+    Core.eval(@__MODULE__, func_expr)
+    return (y, x) -> Base.invokelatest(eval(func_expr, y, x))
 end
 
 # Extract constants as dictionary to avoid duplicates
@@ -239,29 +243,30 @@ function substitute_strided_final_stage(kernel_expr::Expr, out_var, in_var, offs
         elseif ex == :x
             return in_var
         elseif isa(ex, Symbol)
-            # Replace y1, y2, etc. with appropriate buffer references
+            # Replace y1, y2, etc. with appropriate variable names
             s = string(ex)
             if startswith(s, "y") && length(s) > 1
                 # Parse the number after 'y'
                 num_str = s[2:end]
                 if all(isdigit, num_str)
                     idx = parse(Int, num_str)
-                    # These are reading from INPUT buffer in final stage
+                    # Generate proper variable name: y1 -> y1, y5, etc.
                     actual_index = offset + (idx - 1) * stride
-                    return :($(in_var)[$actual_index])
+                    return Symbol("y$actual_index")
                 end
             elseif startswith(s, "x") && length(s) > 1
                 num_str = s[2:end]
                 if all(isdigit, num_str)
                     idx = parse(Int, num_str)
                     actual_index = offset + (idx - 1) * stride
-                    return :($(in_var)[$actual_index])
+                    return Symbol("x$actual_index")
                 end
             end
         end
         return ex
     end
 end
+
 
 # Standard variable substitution for non-final stages
 function substitute_kernel_vars(kernel_expr::Expr, out_var, in_var)
