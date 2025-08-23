@@ -122,7 +122,6 @@ function generate_kernel_expression(radix::Int, op, suffixes::SuffixFlags, p::In
     
     SIZE = op.n_groups * op.stride
     kernel_body = makefftradix(radix, suffixes, D, p, op.stride, SIZE, T)
-    @show name kernel_body typeof(kernel_body)
     
     return name, kernel_body
 end

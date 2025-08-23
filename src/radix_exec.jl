@@ -9,117 +9,95 @@ using BenchmarkTools
 include("helper_tools.jl")
 
 # Generate a complete monolithic FFT function with all kernels inlined
-function generate_mat_execute_function!(plan::RadixPlan, show_function=false)
+function generate_mat_execute_expr!(plan::RadixPlan, show_function::Bool=true)::Expr
     T = typeof(plan).parameters[1]
-    
-    # Extract kernel expressions directly
+
+    # 1) Gather kernels
     kernel_exprs = extract_kernel_expressions(plan, T)
-    
     show_function && println("Available kernels: ", collect(keys(kernel_exprs)))
-    
-    # Build the complete execution function with inlined kernels
+
+    # 2) Collect constants once
     ops = Expr[]
-    
-    # Extract constants once at the beginning - using Dict to avoid duplicates
     constants_dict = extract_constants_dict(kernel_exprs)
     for (const_name, const_value) in constants_dict
         push!(ops, :($(Symbol(const_name)) = $const_value))
     end
-    
-    # Track buffer state for Stockham algorithm
-    current_input = :x
+
+    # 3) Inline all stages
+    current_input  = :x
     current_output = :y
-    
+
     for (stage_idx, op) in enumerate(plan.operations)
         is_final_stage = (stage_idx == length(plan.operations))
-        radix = get_radix_divisor(op.op_type)
-        n_g = op.n_groups
+        radix  = get_radix_divisor(op.op_type)
+        n_g    = op.n_groups
         stride = op.stride
-        SIZE = n_g * stride
-        
-        show_function && println("Stage $stage_idx: radix=$radix, n_groups=$n_g, stride=$stride, input=$current_input, output=$current_output")
-        
+        SIZE   = n_g * stride
+
+        show_function && println("Stage $stage_idx: radix=$radix, n_groups=$n_g, stride=$stride, in=$current_input, out=$current_output")
+
         if !is_final_stage
-            # Non-final stage: inline radix kernels for each group
-            n_groups_per_radix = SIZE ÷ radix  # Total elements divided by radix
-            
-            show_function && println("  n_groups_per_radix = $n_groups_per_radix")
-            
+            n_groups_per_radix = SIZE ÷ radix
             for p in 0:(n_groups_per_radix-1)
-                kernel_key = "fft$(radix)_$(stride)x$(n_g)_$(p)!"
-                show_function && println("  Looking for kernel: $kernel_key")
-                
-                if haskey(kernel_exprs, kernel_key)
-                    kernel_body = kernel_exprs[kernel_key]
-                    # Remove constants that are already defined
-                    kernel_body = remove_constants_from_kernel(kernel_body)
-                    # Substitute input/output variables
-                    kernel_body = substitute_kernel_vars(kernel_body, current_output, current_input)
-                    push!(ops, kernel_body)
-                    show_function && println("    ✓ Found and added kernel")
-                else
-                    show_function && println("    ✗ Kernel not found")
-                    error("Missing kernel: $kernel_key")
-                end
+                key = "fft$(radix)_$(stride)x$(n_g)_$(p)!"
+                show_function && println("  kernel: $key")
+                haskey(kernel_exprs, key) || error("Missing kernel: $key")
+                body = kernel_exprs[key]
+                body = remove_constants_from_kernel(body)
+                body = substitute_kernel_vars(body, current_output, current_input)
+                push!(ops, body)
             end
         else
-            # Final stage: use direct indexing instead of views
             for j in 1:stride
-                kernel_key = "fft$(radix)_$(stride)x$(n_g)_0!"
-                show_function && println("  Looking for final kernel: $kernel_key, stride index: $j")
-                
-                if haskey(kernel_exprs, kernel_key)
-                    kernel_body = kernel_exprs[kernel_key]
-                    # Remove constants
-                    kernel_body = remove_constants_from_kernel(kernel_body)
-                    # Replace with direct strided indexing
-                    kernel_body = substitute_strided_final_stage(kernel_body, current_output, current_input, j, stride, SIZE)
-                    push!(ops, kernel_body)
-                    show_function && println("    ✓ Found and added final kernel with direct indexing")
-                else
-                    show_function && println("    ✗ Final kernel not found")
-                    error("Missing kernel: $kernel_key")
-                end
+                key = "fft$(radix)_$(stride)x$(n_g)_0!"
+                show_function && println("  final kernel: $key (offset=$j)")
+                haskey(kernel_exprs, key) || error("Missing kernel: $key")
+                body = kernel_exprs[key]
+                body = remove_constants_from_kernel(body)
+                body = substitute_strided_final_stage(body, current_output, current_input, j, stride, SIZE)
+                push!(ops, body)
             end
         end
-        
-        # Stockham buffer swapping for next stage
+
+        # Stockham swap
         current_input, current_output = current_output, current_input
     end
-    
-    # Check if we need a final copy
-    # After all stages, the result should be in y
-    # current_input now points to where the result is
-    #=
-    if current_input != :y
-        show_function && println("Adding final copy from $current_input to y")
-        push!(ops, :(copyto!(y, x)))
-    end
-    =#
-    
-    # Build the complete monolithic function
-    function_body = if isempty(ops)
-        :(copyto!(y, x))
-    else
-        Expr(:block, ops...)
-    end
-    
-    # Generate as a pure Julia function
+
+    # 4) Final body block
+    return isempty(ops) ? :(copyto!(y, x)) : Expr(:block, ops...)
+end
+
+function generate_mat_execute_function!(plan::RadixPlan, show_function::Bool=false)::Expr
+    T = typeof(plan).parameters[1]
+    function_body = generate_mat_execute_expr!(plan, show_function)
+
     func_expr = quote
         function (y::AbstractVector{Complex{$T}}, x::AbstractVector{Complex{$T}})
             @inbounds begin
                 $function_body
             end
-            return nothing
+            nothing
         end
     end
-    
-    show_function && println("Generated monolithic FFT function with $(length(ops)) operations. \n $func_expr")
-    
-    # Evaluate in the current module context
-    #return Core.eval(@__MODULE__, func_expr)
-    Core.eval(@__MODULE__, func_expr)
-    return (y, x) -> Base.invokelatest(eval(func_expr, y, x))
+
+    show_function && println("Generated monolithic FFT function.\n$func_expr")
+    return func_expr
+end
+
+
+function materialize_plan_function!(plan::RadixPlan, ::Type{T}) where {T}
+    body = generate_mat_execute_expr!(plan, false)
+
+    fexpr = quote
+        function (y::AbstractVector{Complex{$T}}, x::AbstractVector{Complex{$T}})
+            @inbounds begin
+                $body
+            end
+            nothing
+        end
+    end
+
+    return eval(fexpr)
 end
 
 # Extract constants as dictionary to avoid duplicates
@@ -311,82 +289,39 @@ function postwalk(f, expr)
 end
 
 # Benchmarking functions
-function return_best_static_linear_function(plans::Vector{RadixPlan{T}}, show_function::Bool) where T <: AbstractFloat
+function return_best_static_linear_expr(plans::Vector{RadixPlan{T}}, show_function::Bool)::Expr where T<:AbstractFloat
+    @assert !isempty(plans)
     N = plans[1].n
-    best_time = Inf
-    best_func = nothing
+
+    # fixed inputs for fair timing
     x = rand(Complex{T}, N)
     y = similar(x)
-    
+
+    best_time = Inf
+    best_body_expr::Union{Expr,Nothing} = nothing
+
     for plan in plans
         try
-            test_func = generate_mat_execute_function!(plan, show_function)
-            
-            show_function && println("Testing plan: $(plan.operations)")
-            
-            # Warmup
-            test_func(y, x)
-            
-            # Benchmark
-            test_time = time_limited_benchmark(test_func, y, x)
-            
-            show_function && println("Plan time: $test_time seconds")
-            
-            if test_time < best_time
-                best_func = test_func
-                best_time = test_time
+            show_function && println("Benchmarking plan: ", plan.operations)
+
+            f = materialize_plan_function!(plan, T)  # install callable
+            @show f
+            # warmup
+            Base.invokelatest(f, y, x)
+
+            t = @belapsed Base.invokelatest($f, $y, $x)
+
+            if t < best_time
+                best_time = t
+                best_body_expr = generate_mat_execute_expr!(plan, false)  # store BODY expr for compile-time splice
             end
-            
         catch e
-            @warn "Failed to generate/benchmark plan $(plan.operations): $e"
-            continue
+            @warn "Failed to benchmark plan $(plan.operations): $e"
         end
     end
 
-    show_function && println("Best plan time: $best_time seconds")
-    
-    if best_func === nothing
-        @warn "All plans failed, generating fallback"
-        return generate_fallback_function(N, T)
-    end
-    
-    return best_func
-end
-
-function generate_fallback_function(n::Int, ::Type{T}) where T
-    func_expr = quote
-        function (y::AbstractVector{Complex{$T}}, x::AbstractVector{Complex{$T}})
-            @inbounds for k in 1:$n
-                y[k] = zero(Complex{$T})
-                for j in 1:$n
-                    twiddle = cispi($T(-2) * (k-1) * (j-1) / $n)
-                    y[k] += x[j] * twiddle
-                end
-            end
-            return nothing
-        end
-    end
-    
-    return Core.eval(@__MODULE__, func_expr)
-end
-
-function time_limited_benchmark(f, y, x; time_limit=0.05)
-    f(y, x)  # Warmup
-    
-    total_time = 0.0
-    count = 0
-    
-    while total_time < time_limit && count < 100
-        elapsed_time = @elapsed f(y, x)
-        total_time += elapsed_time
-        count += 1
-    end
-    
-    return count > 0 ? total_time / count : Inf
-end
-
-function return_best_linear_function(plans::Vector{RadixPlan{T}}, show_function::Bool, ivdep::Bool) where T <: AbstractFloat
-    return return_best_static_linear_function(plans, show_function)
+    best_body_expr === nothing && error("No valid plan found")
+    return best_body_expr
 end
 
 function generate_linear_execute_function!(plan::RadixPlan, show_function::Bool, ivdep::Bool)

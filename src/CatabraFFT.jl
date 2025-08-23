@@ -156,7 +156,7 @@ function plan_fft(x::AbstractVector{Complex{T}}, flags::FLAG) where T <: Abstrac
     cached_spell !== nothing && return cached_spell
     
     # Generate the optimized FFT function based on size and flags
-    fft_func = generate_optimized_fft_function(n, T, flags)
+    fft_expr = GenerateKernelExpr(n, T, flags)
     
     # Create spell with the function stored directly - no world age issues
     spell = Spell{T}(n, flags, fft_func)
@@ -181,12 +181,14 @@ function AbstractFFTs.plan_inv(p::Spell{T}) where T
 end
 
 # Required * operation - direct execution of stored function
-@inline function Base.:*(p::Spell{T}, x::AbstractVector{Complex{T}}) where T
-    workspace = get_workspace(length(x), T)
-    copyto!(workspace.x_work, x)
+@inline function Base.:*(p::Spell{T,N,DECOMP,FLAG_VAL},
+                        x::AbstractVector{Complex{T}}) where {T,N,DECOMP,FLAG_VAL} 
+    #workspace = get_workspace(length(x), T)
+    #copyto!(workspace.x_work, x)
     y = similar(x)
     # Execute the cached function directly - no invokelatest needed
-    p.fft_func(y, workspace.x_work)
+    ####p.fft_func(y, workspace.x_work#)
+    execute_fft!(p, y, x)
     return y
 end
 
