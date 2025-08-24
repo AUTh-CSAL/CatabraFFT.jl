@@ -332,19 +332,11 @@ end
 # Benchmarking functions
 function return_best_static_linear_expr(plans::Vector{RadixPlan{T}}, show_function::Bool)::Expr where T<:AbstractFloat
     @assert !isempty(plans)
-function return_best_static_linear_expr(plans::Vector{RadixPlan{T}}, show_function::Bool)::Expr where T<:AbstractFloat
-    @assert !isempty(plans)
     N = plans[1].n
-
-    # fixed inputs for fair timing
 
     # fixed inputs for fair timing
     x = rand(Complex{T}, N)
     y = similar(x)
-
-    best_time = Inf
-    best_body_expr::Union{Expr,Nothing} = nothing
-
 
     best_time = Inf
     best_body_expr::Union{Expr,Nothing} = nothing
@@ -366,12 +358,8 @@ function return_best_static_linear_expr(plans::Vector{RadixPlan{T}}, show_functi
             end
         catch e
             @warn "Failed to benchmark plan $(plan.operations): $e"
-            @warn "Failed to benchmark plan $(plan.operations): $e"
         end
     end
-
-    best_body_expr === nothing && error("No valid plan found")
-    return best_body_expr
 
     best_body_expr === nothing && error("No valid plan found")
     return best_body_expr
