@@ -13,8 +13,12 @@ function generate_mat_execute_expr!(plan::RadixPlan, show_function::Bool=true)::
     T = typeof(plan).parameters[1]
 
     # 1) Gather kernels
+
+    # 1) Gather kernels
     kernel_exprs = extract_kernel_expressions(plan, T)
     show_function && println("Available kernels: ", collect(keys(kernel_exprs)))
+
+    # 2) Collect constants once
 
     # 2) Collect constants once
     ops = Expr[]
@@ -25,10 +29,16 @@ function generate_mat_execute_expr!(plan::RadixPlan, show_function::Bool=true)::
 
     # 3) Inline all stages
     current_input  = :x
+
+    # 3) Inline all stages
+    current_input  = :x
     current_output = :y
+
 
     for (stage_idx, op) in enumerate(plan.operations)
         is_final_stage = (stage_idx == length(plan.operations))
+        radix  = get_radix_divisor(op.op_type)
+        n_g    = op.n_groups
         radix  = get_radix_divisor(op.op_type)
         n_g    = op.n_groups
         stride = op.stride
@@ -36,9 +46,21 @@ function generate_mat_execute_expr!(plan::RadixPlan, show_function::Bool=true)::
 
         show_function && println("Stage $stage_idx: radix=$radix, n_groups=$n_g, stride=$stride, in=$current_input, out=$current_output")
 
+        SIZE   = n_g * stride
+
+        show_function && println("Stage $stage_idx: radix=$radix, n_groups=$n_g, stride=$stride, in=$current_input, out=$current_output")
+
         if !is_final_stage
             n_groups_per_radix = SIZE ÷ radix
+            n_groups_per_radix = SIZE ÷ radix
             for p in 0:(n_groups_per_radix-1)
+                key = "fft$(radix)_$(stride)x$(n_g)_$(p)!"
+                show_function && println("  kernel: $key")
+                haskey(kernel_exprs, key) || error("Missing kernel: $key")
+                body = kernel_exprs[key]
+                body = remove_constants_from_kernel(body)
+                body = substitute_kernel_vars(body, current_output, current_input)
+                push!(ops, body)
                 key = "fft$(radix)_$(stride)x$(n_g)_$(p)!"
                 show_function && println("  kernel: $key")
                 haskey(kernel_exprs, key) || error("Missing kernel: $key")
@@ -56,12 +78,30 @@ function generate_mat_execute_expr!(plan::RadixPlan, show_function::Bool=true)::
                 body = remove_constants_from_kernel(body)
                 body = substitute_strided_final_stage(body, current_output, current_input, j, stride, SIZE)
                 push!(ops, body)
+                key = "fft$(radix)_$(stride)x$(n_g)_0!"
+                show_function && println("  final kernel: $key (offset=$j)")
+                haskey(kernel_exprs, key) || error("Missing kernel: $key")
+                body = kernel_exprs[key]
+                body = remove_constants_from_kernel(body)
+                body = substitute_strided_final_stage(body, current_output, current_input, j, stride, SIZE)
+                push!(ops, body)
             end
         end
 
         # Stockham swap
+
+        # Stockham swap
         current_input, current_output = current_output, current_input
     end
+
+    # 4) Final body block
+    return isempty(ops) ? :(copyto!(y, x)) : Expr(:block, ops...)
+end
+
+function generate_mat_execute_function!(plan::RadixPlan, show_function::Bool=false)::Expr
+    T = typeof(plan).parameters[1]
+    function_body = generate_mat_execute_expr!(plan, show_function)
+
 
     # 4) Final body block
     return isempty(ops) ? :(copyto!(y, x)) : Expr(:block, ops...)
@@ -76,6 +116,7 @@ function generate_mat_execute_function!(plan::RadixPlan, show_function::Bool=fal
             @inbounds begin
                 $function_body
             end
+            nothing
             nothing
         end
     end
@@ -291,11 +332,19 @@ end
 # Benchmarking functions
 function return_best_static_linear_expr(plans::Vector{RadixPlan{T}}, show_function::Bool)::Expr where T<:AbstractFloat
     @assert !isempty(plans)
+function return_best_static_linear_expr(plans::Vector{RadixPlan{T}}, show_function::Bool)::Expr where T<:AbstractFloat
+    @assert !isempty(plans)
     N = plans[1].n
+
+    # fixed inputs for fair timing
 
     # fixed inputs for fair timing
     x = rand(Complex{T}, N)
     y = similar(x)
+
+    best_time = Inf
+    best_body_expr::Union{Expr,Nothing} = nothing
+
 
     best_time = Inf
     best_body_expr::Union{Expr,Nothing} = nothing
@@ -317,8 +366,12 @@ function return_best_static_linear_expr(plans::Vector{RadixPlan{T}}, show_functi
             end
         catch e
             @warn "Failed to benchmark plan $(plan.operations): $e"
+            @warn "Failed to benchmark plan $(plan.operations): $e"
         end
     end
+
+    best_body_expr === nothing && error("No valid plan found")
+    return best_body_expr
 
     best_body_expr === nothing && error("No valid plan found")
     return best_body_expr
