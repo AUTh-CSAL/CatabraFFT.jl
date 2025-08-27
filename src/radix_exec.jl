@@ -42,12 +42,14 @@ function GenerateMatrixExpr!(plan::RadixPlan, show_function::Bool=true)::Expr
         n_g    = op.n_groups
         stride = op.stride
         SIZE   = n_g * stride
-        is_monolithic_shell = (radix == n_g) # (stride = 1)
+        is_monolithic_shell = (radix == n_g) && (stride == 1)
+        @show is_monolithic_shell
 
 
         show_function && println("Stage $stage_idx: radix=$radix, n_groups=$n_g, stride=$stride, in=$current_input, out=$current_output")
 
         if is_monolithic_shell
+            println("A")
             key = "fft$(radix)_shell!"
             show_function && println("  kernel: $key")
             haskey(kernel_exprs, key) || error("Missing kernel: $key")
@@ -56,6 +58,7 @@ function GenerateMatrixExpr!(plan::RadixPlan, show_function::Bool=true)::Expr
                 #body = substitute_kernel_vars(body, current_output, current_input)
             push!(ops, body)
         elseif !is_final_stage
+            println("B")
             n_groups_per_radix = SIZE ÷ radix
             for p in 0:(n_groups_per_radix-1)
                 key = "fft$(radix)_$(stride)x$(n_g)_$(p)!"
@@ -67,6 +70,7 @@ function GenerateMatrixExpr!(plan::RadixPlan, show_function::Bool=true)::Expr
                 push!(ops, body)
             end
         else
+            println("C")
             for j in 1:stride
                 key = "fft$(radix)_$(stride)x$(n_g)_0!"
                 show_function && println("  final kernel: $key (offset=$j)")

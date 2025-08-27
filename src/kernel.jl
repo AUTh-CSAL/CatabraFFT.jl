@@ -43,68 +43,34 @@ Example:
     end
 end
 
-"""
-Runtime execution for RadixPlan during benchmarking.
-This is slower but allows testing different plans.
-"""
-function execute_fft!(plan::RadixPlan{T}, 
-                     y::AbstractVector{Complex{T}}, 
-                     x::AbstractVector{Complex{T}}) where T
-    # Get the expression
-    kernel_expr = Radix_Execute.generate_mat_execute_expr!(plan, true)
-    
-    # Create a function and execute it
-    func = eval(quote
-        function (y::AbstractVector{Complex{$T}}, x::AbstractVector{Complex{$T}})
-            @inbounds begin
-                $kernel_expr
-            end
-            nothing
-        end
-    end)
-    
-    Base.invokelatest(func, y, x)
-end
-
 # Store compiled functions directly - no dynamic module generation
+# Use Type{<:Spell} as keys for maximum performance and type-level optimization
 const COMPILED_FFT_EXPRS = Dict{Type{<:Spell}, Expr}()
 
 function empty_kernel_cache()
     empty!(COMPILED_FFT_EXPRS)
 end
 
-#=
-function get_cached_spell(n::Int, T::Type, flag::FLAG)
-    key = (n, T, flag)
-    haskey(COMPILED_FFT_EXPRS, key) ? 
-        Spell{T}(n, flag, COMPILED_FFT_EXPRS[key]) : 
-        nothing
-end
-=#
-
-function cache_spell!(spell::Spell{T}) where T
-    key = (spell.n, spell.type, spell.flag)
-    COMPILED_FFT_EXPRS[key] = spell.fft_func
-end
-
 # Generate optimized FFT function at compile time
 @inline function GenerateKernelExpr(n::Int, ::Type{T}, flag::FLAG)::Expr where {T <: AbstractFloat}
-    # Check cache first
-    key = (n, T, flag)
-    haskey(COMPILED_FFT_EXPRS, key) && return COMPILED_FFT_EXPRS[key]
+    # Use type-level caching for maximum performance
+    spell_type = Spell{T, n, Tuple{}, Int(flag)}
+    haskey(COMPILED_FFT_EXPRS, spell_type) && return COMPILED_FFT_EXPRS[spell_type]
     
     # Generate function based on size
     fft_func = if n == 1
-        return quote
+        quote
             @inbounds y[1] = x[1]
             nothing
         end
     elseif is_power_of(n, 2)
         generate_radix_fft_function(n, T, flag)
+    else
+        error("Unsupported transform size: $n")
     end
     
-    # Cache and return
-    COMPILED_FFT_EXPRS[key] = fft_func
+    # Cache at type level and return
+    COMPILED_FFT_EXPRS[spell_type] = fft_func
     return fft_func
 end
 
@@ -117,34 +83,22 @@ function generate_radix_fft_function(n::Int, ::Type{T}, flag::FLAG)::Expr where 
             plans = Radix_Plan.create_all_radix_plans(n, subpowers_of_two(n), T)
             # Returns BODY expr; perfect to splice later
             return Radix_Execute.return_best_static_linear_expr(plans, true)
-        end
-    #=
-        elseif flag >= MEASURE
-            plans = Radix_Plan.create_all_radix_plans(n, subpowers_of_two(n), T)
-            return Radix_Execute.return_best_linear_function(plans, false, false)
         else
-            # Standard case - single plan
+            # For non-ENCHANT flags, use single plan approach
             plan = Radix_Plan.create_std_radix_plan(n, [8,4,2], T)
             return Radix_Execute.generate_mat_execute_function!(plan, false)
         end
-    elseif is_power_of(n, 3)
-        plan = Radix_Plan.create_std_radix_plan(n, [9, 3], T)
-        return Radix_Execute.generate_mat_execute_function!(plan, false)
-    elseif is_power_of(n, 5)
-        plan = Radix_Plan.create_std_radix_plan(n, [5], T)
-        return Radix_Execute.generate_mat_execute_function!(plan, false)
-    elseif is_power_of(n, 7)
-        plan = Radix_Plan.create_std_radix_plan(n, [7], T)
-        return Radix_Execute.generate_mat_execute_function!(plan, false)
-        =#
-        error("Unsupported radix")
+    else
+        error("Unsupported radix for size: $n")
     end
 end
 
 # Direct kernel execution - no world age issues
 @inline function fft_kernel_direct!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}, n::Int) where T <: AbstractFloat
     fft_func_expr = GenerateKernelExpr(n, T, NO_FLAG)
-    execute_fft!(Spell(T, N, Tuple(N)), y, x) # Direct call - no invokelatest
+    # Create a temporary spell for execution
+    spell = Spell(T, n, Tuple{}, NO_FLAG)
+    execute_fft!(spell, y, x) # Direct call - no invokelatest
     return y
 end
 

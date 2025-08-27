@@ -6,15 +6,10 @@ const NO_FLAG = FLAG(0)
 const MEASURE = FLAG(1)
 const ENCHANT = FLAG(2)
 
-# Pure type-level Spell - no runtime data, everything encoded in type parameters
+# Pure type-level Spell - truly no runtime data, everything encoded in type parameters
 # This serves as both the plan and the cache key
 struct Spell{T <: AbstractFloat, N, DECOMP, FLAG_VAL}
-    # Empty - all information is encoded in type parameters
-    # N: transform size (as Int in type parameter)
-    # DECOMP: decomposition strategy as tuple type
-    # FLAG_VAL: optimization flags
-    
-    # Add fields for AbstractFFTs compatibility
+    # Add minimal fields for AbstractFFTs compatibility only
     size::Tuple{Int}
     region::UnitRange{Int}
     pinv::Base.RefValue{Any}
@@ -48,4 +43,13 @@ function plan_to_decomp(plan::Radix_Plan.RadixPlan)
         push!(decomp, (radix=radix, stride=op.stride, n_groups=op.n_groups))
     end
     return Tuple(decomp)
+end
+
+# Type-level cache key generation for maximum performance
+@inline function spell_type(::Type{T}, n::Int, decomp::Tuple, flag::FLAG) where T<:AbstractFloat
+    return Spell{T, n, typeof(decomp), Int(flag)}
+end
+
+@inline function spell_type(::Type{T}, n::Int, flag::FLAG) where T<:AbstractFloat
+    return Spell{T, n, Tuple{}, Int(flag)}
 end
