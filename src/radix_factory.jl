@@ -17,7 +17,7 @@ using .Radix_Plan
 export create_kernel_module, extract_plan_data
 
 # Instead of generating a module, generate a dictionary of kernel expressions
-function create_kernel_dictionary(plan_data::NamedTuple, ::Type{T}) where T <: AbstractFloat
+function create_kernel_dictionary(plan_data::NamedTuple, ::Type{T})::Dict{String, Expr} where T <: AbstractFloat
     kernels = Dict{String, Expr}()
     
     # Generate constants as local variables

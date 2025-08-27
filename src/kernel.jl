@@ -19,14 +19,21 @@ Example:
 
  C = CatabraFFT.plan_fft{x, CatabraFFT.ENCHANT); execute_fft!(C, y, x)
 """
-@generated function execute_fft!(::Spell{T,N,DECOMP,FLAG_VAL}, 
+@generated function execute_fft!(spell::Spell{T,N,DECOMP,FLAG_VAL}, 
                                  y::AbstractVector{Complex{T}}, 
                                  x::AbstractVector{Complex{T}})::Expr where {T,N,DECOMP,FLAG_VAL}
     # This code runs at compile time!
-    # Generate the entire FFT kernel as an expression
+    # Generates the entire FFT kernel as an expression
     
-    # Generate optimized radix kernel
-    kernel_expr = GenerateKernelExpr(N, T, FLAG_VAL)
+    spell_type = Spell{T,N,DECOMP,FLAG_VAL}
+    
+    if haskey(COMPILED_FFT_EXPRS, spell_type)
+        kernel_expr = COMPILED_FFT_EXPRS[spell_type]
+    else
+        # Generate optimized radix kernel expression
+        kernel_expr = GenerateKernelExpr(N, T, FLAG(FLAG_VAL))
+        COMPILED_FFT_EXPRS[spell_type] = kernel_expr
+    end
     
     return quote
         @inbounds begin
@@ -60,18 +67,20 @@ function execute_fft!(plan::RadixPlan{T},
 end
 
 # Store compiled functions directly - no dynamic module generation
-const COMPILED_FFT_EXPRS = Dict{Tuple{Int,Type,FLAG}, Expr}()
+const COMPILED_FFT_EXPRS = Dict{Type{<:Spell}, Expr}()
 
 function empty_kernel_cache()
     empty!(COMPILED_FFT_EXPRS)
 end
 
+#=
 function get_cached_spell(n::Int, T::Type, flag::FLAG)
     key = (n, T, flag)
     haskey(COMPILED_FFT_EXPRS, key) ? 
         Spell{T}(n, flag, COMPILED_FFT_EXPRS[key]) : 
         nothing
 end
+=#
 
 function cache_spell!(spell::Spell{T}) where T
     key = (spell.n, spell.type, spell.flag)

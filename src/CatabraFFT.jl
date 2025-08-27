@@ -151,16 +151,19 @@ X = p * x
 function plan_fft(x::AbstractVector{Complex{T}}, flags::FLAG) where T <: AbstractFloat
     n = length(x)
     
-    # Check cache first
-    cached_spell = get_cached_spell(n, T, flags)
-    cached_spell !== nothing && return cached_spell
+    # Determine decomposition based on flags and size
+    decomp = determine_decomposition(n, T, flags)
     
-    # Generate the optimized FFT function based on size and flags
-    fft_expr = GenerateKernelExpr(n, T, flags)
+    # Create spell with the appropriate type parameters
+    spell = Spell(T, n, decomp, flags)
     
-    # Create spell with the function stored directly - no world age issues
-    spell = Spell{T}(n, flags, fft_func)
-    cache_spell!(spell)
+    # Pre-generate and cache the kernel expression if not already cached
+    spell_type = typeof(spell)
+    if !haskey(COMPILED_FFT_EXPRS, spell_type)
+        kernel_expr = GenerateKernelExpr(n, T, flags)
+        COMPILED_FFT_EXPRS[spell_type] = kernel_expr
+    end
+    
     return spell
 end
 
@@ -183,25 +186,24 @@ end
 # Required * operation - direct execution of stored function
 @inline function Base.:*(p::Spell{T,N,DECOMP,FLAG_VAL},
                         x::AbstractVector{Complex{T}}) where {T,N,DECOMP,FLAG_VAL} 
-    #workspace = get_workspace(length(x), T)
-    #copyto!(workspace.x_work, x)
+    workspace = get_workspace(length(x), T)
+    copyto!(workspace.x_work, x)
     y = similar(x)
     # Execute the cached function directly - no invokelatest needed
-    ####p.fft_func(y, workspace.x_work#)
-    execute_fft!(p, y, x)
+    execute_fft!(p, y, workspace.x_work)
     return y
 end
 
 # Support for real FFTs (simplified)
 function AbstractFFTs.plan_rfft(x::AbstractVector{T}, region=1:1) where T<:AbstractFloat
     n = length(x)
-    fft_func = (y, x_work) -> real_fft_kernel!(y, x_work, n)
-    Spell{T}(n ÷ 2 + 1, NO_FLAG, fft_func)
+    # Create a spell for real FFT
+    spell = Spell(T, n ÷ 2 + 1, (), NO_FLAG)
+    return spell
 end
 
 function AbstractFFTs.plan_brfft(x::AbstractVector{Complex{T}}, d::Integer, region=1:1) where T<:AbstractFloat
-    fft_func = (y, x_work) -> real_ifft_kernel!(y, x_work, d)
-    spell = Spell{T}(d, NO_FLAG, fft_func)
+    spell = Spell(T, d, (), NO_FLAG)
     spell.pinv[] = plan_rfft(zeros(T, d), region)
     return spell
 end
@@ -221,6 +223,52 @@ Base.size(p::Spell) = p.size
 
 function (p::Spell{T})(x::AbstractVector{Complex{T}}) where T
     p * x
+end
+
+# Helper function to determine decomposition strategy
+function determine_decomposition(n::Int, ::Type{T}, flags::FLAG) where T
+    if n == 1
+        return ()
+    elseif is_power_of(n, 2)
+        if flags >= ENCHANT
+            # For ENCHANT, we use an optimized decomposition
+            # This would be determined by the benchmarking in GenerateKernelExpr
+            # For now, we'll use a standard decomposition
+            return get_optimal_decomposition(n, T)
+        else
+            # Standard decomposition for power of 2
+            return get_standard_decomposition(n)
+        end
+    else
+        # Non-power-of-2 sizes
+        return ()
+    end
+end
+
+function get_optimal_decomposition(n::Int, ::Type{T}) where T
+    # This would ideally be determined by benchmarking
+    # For now, return a standard decomposition
+    decomp = []
+    remaining = n
+    for radix in [8, 4, 2]
+        while remaining % radix == 0
+            push!(decomp, radix)
+            remaining ÷= radix
+        end
+    end
+    return Tuple(decomp)
+end
+
+function get_standard_decomposition(n::Int)
+    decomp = []
+    remaining = n
+    for radix in [8, 4, 2]
+        while remaining % radix == 0
+            push!(decomp, radix)
+            remaining ÷= radix
+        end
+    end
+    return Tuple(decomp)
 end
 
 end
