@@ -55,8 +55,12 @@ function generate_local_constants(n::Int, ::Type{T}) where T <: AbstractFloat
             angle_cos = T(cospi(angle))
             angle_sin = T(sinpi(angle))
             
-            push!(constants, :(COSPI_$(n4-i)_$(n2) = $angle_cos))
-            push!(constants, :(SINPI_$(n4-i)_$(n2) = $angle_sin))
+            # Construct symbol names properly
+            cospi_name = Symbol("COSPI_$(n4-i)_$(n2)")
+            sinpi_name = Symbol("SINPI_$(n4-i)_$(n2)")
+            
+            push!(constants, :($cospi_name = $angle_cos))
+            push!(constants, :($sinpi_name = $angle_sin))
         end
         
         current_n >>= 1
@@ -206,10 +210,37 @@ function get_constant_expression(w::Complex{T}, n::Integer)::String where T <: A
         (-1/√2, -1/√2) => "-INV_SQRT2_Q1"
     ]
     
+    # Check special cases first
     for ((re, im), expr) in common_cases
         if isclose(real_part, re) && isclose(imag_part, im)
             return expr
         end
+    end
+
+    current_n = n
+    # Handle cases based on radix size
+    while current_n >= 16
+        n2 = current_n >> 1
+        n4 = current_n >> 2
+        s = current_n >> 3
+        angles = [(n4-i,n2) for i in 1:2:s]
+        for (num, den) in angles
+            cispi1, cispi2  = cispi(num/den), cispi(-num/den)
+            if isclose(w, cispi1)
+                return "CISPI_$(num)_$(den)_Q1"
+            elseif isclose(w, -cispi1)
+                return "-CISPI_$(num)_$(den)_Q1"
+            elseif isclose(w, cispi2)
+                return "CISPI_$(num)_$(den)_Q4"
+            elseif isclose(w, -cispi2)
+                return "-CISPI_$(num)_$(den)_Q4"
+            elseif isclose(w, -im*cispi1)
+                return "-im*CISPI_$(num)_$(den)_Q1"
+            elseif isclose(w, -im*cispi2)
+                return "-im*CISPI_$(num)_$(den)_Q4"
+            end
+        end
+        current_n >>= 1
     end
     
     # Fallback to numerical

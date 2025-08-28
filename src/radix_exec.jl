@@ -14,7 +14,6 @@ function GenerateMatrixExpr!(plan::RadixPlan, show_function::Bool=true)::Expr
 
     # 1) Gather kernels
     kernel_exprs = extract_kernel_expressions(plan, T)
-    @show kernel_exprs
     show_function && println("Available kernels: ", collect(keys(kernel_exprs)))
 
     # 2) Collect constants once
@@ -35,21 +34,16 @@ function GenerateMatrixExpr!(plan::RadixPlan, show_function::Bool=true)::Expr
 
 
     for (stage_idx, op) in enumerate(plan.operations)
-        @show stage_idx plan
         is_final_stage = (stage_idx == length(plan.operations))
-        @show is_final_stage
         radix  = get_radix_divisor(op.op_type)
         n_g    = op.n_groups
         stride = op.stride
         SIZE   = n_g * stride
         is_monolithic_shell = (radix == n_g) && (stride == 1)
-        @show is_monolithic_shell
-
 
         show_function && println("Stage $stage_idx: radix=$radix, n_groups=$n_g, stride=$stride, in=$current_input, out=$current_output")
 
         if is_monolithic_shell
-            println("A")
             key = "fft$(radix)_shell!"
             show_function && println("  kernel: $key")
             haskey(kernel_exprs, key) || error("Missing kernel: $key")
@@ -58,7 +52,6 @@ function GenerateMatrixExpr!(plan::RadixPlan, show_function::Bool=true)::Expr
                 #body = substitute_kernel_vars(body, current_output, current_input)
             push!(ops, body)
         elseif !is_final_stage
-            println("B")
             n_groups_per_radix = SIZE ÷ radix
             for p in 0:(n_groups_per_radix-1)
                 key = "fft$(radix)_$(stride)x$(n_g)_$(p)!"
@@ -70,7 +63,6 @@ function GenerateMatrixExpr!(plan::RadixPlan, show_function::Bool=true)::Expr
                 push!(ops, body)
             end
         else
-            println("C")
             for j in 1:stride
                 key = "fft$(radix)_$(stride)x$(n_g)_0!"
                 show_function && println("  final kernel: $key (offset=$j)")
@@ -111,7 +103,7 @@ end
 
 
 function materialize_plan_function!(plan::RadixPlan, ::Type{T}) where {T}
-    body = GenerateMatrixExpr!(plan, true)
+    body = GenerateMatrixExpr!(plan, false)
 
     fexpr = quote
         function (y::AbstractVector{Complex{$T}}, x::AbstractVector{Complex{$T}})
@@ -330,11 +322,14 @@ function return_best_static_linear_expr(plans::Vector{RadixPlan{T}}, show_functi
             show_function && println("Benchmarking plan: ", plan.operations)
 
             f = materialize_plan_function!(plan, T)  # install callable
-            @show f
+            
+            show_function && println("Materialized function $(plan.operations)")
             # warmup
             Base.invokelatest(f, y, x)
 
             t = @belapsed Base.invokelatest($f, $y, $x)
+            
+            show_function && println("Benchmarked time: $t of plan: $(plan.operations)")
 
             if t < best_time
                 best_time = t
@@ -344,6 +339,8 @@ function return_best_static_linear_expr(plans::Vector{RadixPlan{T}}, show_functi
             @warn "Failed to benchmark plan $(plan.operations): $e"
         end
     end
+    
+    show_function && println("Best time: $best_time of plan: $best_body_expr")
 
     best_body_expr === nothing && error("No valid plan found")
     return best_body_expr

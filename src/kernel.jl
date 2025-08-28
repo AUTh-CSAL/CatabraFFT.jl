@@ -82,7 +82,7 @@ function generate_radix_fft_function(n::Int, ::Type{T}, flag::FLAG)::Expr where 
         if flag >= ENCHANT
             plans = Radix_Plan.create_all_radix_plans(n, subpowers_of_two(n), T)
             # Returns BODY expr; perfect to splice later
-            return Radix_Execute.return_best_static_linear_expr(plans, true)
+            return Radix_Execute.return_best_static_linear_expr(plans, false) # MAGIC
         else
             # For non-ENCHANT flags, use single plan approach
             plan = Radix_Plan.create_std_radix_plan(n, [8,4,2], T)

@@ -1,7 +1,7 @@
 module CatabraFFT
 
 # Opt out of precompilation to avoid method overwriting during dynamic code generation
-__precompile__(false)
+#__precompile__(false)
 
 include("kernel.jl")
 
