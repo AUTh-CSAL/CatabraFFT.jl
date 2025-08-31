@@ -17,8 +17,6 @@ function GenerateMatrixExpr!(plan::RadixPlan, show_function::Bool=true)::Expr
     show_function && println("Available kernels: ", collect(keys(kernel_exprs)))
 
     # 2) Collect constants once
-
-    # 2) Collect constants once
     ops = Expr[]
     constants_dict = extract_constants_dict(kernel_exprs)
     for (const_name, const_value) in constants_dict
@@ -103,18 +101,39 @@ end
 
 
 function materialize_plan_function!(plan::RadixPlan, ::Type{T}) where {T}
+    constants_dict = RadixGenerator.generate_local_constants_dict(plan.n, T)
     body = GenerateMatrixExpr!(plan, false)
+    substituted_body = substitute_constants_in_expr(body, constants_dict)
+    @show substituted_body
 
     fexpr = quote
-        function (y::AbstractVector{Complex{$T}}, x::AbstractVector{Complex{$T}})
+        @inline function (y::AbstractVector{Complex{$T}}, x::AbstractVector{Complex{$T}})
             @inbounds begin
-                $body
+                $substituted_body
             end
             nothing
         end
     end
 
     return eval(fexpr)
+end
+
+# Function to substitute constant symbols with literal values
+function substitute_constants_in_expr(expr, constants_dict::Dict{Symbol, T}) where T
+    if isa(expr, Expr)
+        # Recursively process all sub-expressions
+        new_args = [substitute_constants_in_expr(arg, constants_dict) for arg in expr.args]
+        return Expr(expr.head, new_args...)
+    elseif isa(expr, Symbol)
+        # Replace symbol with literal value if it's a constant
+        if haskey(constants_dict, expr)
+            return constants_dict[expr]
+        else
+            return expr  # Keep symbol as-is if not a constant
+        end
+    else
+        return expr  # Return literals unchanged
+    end
 end
 
 # Extract constants as dictionary to avoid duplicates

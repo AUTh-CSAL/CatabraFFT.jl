@@ -10,20 +10,22 @@ include("helper_tools.jl")
 
 export Radix_Plan, RadixGenerator, Radix_Execute
 
-# kernel.jl - The magic happens here
+# Store compiled functions directly - no dynamic module generation
+const COMPILED_FFT_EXPRS = Dict{Type{<:Spell}, Expr}()
+
+function empty_kernel_cache()
+    empty!(COMPILED_FFT_EXPRS)
+end
 
 """
 Generated function that produces optimized FFT kernel at compile time.
 No world age issues, no invokelatest, just pure compiled performance.
-Example:
-
- C = CatabraFFT.plan_fft{x, CatabraFFT.ENCHANT); execute_fft!(C, y, x)
 """
 @generated function execute_fft!(spell::Spell{T,N,DECOMP,FLAG_VAL}, 
                                  y::AbstractVector{Complex{T}}, 
-                                 x::AbstractVector{Complex{T}})::Expr where {T,N,DECOMP,FLAG_VAL}
-    # This code runs at compile time!
-    # Generates the entire FFT kernel as an expression
+                                 x::AbstractVector{Complex{T}}) where {T,N,DECOMP,FLAG_VAL}
+    # Generate constants dictionary at compile time
+    constants_dict = RadixGenerator.generate_local_constants_dict(N, T)
     
     spell_type = Spell{T,N,DECOMP,FLAG_VAL}
     
@@ -35,33 +37,27 @@ Example:
         COMPILED_FFT_EXPRS[spell_type] = kernel_expr
     end
     
+    # Substitute constants with literal values
+    substituted_kernel = Radix_Execute.substitute_constants_in_expr(kernel_expr, constants_dict)
+    @show substituted_kernel
+    
     return quote
         @inbounds begin
-            $kernel_expr
+            $substituted_kernel
         end
         nothing
     end
 end
 
-# Store compiled functions directly - no dynamic module generation
-# Use Type{<:Spell} as keys for maximum performance and type-level optimization
-const COMPILED_FFT_EXPRS = Dict{Type{<:Spell}, Expr}()
-
-function empty_kernel_cache()
-    empty!(COMPILED_FFT_EXPRS)
-end
-
 # Generate optimized FFT function at compile time
 @inline function GenerateKernelExpr(n::Int, ::Type{T}, flag::FLAG)::Expr where {T <: AbstractFloat}
-    # Use type-level caching for maximum performance
     spell_type = Spell{T, n, Tuple{}, Int(flag)}
     haskey(COMPILED_FFT_EXPRS, spell_type) && return COMPILED_FFT_EXPRS[spell_type]
     
     # Generate function based on size
     fft_func = if n == 1
         quote
-            @inbounds y[1] = x[1]
-            nothing
+            y[1] = x[1]
         end
     elseif is_power_of(n, 2)
         generate_radix_fft_function(n, T, flag)
@@ -74,31 +70,25 @@ end
     return fft_func
 end
 
-# Generate radix FFT function with compile-time optimizations - saturated twiddles
+# Generate radix FFT function with compile-time optimizations
 function generate_radix_fft_function(n::Int, ::Type{T}, flag::FLAG)::Expr where {T<:AbstractFloat}
     @assert is_power_of(n, 2)
     
-    if is_power_of(n, 2)
-        if flag >= ENCHANT
-            plans = Radix_Plan.create_all_radix_plans(n, subpowers_of_two(n), T)
-            # Returns BODY expr; perfect to splice later
-            return Radix_Execute.return_best_static_linear_expr(plans, false) # MAGIC
-        else
-            # For non-ENCHANT flags, use single plan approach
-            plan = Radix_Plan.create_std_radix_plan(n, [8,4,2], T)
-            return Radix_Execute.generate_mat_execute_function!(plan, false)
-        end
+    if flag >= ENCHANT
+        plans = Radix_Plan.create_all_radix_plans(n, subpowers_of_two(n), T)
+        return Radix_Execute.return_best_static_linear_expr(plans, true)
     else
-        error("Unsupported radix for size: $n")
+        plan = Radix_Plan.create_std_radix_plan(n, [8,4,2], T)
+        return Radix_Execute.generate_mat_execute_function!(plan, false)
     end
 end
 
+
+
 # Direct kernel execution - no world age issues
 @inline function fft_kernel_direct!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}, n::Int) where T <: AbstractFloat
-    fft_func_expr = GenerateKernelExpr(n, T, NO_FLAG)
-    # Create a temporary spell for execution
     spell = Spell(T, n, Tuple{}, NO_FLAG)
-    execute_fft!(spell, y, x) # Direct call - no invokelatest
+    execute_fft!(spell, y, x)
     return y
 end
 
