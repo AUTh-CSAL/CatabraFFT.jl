@@ -39,7 +39,7 @@ No world age issues, no invokelatest, just pure compiled performance.
     
     # Substitute constants with literal values
     substituted_kernel = Radix_Execute.substitute_constants_in_expr(kernel_expr, constants_dict)
-    @show substituted_kernel
+    #@show substituted_kernel
     
     return quote
         @inbounds begin

@@ -306,7 +306,7 @@ function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1) where T <: AbstractFlo
           if isnothing(w)
             if root
               load_reim(x) * "\n" * 
-              "tmp0_r, tmp0_i = $(x[1])[1] - $(x[2])[1], $(x[1])[2] - $(x[2])[2]" * "\n" * """
+              "local tmp0_r, tmp0_i = $(x[1])[1] - $(x[2])[1], $(x[1])[2] - $(x[2])[2]" * "\n" * """
               $(y[1]), $(y[2]) = Complex{$T}($(x[1])[1] + $(x[2])[1], $(x[1])[2] + $(x[2])[2]), Complex{$T}($(sat_expr("tmp0", "$(d[1])")))
               """
             end
@@ -314,20 +314,20 @@ function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1) where T <: AbstractFlo
         else
           if root
             load_reim(x) * "\n" * """
-            $(y[1]), $(y[2]) = Complex{$T}($(x[1])[1] + $(x[2])[1], $(x[1])[2] + $(x[2])[2]), Complex{$T}($(x[1])[1] - $(x[2])[1], $(x[1])[2] - $(x[2])[2])
+            local $(y[1]), $(y[2]) = Complex{$T}($(x[1])[1] + $(x[2])[1], $(x[1])[2] + $(x[2])[2]), Complex{$T}($(x[1])[1] - $(x[2])[1], $(x[1])[2] - $(x[2])[2])
             """ 
           else
             if isnothing(w)
             """
-            $(y[1])_r, $(y[1])_i, $(y[2])_r, $(y[2])_i = $(x[1])[1] + $(x[2])[1], $(x[1])[2] + $(x[2])[2], $(x[1])[1] - $(x[2])[1], $(x[1])[2] - $(x[2])[2]
+            local $(y[1])_r, $(y[1])_i, $(y[2])_r, $(y[2])_i = $(x[1])[1] + $(x[2])[1], $(x[1])[2] + $(x[2])[2], $(x[1])[1] - $(x[2])[1], $(x[1])[2] - $(x[2])[2]
             """
             else
             w[1] == "1" ? 
                 """
-                $(y[1])_r, $(y[1])_i, $(y[2])_r, $(y[2])_i = $(x[1])[1] + $(x[2])[1], $(x[1])[2] + $(x[2])[2], $(sat_expr("-", "$(x[1])", "$(x[2])", "$(w[2])"))
+                local $(y[1])_r, $(y[1])_i, $(y[2])_r, $(y[2])_i = $(x[1])[1] + $(x[2])[1], $(x[1])[2] + $(x[2])[2], $(sat_expr("-", "$(x[1])", "$(x[2])", "$(w[2])"))
                 """ :
                 """
-                $(y[1]), $(y[2]) = $(sat_expr("+", "$(x[1])", "$(x[2])", "$(w[1])")), $(sat_expr("-", "$(x[1])", "$(x[2])", "$(w[2])"))
+                local $(y[1]), $(y[2]) = $(sat_expr("+", "$(x[1])", "$(x[2])", "$(w[1])")), $(sat_expr("-", "$(x[1])", "$(x[2])", "$(w[2])"))
                 """
             end
           end
@@ -392,12 +392,12 @@ function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1) where T <: AbstractFlo
                 "$(t[1])_r - $(t[1+n2])_r, $(t[1])_i - $(t[1+n2])_i" * foldl(*, vmap(i -> ", $(t[i])_r - $(t[i+n2])_r, $(t[i])_i - $(t[i+n2])_i", 2:n2)) * "\n"
         end
       else
-        s3p = "$(tmp_decls)" * "\n" *
+        s3p = "local $(tmp_decls)" * "\n" *
               "$(y[1])_r, $(y[1])_i" * foldl(*, vmap(i -> ", $(y[i])_r, $(y[i])_i", 2:n2)) *
               " = " *
               (w[1] == "1" ? "$(t[1])_r + $(t[1+n2])_r, $(t[1])_i + $(t[1+n2])_i" : "$(sat_expr("tmp$(t[1])", "$(w[1])"))") *
               foldl(*, vmap(i -> ", $(sat_expr("tmp$(i-2)", "$(w[i])"))", 2:n2)) * "\n"
-        s3m = "$(y[n2+1])_r, $(y[n2+1])_i" * foldl(*, vmap(i -> ", $(y[i+n2])_r, $(y[i+n2])_i", 2:n2)) *
+        s3m = "local $(y[n2+1])_r, $(y[n2+1])_i" * foldl(*, vmap(i -> ", $(y[i+n2])_r, $(y[i+n2])_i", 2:n2)) *
               " = " *
               "$(sat_expr("-", "$(t[1])", "$(t[1+n2])", "$(w[n2+1])"))" *
               foldl(*, vmap(i -> ", $(sat_expr("tmp$(i-3+n2)", "$(w[n2+i])"))", 2:n2)) * "\n"
