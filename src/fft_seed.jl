@@ -9,10 +9,35 @@ load_reim = t -> join([
               startswith(s, "D") ? "d" : error("Unknown input: $s")
         rhs = occursin('[', s) ? replace(s, " " => "") : "$var[$num]"
         prefix = i == 1 ? "" : " "
-        "$(prefix)$(var)$num = reim($rhs)"
+        "local $(prefix)$(var)$num = reim($rhs)"
     end
     for (i, s) in enumerate(t)
 ], "; ")
+
+function load_real_imag(indices::Vector{String}, input_name::String)
+    if isempty(indices)
+        return ""
+    end
+    
+    # Generate split-complex access declarations
+    # Instead of: x1 = reim(x[1]); x1[1], x1[2]
+    # Use: x1_re = real(x[1]); x1_im = imag(x[1])
+    declarations = String[]
+    
+    for var_idx in indices
+        if occursin('[', var_idx)
+            # Extract index from x[1] -> 1
+            clean_idx = replace(var_idx, r"[^\d]" => "")
+            idx = parse(Int, clean_idx)
+            var_base = replace(var_idx, r"\[\d+\]" => "")
+            
+            push!(declarations, "$(var_base)$(idx)_re = real($(var_idx))")
+            push!(declarations, "$(var_base)$(idx)_im = imag($(var_idx))")
+        end
+    end
+    
+    return join(declarations, "; ")
+end
 
 # Wrapper for any other kernel shell strategy planer
 function makefftradix(n::Int,  suffixes::SuffixFlags, D::AbstractArray{String}, p::Int, s::Int, SIZE::Int, ::Type{T}) where T <: AbstractFloat
@@ -123,7 +148,7 @@ function add_more_tmp_vars(x1, x2, wn, n)
     end
 
     if !isempty(tmp_vars)
-      return "$(join(tmp_vars, ", ")) = $(join(assignments, ", "))\n"
+      return "local $(join(tmp_vars, ", ")) = $(join(assignments, ", "))\n"
     end
 
     return ""
@@ -306,7 +331,7 @@ function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1) where T <: AbstractFlo
           if isnothing(w)
             if root
               load_reim(x) * "\n" * 
-              "local tmp0_r, tmp0_i = $(x[1])[1] - $(x[2])[1], $(x[1])[2] - $(x[2])[2]" * "\n" * """
+              "tmp0_r, tmp0_i = $(x[1])[1] - $(x[2])[1], $(x[1])[2] - $(x[2])[2]" * "\n" * """
               $(y[1]), $(y[2]) = Complex{$T}($(x[1])[1] + $(x[2])[1], $(x[1])[2] + $(x[2])[2]), Complex{$T}($(sat_expr("tmp0", "$(d[1])")))
               """
             end
@@ -314,7 +339,7 @@ function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1) where T <: AbstractFlo
         else
           if root
             load_reim(x) * "\n" * """
-            local $(y[1]), $(y[2]) = Complex{$T}($(x[1])[1] + $(x[2])[1], $(x[1])[2] + $(x[2])[2]), Complex{$T}($(x[1])[1] - $(x[2])[1], $(x[1])[2] - $(x[2])[2])
+            $(y[1]), $(y[2]) = Complex{$T}($(x[1])[1] + $(x[2])[1], $(x[1])[2] + $(x[2])[2]), Complex{$T}($(x[1])[1] - $(x[2])[1], $(x[1])[2] - $(x[2])[2])
             """ 
           else
             if isnothing(w)
@@ -354,7 +379,7 @@ function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1) where T <: AbstractFlo
       if isnothing(d) && !isnothing(w) 
         add_more_tmp_vars(x1_exprs, x2_exprs, w[2:n2], n2-1)
       elseif isnothing(w) && !isnothing(d)
-      add_more_tmp_vars(x1_exprs, x2_exprs, d[2:n2], n2-1)
+        add_more_tmp_vars(x1_exprs, x2_exprs, d[2:n2], n2-1)
       end
     else
       ""
@@ -392,7 +417,7 @@ function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1) where T <: AbstractFlo
                 "$(t[1])_r - $(t[1+n2])_r, $(t[1])_i - $(t[1+n2])_i" * foldl(*, vmap(i -> ", $(t[i])_r - $(t[i+n2])_r, $(t[i])_i - $(t[i+n2])_i", 2:n2)) * "\n"
         end
       else
-        s3p = "local $(tmp_decls)" * "\n" *
+        s3p = "$(tmp_decls)" * "\n" *
               "$(y[1])_r, $(y[1])_i" * foldl(*, vmap(i -> ", $(y[i])_r, $(y[i])_i", 2:n2)) *
               " = " *
               (w[1] == "1" ? "$(t[1])_r + $(t[1+n2])_r, $(t[1])_i + $(t[1+n2])_i" : "$(sat_expr("tmp$(t[1])", "$(w[1])"))") *
