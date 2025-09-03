@@ -1,19 +1,5 @@
 include("suffix.jl")
 
-load_reim = t -> join([
-    let
-        m = match(r"(\d+)\D*$", s)
-        num = m.captures[1]
-        var = startswith(s, "x") ? "x" :
-              startswith(s, "y") ? "y" :
-              startswith(s, "D") ? "d" : error("Unknown input: $s")
-        rhs = occursin('[', s) ? replace(s, " " => "") : "$var[$num]"
-        prefix = i == 1 ? "" : " "
-        "local $(prefix)$(var)$num = reim($rhs)"
-    end
-    for (i, s) in enumerate(t)
-], "; ")
-
 load_real_imag = t -> join([
     let
         m = match(r"(\d+)\D*$", s)
@@ -27,6 +13,35 @@ load_real_imag = t -> join([
     end
     for (i, s) in enumerate(t)
 ], "; ")
+
+function generate_var_names(group_size::Int)
+    # Generate xa, xb, xc, ... based on group_size
+    return ["x" * Char('a' + i) for i in 0:group_size-1]
+end
+
+function replace_with_reused_vars(s::String, group_size=4)
+    vars = generate_var_names(group_size)
+    n_vars = length(vars)
+    
+    # Find the maximum x number in the string
+    max_num = 0
+    for m in eachmatch(r"x(\d+)", s)
+        max_num = max(max_num, parse(Int, m.captures[1]))
+    end
+    
+    result = s
+    # Process in descending order
+    for num in max_num:-1:1
+        old = "x$num"
+        group_idx = ((num - 1) ÷ group_size) % n_vars
+        new = vars[group_idx + 1]
+        
+        # Use negative lookahead to ensure we don't match x1 in x13
+        result = replace(result, Regex("$(old)(?!\\d)") => new)
+    end
+    
+    return result
+end
 
 
 # Wrapper for any other kernel shell strategy planer
@@ -62,7 +77,7 @@ function makefftradix(n::Int,  suffixes::SuffixFlags, D::AbstractArray{String}, 
   end
 
   # Generate kernel code as string first
-  kernel_code = recfft2(y, x, d, nothing, true, T) |> s -> replace(s, "#INPUT#" => input, "#OUTPUT#" => output)
+  kernel_code = recfft2(y, x, d, nothing, true, T) |> s -> replace(s, "#INPUT#" => input, "#OUTPUT#" => output) |> s -> replace_with_reused_vars(s)
   
   # Parse the string into actual Julia expressions
   if isempty(kernel_code)
