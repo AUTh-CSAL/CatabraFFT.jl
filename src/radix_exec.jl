@@ -85,9 +85,11 @@ end
 function generate_mat_execute_function!(plan::RadixPlan, show_function::Bool=true)::Expr
     T = typeof(plan).parameters[1]
     function_body = GenerateMatrixExpr!(plan, show_function)
+    
+    show_function && println("Function body: \n $function_body")
 
     func_expr = quote
-        function (y::AbstractVector{Complex{$T}}, x::AbstractVector{Complex{$T}})
+        @inline function (y::AbstractVector{Complex{$T}}, x::AbstractVector{Complex{$T}})
             @inbounds begin
                 $function_body
             end
@@ -104,16 +106,20 @@ function materialize_plan_function!(plan::RadixPlan, ::Type{T}) where {T}
     constants_dict = RadixGenerator.generate_local_constants_dict(plan.n, T)
     body = GenerateMatrixExpr!(plan, false)
     substituted_body = substitute_constants_in_expr(body, constants_dict)
-    @show substituted_body
-
+    
     fexpr = quote
         @inline function (y::AbstractVector{Complex{$T}}, x::AbstractVector{Complex{$T}})
-            @inbounds begin
+            @fastmath @inbounds begin
                 $substituted_body
             end
             nothing
         end
     end
+    
+    # Clean display without line numbers
+    clean_expr = Base.remove_linenums!(deepcopy(fexpr))
+    @show clean_expr
+
 
     return eval(fexpr)
 end

@@ -39,10 +39,9 @@ No world age issues, no invokelatest, just pure compiled performance.
     
     # Substitute constants with literal values
     substituted_kernel = Radix_Execute.substitute_constants_in_expr(kernel_expr, constants_dict)
-    #@show substituted_kernel
     
     return quote
-        @inbounds begin
+        @inline @fastmath @inbounds begin
             $substituted_kernel
         end
         nothing
@@ -82,8 +81,6 @@ function generate_radix_fft_function(n::Int, ::Type{T}, flag::FLAG)::Expr where 
         return Radix_Execute.generate_mat_execute_function!(plan, false)
     end
 end
-
-
 
 # Direct kernel execution - no world age issues
 @inline function fft_kernel_direct!(y::AbstractVector{Complex{T}}, x::AbstractVector{Complex{T}}, n::Int) where T <: AbstractFloat
