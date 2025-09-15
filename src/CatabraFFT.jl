@@ -186,11 +186,12 @@ end
 # Required * operation - direct execution of stored function
 @inline function Base.:*(p::Spell{T,N,DECOMP,FLAG_VAL},
                         x::AbstractVector{Complex{T}}) where {T,N,DECOMP,FLAG_VAL} 
-    workspace = get_workspace(length(x), T)
-    copyto!(workspace.x_work, x)
+    #workspace = get_workspace(length(x), T)
+    #copyto!(workspace.x_work, x)
     y = similar(x)
     # Execute the cached function directly - no invokelatest needed
-    execute_fft!(p, y, workspace.x_work)
+    #execute_fft!(p, y, workspace.x_work)
+    execute_fft!(p, y, x)
     return y
 end
 

@@ -1,20 +1,6 @@
-using SIMD
 include("suffix.jl")
 
-load_real_imag = t -> join([
-    let
-        m = match(r"(\d+)\D*$", s)
-        num = m.captures[1]
-        var = startswith(s, "x") ? "x" :
-              startswith(s, "y") ? "y" :
-              startswith(s, "D") ? "d" : error("Unknown input: $s")
-        rhs = occursin('[', s) ? replace(s, " " => "") : "$var[$num]"
-        prefix = i == 1 ? "" : " "
-        "local $(prefix)$(var)$(num)_r , $(prefix)$(var)$(num)_i = real($rhs), imag($rhs)"
-    end
-    for (i, s) in enumerate(t)
-], "; ")
-
+using SIMD
 
 """
 # Usage examples:
@@ -31,6 +17,7 @@ load_real_imag_gen = (t; mode, ptr_name="px", vec_width=4) -> begin
         # If your CPU likely has 2-3 ADD units, these execute in parallel despite being "scalar".
         # No SIMD Setup Overhead! Shuffling data into SIMD layout, permuting for butterfly patterns and extracting results
         # ...can be MORE expensive than simple scalar ops!
+        # -> unsafe_store!(py, #, i) uses ymm register however...
         join([
             let
                 m = match(r"(\d+)\D*$", s)
@@ -41,7 +28,7 @@ load_real_imag_gen = (t; mode, ptr_name="px", vec_width=4) -> begin
                 prefix = i == 1 ? "" : " "
                 idx_r = 2*num - 1
                 idx_i = 2*num
-                "local $(prefix)$(var)$(num)_r, $(prefix)$(var)$(num)_i = unsafe_load($ptr_name, $idx_r), unsafe_load($ptr_name, $idx_i)"
+                "$(prefix)$(var)$(num)_r, $(prefix)$(var)$(num)_i = unsafe_load($ptr_name, $idx_r), unsafe_load($ptr_name, $idx_i)"
             end
             for (i, s) in enumerate(t)
         ], "; ")
@@ -55,7 +42,7 @@ load_real_imag_gen = (t; mode, ptr_name="px", vec_width=4) -> begin
                       startswith(s, "y") ? "y" :
                       startswith(s, "D") ? "d" : error("Unknown input: $s")
                 prefix = i == 1 ? "" : " "
-                "local $(prefix)$(var)$(num)_vec = vload(Vec{$vec_width,ComplexF32}, $ptr_name, $(num-1)*$vec_width + 1)"
+                "$(prefix)$(var)$(num)_vec = vload(Vec{$vec_width,ComplexF32}, $ptr_name, $(num-1)*$vec_width + 1)"
             end
             for (i, s) in enumerate(t)
         ], "; ")
@@ -70,7 +57,7 @@ load_real_imag_gen = (t; mode, ptr_name="px", vec_width=4) -> begin
                       startswith(s, "D") ? "d" : error("Unknown input: $s")
                 prefix = i == 1 ? "" : " "
                 offset = (num-1)*2*vec_width
-                "local $(prefix)$(var)$(num)_ri = vload(Vec{$(2*vec_width),Float32}, $ptr_name, $offset + 1)"
+                "$(prefix)$(var)$(num)_ri = vload(Vec{$(2*vec_width),Float32}, $ptr_name, $offset + 1)"
             end
             for (i, s) in enumerate(t)
         ], "; ")
@@ -85,7 +72,7 @@ load_real_imag_gen = (t; mode, ptr_name="px", vec_width=4) -> begin
                       startswith(s, "D") ? "d" : error("Unknown input: $s")
                 rhs = occursin('[', s) ? replace(s, " " => "") : "$var[$num]"
                 prefix = i == 1 ? "" : " "
-                "local $(prefix)$(var)$(num)_r , $(prefix)$(var)$(num)_i = real($rhs), imag($rhs)"
+                "$(prefix)$(var)$(num)_r , $(prefix)$(var)$(num)_i = real($rhs), imag($rhs)"
             end
             for (i, s) in enumerate(t)
         ], "; ")
@@ -126,21 +113,35 @@ end
 function makefftradix(n::Int,  suffixes::SuffixFlags, D::AbstractArray{String}, p::Int, s::Int, SIZE::Int, ::Type{T}) where T <: AbstractFloat
 
   global inc = inccounter() # nullify global tmp 't' var counter for each new kernel generated
+  
+  mode = :default
 
   has_y = has_flag(suffixes, Y)
   has_mat = has_flag(suffixes, MAT)
   has_vec = has_flag(suffixes, VEC)
+  #@show has_vec has_mat has_y
   input = has_y ? "y" : "x"
   output = "y"
   groups = SIZE ÷ s
+
+  prev_output = output
+  unsafe_load_mode = mode == :unsafe_load
+  if unsafe_load_mode
+    output *= "_floats"
+  end
   
   if has_mat
       if has_vec
         x = ["$(input)$(i + p*s)" for i in 1:n]
         y = ["$output[$(i + p*s)]" for i in 1:n]
       else
-        x = ["$(input)$(p + 1 + (i-1)*groups)" for i in 1:n]
-        y = ["$output[$(i + p*s)]" for i in 1:n]
+        if unsafe_load_mode
+          x = ["$(input)[$(2*(p + 1 + (i-1)*groups) - 1 + j)]" for i in 1:n for j in 0:1]
+          y = ["$(output)[$(2*(i + p*s) - 1 + j)]" for i in 1:n for j in 0:1]
+        else
+          x = ["$(input)$(p + 1 + (i-1)*groups)" for i in 1:n]
+          y = ["$output[$(i + p*s)]" for i in 1:n]
+        end
       end
       d = D == String[] ? nothing : D
   else
@@ -148,16 +149,20 @@ function makefftradix(n::Int,  suffixes::SuffixFlags, D::AbstractArray{String}, 
       x = ["$(input)($i + offset)" for i in 1:n]
       y = ["$output[$i + offset]" for i in 1:n]
     else
-      x = ["$(input)$i" for i in 1:s:n]
-      y = ["$output[$i]" for i in 1:n]
+      if unsafe_load_mode
+        x = ["$(input)$i" for i in 1:s:n]
+        y = ["$output[$i]" for i in 1:2n]
+      else
+        x = ["$(input)$i" for i in 1:s:n]
+        y = ["$output[$i]" for i in 1:n]
+      end
     end
     d = nothing
   end
 
   # Generate kernel code as string first
-  mode = :unsafe_load
-  px = (mode != :default) ? "px = pointer(reinterpret($T, x));" : ""
-  py = (mode == :unsafe_load) ? "y_floats = reinterpret($T, y)" : ""
+  px = (mode != :default) ? "p$(input) = pointer(reinterpret($T, $(input)));" : ""
+  py = (mode == :unsafe_load) ? "$(output) = reinterpret($T, $(prev_output));" : ""
   kernel_code = recfft2(y, x, d, nothing, true, T, 1, mode, py) 
   kernel_code = "$px" * "\n" * kernel_code
     
@@ -237,7 +242,7 @@ function add_more_tmp_vars(x1, x2, wn, n)
     end
 
     if !isempty(tmp_vars)
-      return "local $(join(tmp_vars, ", ")) = $(join(assignments, ", "))\n"
+      return "$(join(tmp_vars, ", ")) = $(join(assignments, ", "))\n"
     end
 
     return ""
@@ -422,7 +427,7 @@ function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1, mode=:default, py="") 
               if mode == :unsafe_load
                 load_real_imag_gen(x; mode=mode) * "\n" * 
                 "tmp0_r, tmp0_i = $(x[1])_r - $(x[2])_r, $(x[1])_i - $(x[2])_i" * "\n" * "$py" * "\n" * """
-                $(y[1]), $(y[2]), $(y[3]), $(y[4]) = $(x[1])_r + $(x[2])_r, $(x[1])_i + $(x[2])_i), $(sat_expr("tmp0", "$(d[1])"))
+                $(y[1]), $(y[2]), $(y[3]), $(y[4]) = $(x[1])_r + $(x[2])_r, $(x[1])_i + $(x[2])_i, $(sat_expr("tmp0", "$(d[1])"))
                 """
               else
                 load_real_imag_gen(x; mode=mode) * "\n" * 
@@ -436,7 +441,7 @@ function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1, mode=:default, py="") 
           if root
             if mode == :unsafe_load
             load_real_imag_gen(x; mode=mode) * "\n" * "$py" * "\n" * """
-            $(y[1]), $(y[2]), $(y[3]), $(y[4]) = $(x[1])_r + $(x[2])_r, $(x[1])_i + $(x[2])_i), $(x[1])_r - $(x[2])_r, $(x[1])_i - $(x[2])_i
+            $(y[1]), $(y[2]), $(y[3]), $(y[4]) = $(x[1])_r + $(x[2])_r, $(x[1])_i + $(x[2])_i, $(x[1])_r - $(x[2])_r, $(x[1])_i - $(x[2])_i
             """ 
             else
             load_real_imag_gen(x; mode=mode) * "\n" * """
@@ -446,15 +451,15 @@ function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1, mode=:default, py="") 
           else
             if isnothing(w)
             """
-            local $(y[1])_r, $(y[1])_i, $(y[2])_r, $(y[2])_i = $(x[1])_r + $(x[2])_r, $(x[1])_i + $(x[2])_i, $(x[1])_r - $(x[2])_r, $(x[1])_i - $(x[2])_i
+            $(y[1])_r, $(y[1])_i, $(y[2])_r, $(y[2])_i = $(x[1])_r + $(x[2])_r, $(x[1])_i + $(x[2])_i, $(x[1])_r - $(x[2])_r, $(x[1])_i - $(x[2])_i
             """
             else
             w[1] == "1" ? 
                 """
-                local $(y[1])_r, $(y[1])_i, $(y[2])_r, $(y[2])_i = $(x[1])_r + $(x[2])_r, $(x[1])_i + $(x[2])_i, $(sat_expr("-", "$(x[1])", "$(x[2])", "$(w[2])"))
+                $(y[1])_r, $(y[1])_i, $(y[2])_r, $(y[2])_i = $(x[1])_r + $(x[2])_r, $(x[1])_i + $(x[2])_i, $(sat_expr("-", "$(x[1])", "$(x[2])", "$(w[2])"))
                 """ :
                 """
-                local $(y[1]), $(y[2]) = $(sat_expr("+", "$(x[1])", "$(x[2])", "$(w[1])")), $(sat_expr("-", "$(x[1])", "$(x[2])", "$(w[2])"))
+                $(y[1]), $(y[2]) = $(sat_expr("+", "$(x[1])", "$(x[2])", "$(w[1])")), $(sat_expr("-", "$(x[1])", "$(x[2])", "$(w[2])"))
                 """
             end
           end
@@ -491,24 +496,43 @@ function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1, mode=:default, py="") 
     if !isnothing(d)
       if isnothing(w)
         if root
-        s3p = "$py" * "\n" * "$(tmp_decls)" * "\n" *
-              "$(y[1])" * foldl(*, vmap(i -> ", $(y[i])", 2:n2)) *
-              " = " *
-              "Complex{$T}($(t[1])_r + $(t[1+n2])_r, $(t[1])_i + $(t[1+n2])_i)" * foldl(*, vmap(i -> ", Complex{$T}($(sat_expr("tmp$(i-2)", "$(d[i-1])")))", 2:n2)) * "\n"
-        s3m = "$(y[n2+1])" * foldl(*, vmap(i -> ", $(y[i+n2])", 2:n2)) *
-              " = " *
-              "Complex{$T}($(sat_expr("-", "$(t[1])", "$(t[1+n2])", "$(d[n2])")))" * foldl(*, vmap(i -> ", Complex{$T}($(sat_expr("tmp$(i-3+n2)", "$(d[i+n2-1])")))", 2:n2)) * "\n"
+          if mode == :unsafe_load
+           s3p = "$py" * "\n" * "$(tmp_decls)" * "\n" *
+                 "$(y[1])" * foldl(*, vmap(i -> ", $(y[i])", 2:2n2)) *
+                 " = " *
+                 "$(t[1])_r + $(t[1+n2])_r, $(t[1])_i + $(t[1+n2])_i" * foldl(*, vmap(i -> ", $(sat_expr("tmp$(i-2)", "$(d[i-1])"))", 2:n2)) * "\n"
+           s3m = "$(y[2n2+1])" * foldl(*, vmap(i -> ", $(y[i+2n2])", 2:2n2)) *
+                 " = " *
+                 "$(sat_expr("-", "$(t[1])", "$(t[1+n2])", "$(d[n2])")))" * foldl(*, vmap(i -> ", $(sat_expr("tmp$(i-3+n2)", "$(d[i+n2-1])"))", 2:n2)) * "\n"
+          else
+           s3p = "$py" * "\n" * "$(tmp_decls)" * "\n" *
+                 "$(y[1])" * foldl(*, vmap(i -> ", $(y[i])", 2:n2)) *
+                 " = " *
+                 "Complex{$T}($(t[1])_r + $(t[1+n2])_r, $(t[1])_i + $(t[1+n2])_i)" * foldl(*, vmap(i -> ", Complex{$T}($(sat_expr("tmp$(i-2)", "$(d[i-1])")))", 2:n2)) * "\n"
+           s3m = "$(y[n2+1])" * foldl(*, vmap(i -> ", $(y[i+n2])", 2:n2)) *
+                 " = " *
+                 "Complex{$T}($(sat_expr("-", "$(t[1])", "$(t[1+n2])", "$(d[n2])")))" * foldl(*, vmap(i -> ", Complex{$T}($(sat_expr("tmp$(i-3+n2)", "$(d[i+n2-1])")))", 2:n2)) * "\n"
+          end
         end
       end
     else
       if isnothing(w)
         if root 
+          if mode == :unsafe_load
+          s3p = "$py" * "\n" * "$(y[1])" * foldl(*, vmap(i -> ",$(y[i])", 2:2n2)) *
+                " = " *
+                "$(t[1])_r + $(t[1+n2])_r, $(t[1])_i + $(t[1+n2])_i" * foldl(*, vmap(i -> ", $(t[i])_r + $(t[i+n2])_r, $(t[i])_i + $(t[i+n2])_i", 2:n2)) * "\n"
+          s3m = "$(y[2n2+1])" * foldl(*, vmap(i -> ",$(y[i+2n2])", 2:2n2)) *
+                " = " *
+                "$(t[1])_r - $(t[1+n2])_r, $(t[1])_i - $(t[1+n2])_i" * foldl(*, vmap(i -> ", $(t[i])_r - $(t[i+n2])_r, $(t[i])_i - $(t[i+n2])_i", 2:n2)) * "\n"
+          else
           s3p = "$py" * "\n" * "$(y[1])" * foldl(*, vmap(i -> ",$(y[i])", 2:n2)) *
                 " = " *
                 "Complex{$T}($(t[1])_r + $(t[1+n2])_r, $(t[1])_i + $(t[1+n2])_i)" * foldl(*, vmap(i -> ", Complex{$T}($(t[i])_r + $(t[i+n2])_r, $(t[i])_i + $(t[i+n2])_i)", 2:n2)) * "\n"
           s3m = "$(y[n2+1])" * foldl(*, vmap(i -> ",$(y[i+n2])", 2:n2)) *
                 " = " *
                 "Complex{$T}($(t[1])_r - $(t[1+n2])_r, $(t[1])_i - $(t[1+n2])_i)" * foldl(*, vmap(i -> ", Complex{$T}($(t[i])_r - $(t[i+n2])_r, $(t[i])_i - $(t[i+n2])_i)", 2:n2)) * "\n"
+          end
         else
           s3p = "$(y[1])_r, $(y[1])_i" * foldl(*, vmap(i -> ", $(y[i])_r, $(y[i])_i", 2:n2)) *
                 " = " *
@@ -523,7 +547,7 @@ function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1, mode=:default, py="") 
               " = " *
               (w[1] == "1" ? "$(t[1])_r + $(t[1+n2])_r, $(t[1])_i + $(t[1+n2])_i" : "$(sat_expr("tmp$(t[1])", "$(w[1])"))") *
               foldl(*, vmap(i -> ", $(sat_expr("tmp$(i-2)", "$(w[i])"))", 2:n2)) * "\n"
-        s3m = "local $(y[n2+1])_r, $(y[n2+1])_i" * foldl(*, vmap(i -> ", $(y[i+n2])_r, $(y[i+n2])_i", 2:n2)) *
+        s3m = "$(y[n2+1])_r, $(y[n2+1])_i" * foldl(*, vmap(i -> ", $(y[i+n2])_r, $(y[i+n2])_i", 2:n2)) *
               " = " *
               "$(sat_expr("-", "$(t[1])", "$(t[1+n2])", "$(w[n2+1])"))" *
               foldl(*, vmap(i -> ", $(sat_expr("tmp$(i-3+n2)", "$(w[n2+i])"))", 2:n2)) * "\n"

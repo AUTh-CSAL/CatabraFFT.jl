@@ -117,8 +117,8 @@ function materialize_plan_function!(plan::RadixPlan, ::Type{T}) where {T}
     end
     
     # Clean display without line numbers
-    clean_expr = Base.remove_linenums!(deepcopy(fexpr))
-    @show clean_expr
+    #clean_expr = Base.remove_linenums!(deepcopy(fexpr))
+    #@show clean_expr
 
 
     return eval(fexpr)
@@ -358,7 +358,7 @@ function return_best_static_linear_expr(plans::Vector{RadixPlan{T}}, show_functi
 
             if t < best_time
                 best_time = t
-                best_body_expr = GenerateMatrixExpr!(plan, true)  # store BODY expr for compile-time splice
+                best_body_expr = GenerateMatrixExpr!(plan, false)  # store BODY expr for compile-time splice
             end
         catch e
             @warn "Failed to benchmark plan $(plan.operations): $e"
