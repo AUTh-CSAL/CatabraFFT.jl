@@ -1,7 +1,7 @@
 module CatabraFFT
 
 # Opt out of precompilation to avoid method overwriting during dynamic code generation
-#__precompile__(false)
+__precompile__(false)
 
 include("kernel.jl")
 
@@ -10,30 +10,9 @@ using AbstractFFTs
 import Base: show, *, convert, unsafe_convert, size, strides, ndims, pointer
 import LinearAlgebra: mul!
 
-# Non-mutating workspace that reuses preallocated memory
-struct FFTWorkspace{T<:AbstractFloat}
-    x_work::Vector{Complex{T}}
-    function FFTWorkspace(n::Int, ::Type{T}) where {T<:AbstractFloat}
-        new{T}(Vector{Complex{T}}(undef, n))
-    end
-end
-
-# Thread-local workspace to avoid allocations in parallel code
-const WORKSPACE = Dict{Tuple{Int, DataType}, FFTWorkspace}()
-const WORKSPACE_LOCK = ReentrantLock()
-
-# Get or create workspace for a given size - simplified
-@inline function get_workspace(n::Int, ::Type{T})::FFTWorkspace where {T <: AbstractFloat}
-    key = (n, T)
-    workspace = get(WORKSPACE, key, nothing)
-    if workspace !== nothing
-        return workspace
-    end
-    lock(WORKSPACE_LOCK) do
-        get!(WORKSPACE, key) do
-            FFTWorkspace(n, T)
-        end
-    end
+@inline function complex_to_float_zerocopy(input::Vector{ComplexF32})
+    ptr = reinterpret(Ptr{Float32}, pointer(input))
+    return unsafe_wrap(Vector{Float32}, ptr, 2*length(input), own=false)
 end
 
 """

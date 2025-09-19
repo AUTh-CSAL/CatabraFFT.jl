@@ -11,7 +11,7 @@ include("radix_plan.jl")
 include("suffix.jl")
 include("fft_seed.jl")
 
-using LoopVectorization
+using LoopVectorization, SIMD
 using .Radix_Plan
 
 export create_kernel_module, extract_plan_data
@@ -251,6 +251,7 @@ function generate_all_kernel_expressions(plan_data::NamedTuple, ::Type{T}; suffi
     end
     
     return kernels
+    @show kernel_body
 end
 
 # Modified to return expression instead of string
@@ -263,6 +264,8 @@ function generate_kernel_expression(radix::Int, op, suffixes::SuffixFlags, p::In
     
     SIZE = op.n_groups * op.stride
     kernel_body = makefftradix(radix, suffixes, D, p, op.stride, SIZE, T)
+    #kernel_body = makefftradix_simd(radix, suffixes, D, p, op.stride, SIZE, T)
+    @show kernel_body
     
     return name, kernel_body
 end
