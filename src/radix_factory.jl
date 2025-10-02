@@ -40,107 +40,6 @@ function create_kernel_dictionary(plan_data::NamedTuple, ::Type{T})::Dict{String
     return kernels
 end
 
-# Generate constants as local variable assignments
-#=
-function generate_local_constants(n::Int, ::Type{T}) where T <: AbstractFloat
-    @assert ispow2(n) "n must be a power of 2"
-    constants = Expr[]
-    current_n = n
-    
-    while current_n >= 16
-        n2 = current_n >> 1
-        n4 = current_n >> 2
-        s = current_n >> 3
-        
-        for i in 1:2:s
-            angle = 2 * (n4-i) / current_n
-            angle_cos = T(cospi(angle))
-            angle_sin = T(sinpi(angle))
-            
-            # Construct symbol names properly
-            cospi_name = Symbol("COSPI_$(n4-i)_$(n2)")
-            sinpi_name = Symbol("SINPI_$(n4-i)_$(n2)")
-            
-            push!(constants, :($cospi_name = $angle_cos))
-            push!(constants, :($sinpi_name = $angle_sin))
-        end
-        
-        current_n >>= 1
-    end
-    
-    if n >= 8
-        push!(constants, :(INV_SQRT2 = $(T(1/sqrt(2)))))
-    end
-    
-    return constants
-end
-=#
-#=
-function generate_local_constants(n::Int, ::Type{T}) where T <: AbstractFloat
-    @assert ispow2(n) "n must be a power of 2"
-    constants = Expr[]
-    
-    # Generate all possible twiddle factor constants for FFT of size n
-    # Twiddle factors are W_n^k = cispi(-2k/n) for k = 0 to n/2-1
-    # Due to strided access patterns, we need various reduced fractions
-    
-    # Collect all unique fractions that could appear
-    fractions = Set{Tuple{Int,Int}}()
-    
-    # Add fractions from basic twiddle factors W_n^k = cispi(-k/n*2)
-    for k in 0:(n÷2-1)
-        if k == 0 continue end  # Skip k=0 (handled by common cases)
-        
-        # Reduce fraction k/(n/2) to lowest terms
-        gcd_val = gcd(k, n÷2)
-        num = k ÷ gcd_val
-        den = (n÷2) ÷ gcd_val
-        
-        push!(fractions, (num, den))
-    end
-    
-    # Add fractions from Stockham algorithm's intermediate stages
-    current_n = n
-    while current_n >= 16
-        n2 = current_n >> 1
-        n4 = current_n >> 2
-        s = current_n >> 3
-        
-        for i in 1:2:s
-            # This generates the fractions your current algorithm produces
-            num = n4 - i
-            den = n2
-            
-            # Reduce to lowest terms
-            gcd_val = gcd(abs(num), den)
-            reduced_num = abs(num) ÷ gcd_val
-            reduced_den = den ÷ gcd_val
-            
-            push!(fractions, (reduced_num, reduced_den))
-        end
-        current_n >>= 1
-    end
-    
-    # Generate constants for all collected fractions
-    for (num, den) in fractions
-        angle_cos = T(cospi(num/den))
-        angle_sin = T(sinpi(num/den))
-        
-        cospi_name = Symbol("COSPI_$(num)_$(den)")
-        sinpi_name = Symbol("SINPI_$(num)_$(den)")
-        
-        push!(constants, :($cospi_name = $angle_cos))
-        push!(constants, :($sinpi_name = $angle_sin))
-    end
-    
-    if n >= 8
-        push!(constants, :(INV_SQRT2 = $(T(1/sqrt(2)))))
-    end
-    
-    return constants
-end
-=#
-
 # Generate constants dictionary for compile-time embedding
 """
  - Compile-Time Constant Embedding: The $(:COSPI_1_8) syntax embeds the actual literal value (like 0.9238795f0) directly into the generated expression at compile time.
@@ -263,7 +162,8 @@ function generate_kernel_expression(radix::Int, op, suffixes::SuffixFlags, p::In
     name = generate_kernel_name(radix, suffixes, p, op)  # Use singular function
     
     SIZE = op.n_groups * op.stride
-    kernel_body = makefftradix(radix, suffixes, D, p, op.stride, SIZE, T)
+    SIMD_BITS = 256
+    kernel_body = makefftradix(radix, suffixes, D, p, op.stride, SIZE, T, SIMD_BITS)
     #kernel_body = makefftradix_simd(radix, suffixes, D, p, op.stride, SIZE, T)
     @show kernel_body
     
@@ -331,65 +231,6 @@ end
     return element_strings
 end
 
-#=
-function get_constant_expression(w::Complex{T}, n::Integer)::String where T <: AbstractFloat
-    real_part = real(w)
-    imag_part = imag(w)
-    
-    isclose(a, b) = (abs(real(a) - real(b)) < eps(T) * 20) && (abs(imag(a) - imag(b)) < eps(T) * 20)
-    sign_str(x) = x ≥ 0 ? "+" : "-"
-    
-    # Check common cases
-    common_cases = [
-        (1.0, 0.0) => "1",
-        (-1.0, 0.0) => "-1",
-        (0.0, 1.0) => "im",
-        (0.0, -1.0) => "-im",
-        (1/√2, 1/√2) => "INV_SQRT2_Q1",
-        (1/√2, -1/√2) => "INV_SQRT2_Q4",
-        (-1/√2, 1/√2) => "-INV_SQRT2_Q4",
-        (-1/√2, -1/√2) => "-INV_SQRT2_Q1"
-    ]
-    
-    # Check special cases first
-    for ((re, im), expr) in common_cases
-        if isclose(real_part, re) && isclose(imag_part, im)
-            return expr
-        end
-    end
-
-    current_n = n
-    # Handle cases based on radix size
-    while current_n >= 16
-        n2 = current_n >> 1
-        n4 = current_n >> 2
-        s = current_n >> 3
-        @show angles = [(n4-i,n2) for i in 1:2:s]
-        for (num, den) in angles
-            @show cispi1, cispi2  = cispi(num/den), cispi(-num/den)
-            @show num den cispi1, cispi2, current_n
-            if isclose(w, cispi1)
-                return "CISPI_$(num)_$(den)_Q1"
-            elseif isclose(w, -cispi1)
-                return "-CISPI_$(num)_$(den)_Q1"
-            elseif isclose(w, cispi2)
-                return "CISPI_$(num)_$(den)_Q4"
-            elseif isclose(w, -cispi2)
-                return "-CISPI_$(num)_$(den)_Q4"
-            elseif isclose(w, -im*cispi1)
-                return "-im*CISPI_$(num)_$(den)_Q1"
-            elseif isclose(w, -im*cispi2)
-                return "-im*CISPI_$(num)_$(den)_Q4"
-            end
-        end
-        current_n >>= 1
-    end
-    
-    # Fallback to numerical
-    println("Fallback to numerical n = $n \n w = $w ")
-    return "($(round(real_part, digits=16))$(sign_str(imag_part))$(abs(round(imag_part, digits=16)))*im)"
-end
-=#
 function get_constant_expression(w::Complex{T}, n::Integer)::String where T <: AbstractFloat
     real_part = real(w)
     imag_part = imag(w)

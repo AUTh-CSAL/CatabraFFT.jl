@@ -9,7 +9,7 @@ load_real_imag_gen(["x1", "x2"], mode=:default)
 load_real_imag_gen(["x1", "x2"], mode=:unsafe_load, ptr_name="data_ptr")
 load_real_imag_gen(["x1", "x2"], mode=:vload_soa, vec_width=8)
 """
-load_gen = (t; mode, T, ptr_name="px", SIMD_BITS) -> begin
+load_real_imag_gen = (t; mode, T, ptr_name="px") -> begin
     vec_width = 2sizeof(T)  # Width in bytes for real+imag pair
     
     if mode == :unsafe_load
@@ -38,9 +38,10 @@ load_gen = (t; mode, T, ptr_name="px", SIMD_BITS) -> begin
         
     elseif mode == :vgather
         # Smart detection: use vload for contiguous, vgather for strided
+        avx2_bits = 256
         complex_size_bits = 2 * sizeof(T) * 8
-        complexes_per_vec = SIMD_BITS ÷ complex_size_bits
-        n_floats = 2*length(t)
+        complexes_per_vec = avx2_bits ÷ complex_size_bits
+        n_elems = length(t)
         
         # Extract indices to check if contiguous
         indices = Int[]
@@ -51,11 +52,8 @@ load_gen = (t; mode, T, ptr_name="px", SIMD_BITS) -> begin
         
         # Check if indices are contiguous
         is_contiguous = (length(indices) > 1) && all(i -> indices[i] == indices[1] + i - 1, 2:length(indices))
-
-        # Check for pairwise contiguous pattern (e.g., [1,2,9,10] or [5,6,13,14])
-        is_pairwise_contiguous = (length(indices) % 2 == 0) && all(i -> indices[2i] == indices[2i-1] + 1, 1:(length(indices)÷2))
-
-        if is_contiguous && n_floats <= complexes_per_vec
+        
+        if is_contiguous && n_elems <= complexes_per_vec
             # Use vload for contiguous access - much faster!
             code_parts = String[]
             
@@ -66,26 +64,14 @@ load_gen = (t; mode, T, ptr_name="px", SIMD_BITS) -> begin
             offset = 2 * (indices[1] - 1)  # Convert to float index (0-based)
             
             # Load contiguous data with single instruction
-            if n_floats == complexes_per_vec
-              push!(code_parts, "v1, v2 = vload(Vec{$(n_floats÷2), $T}, $(ptr_name)_ptr + $offset), vload(Vec{$(n_floats÷2), $T}, $(ptr_name)_ptr + $(offset + n_floats÷2*sizeof(T)))")
-            else
-              push!(code_parts, "v = vload(Vec{$(n_floats),$T}, $(ptr_name)_ptr + $offset)")
-            end
+            push!(code_parts, "v = vload(Vec{$(2*n_elems),$T}, $(ptr_name)_ptr + $offset)")
             join(code_parts, "\n    ")
             
-          elseif !is_contiguous && n_floats <= complexes_per_vec
+          elseif !is_contiguous && n_elems <= complexes_per_vec
             # Non-contiguous: use vgather
             code_parts = String[]
             
-            if n_floats <= complexes_per_vec
-
-              offset = 2 * (indices[1] - 1)  # Convert to float index (0-based)
-
-              push!(code_parts, "v1 = vload(Vec{$(n_floats÷2), $T}, $(ptr_name) + $(offset));")
-              push!(code_parts, "v2 = vload(Vec{$(n_floats÷2), $T}), $(ptr_name) + $(offset + n_floats÷2*sizeof(T)));")
-            
-              #=
-            elseif 
+            if n_elems <= complexes_per_vec
                 # Single vgather
                 float_indices = Int[]
                 for num in indices
@@ -95,14 +81,15 @@ load_gen = (t; mode, T, ptr_name="px", SIMD_BITS) -> begin
                 
                 idx_tuple = "(" * join(float_indices, ",") * ")"
                 #push!(code_parts, "$(ptr_name)= complex_to_float_zerocopy($ptr_name)")
-                push!(code_parts, "idx = Vec{$(n_floats),Int64}($idx_tuple)")
+                push!(code_parts, "idx = Vec{$(2*n_elems),Int64}($idx_tuple)")
                 push!(code_parts, "v = vgather($(ptr_name), idx)")
                 
-            =#
             else
                 # Multiple vgathers for large radix
-                for chunk_start in 1:complexes_per_vec:n_floats
-                    chunk_end = min(chunk_start + complexes_per_vec - 1, n_floats)
+                #push!(code_parts, "$(ptr_name)= complex_to_float_zerocopy($ptr_name)")
+                
+                for chunk_start in 1:complexes_per_vec:n_elems
+                    chunk_end = min(chunk_start + complexes_per_vec - 1, n_elems)
                     chunk_indices = indices[chunk_start:chunk_end]
                     
                     float_indices = Int[]
@@ -144,121 +131,12 @@ load_gen = (t; mode, T, ptr_name="px", SIMD_BITS) -> begin
     end
 end
 
-store_gen = (y, t_vars; mode, T, ptr_name="py", SIMD_BITS) -> begin
-    complex_size_bits = 2 * sizeof(T) * 8
-    complexes_per_vec = SIMD_BITS ÷ complexes_per_vec
-    n_floats = 2*length(indices)
-    @show complex_size_bits, complexes_per_vec, n_floats
-
-    # Extract indices from y array pattern
-    indices = Int[]
-    for yi in y
-        m = match(r"\[(\d+)\]", yi)
-        if m !== nothing
-            push!(indices, parse(Int, m.captures[1]))
-        end
-    end
-    # TODO add twiddle shuffle saturation arithmetic operations here.
-    
-    # Check if indices are contiguous
-    is_contiguous = (length(indices) > 1) && all(i ->indices[i] == indices[1] + i - 1, 2:length(indices))
-
-    code_parts = String[]
-    
-    # Use vstore for contiguous access - much faster!
-    if is_contiguous && n_floats <= complexes_per_vec
-        
-        # For vstore, we need a pointer
-        push!(code_parts, "$(ptr_name)_ptr = pointer(reinterpret($T, $ptr_name))")
-        
-        # Calculate offset for first element
-        offset = 2 * (indices[1] - 1)  # Convert to float index (0-based)
-        
-        # Create vector from t values
-        vals = String[]
-        for (i, t_var) in enumerate(t_vars)
-            push!(vals, "$(t_var)_r")
-            push!(vals, "$(t_var)_i")
-        end
-        vals_tuple = "(" * join(vals, ",") * ")"
-
-        push!(code_parts, "v = Vec{$(n_floats),$T}($vals_tuple)")
-        push!(code_parts, "vstore(v, $(ptr_name)_ptr + $offset)")
-        
-        join(code_parts, "\n    ")
-        
-    elseif !is_contiguous && n_floats <= complexes_per_vec
-        # Non-contiguous: use vscatter
-        
-        # Single vscatter for small radix
-        float_indices = Int[]
-        for idx in indices
-            push!(float_indices, 2*idx - 1)  # real index
-            push!(float_indices, 2*idx)      # imag index
-        end
-        
-        # Create values vector from t variables
-        vals = String[]
-        for (i, t_var) in enumerate(t_vars)
-            push!(vals, "$(t_var)_r")
-            push!(vals, "$(t_var)_i")
-        end
-        
-        idx_tuple = "(" * join(float_indices, ",") * ")"
-        vals_tuple = "(" * join(vals, ",") * ")"
-        @show idx_tuple, vals_tuple
-        
-        push!(code_parts, "idx = Vec{$(n_floats), Int64}($idx_tuple)")
-        push!(code_parts, "v = Vec{$(n_floats),$T}($vals_tuple)")
-        push!(code_parts, "vscatter(out_vec, $(ptr_name), idx)")
-        
-        join(code_parts, "\n    ")
-        
-    else
-        # Multiple vscatters for large radix
-        for chunk_start in 1:complexes_per_vec:n_floats
-            chunk_end = min(chunk_start + complexes_per_vec - 1, n_floats)
-            chunk_indices = indices[chunk_start:chunk_end]
-            chunk_t_vars = t_vars[chunk_start:chunk_end]
-            
-            float_indices = Int[]
-            for idx in chunk_indices
-                push!(float_indices, 2*idx - 1)
-                push!(float_indices, 2*idx)
-            end
-            
-            vals = String[]
-            for t_var in chunk_t_vars
-                push!(vals, "$(t_var)_r")
-                push!(vals, "$(t_var)_i")
-            end
-            
-            # Pad if needed
-            while length(float_indices) < 2*complexes_per_vec
-                push!(float_indices, 1)
-                push!(vals, "0")
-            end
-            
-            chunk_id = (chunk_start - 1) ÷ complexes_per_vec + 1
-            idx_tuple = "(" * join(float_indices[1:2*complexes_per_vec], ",") * ")"
-            vals_tuple = "(" * join(vals[1:2*complexes_per_vec], ",") * ")"
-            @show idx_tuple, vals_tuple
-            
-            push!(code_parts, "out_idx$(chunk_id) = Vec{$(2*complexes_per_vec),Int64}($idx_tuple)")
-            push!(code_parts, "out_vec$(chunk_id) = Vec{$(2*complexes_per_vec),$T}($vals_tuple)")
-            push!(code_parts, "vscatter(out_vec$(chunk_id), $(ptr_name), out_idx$(chunk_id))")
-        end
-        
-        join(code_parts, "\n    ")
-    end
-end
-
 # Wrapper for any other kernel shell strategy planer
 function makefftradix(n::Int,  suffixes::SuffixFlags, D::AbstractArray{String}, p::Int, s::Int, SIZE::Int, ::Type{T}, SIMD_BITS) where T <: AbstractFloat
 
   global inc = inccounter() # nullify global tmp 't' var counter for each new kernel generated
   
-  mode = :vgather
+  mode = :default
 
   has_y = has_flag(suffixes, Y)
   has_mat = has_flag(suffixes, MAT)
@@ -303,10 +181,11 @@ function makefftradix(n::Int,  suffixes::SuffixFlags, D::AbstractArray{String}, 
     d = nothing
   end
 
-  px = if (mode == :vgather) "p$(input) = pointer(reinterpret($T, $(input)));"
+  px = if (mode == :vgather) "p$(input) =reinterpret($T, $(input));"
       else "" end
   py = (mode == :unsafe_load) ? "$(output) = reinterpret($T, $(prev_output));" : ""
-  kernel_code = recfft2_simd(y, x, d, nothing, true, T, 1, mode, py, SIMD_BITS) 
+  #kernel_code = recfft2_simd(y, x, d, nothing, true, T, 1, mode, py, SIMD_BITS) 
+  kernel_code = recfft2(y, x, d, nothing, true, T, 1, mode, py)
   kernel_code = "$px" * "\n" * kernel_code
     
   
@@ -317,7 +196,7 @@ function makefftradix(n::Int,  suffixes::SuffixFlags, D::AbstractArray{String}, 
       try
           # Wrap in begin...end block for parsing multiple statements
           parsed_expr = Meta.parse("begin\n$kernel_code\nend")
-          @show parsed_expr
+          #@show parsed_expr
           return parsed_expr
       catch e
           @warn "Failed to parse kernel code: $e"
@@ -338,9 +217,11 @@ end
 
 parse_x(arr::AbstractArray{String}) = parse_x.(arr)
 
+#=
 function map_to_groups(numbers::AbstractArray{Int}, MODULO::Int)
   return ((numbers .- 1) .÷ MODULO) .+ 1
 end
+=#
 
 function parse_cispi(s::String)
     # Enhanced regex pattern with optional sign and im* prefix
@@ -783,29 +664,6 @@ function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1, mode=:default, py="") 
   return s
 end
 
-function recfft2_simd(y, x, d, w, root, ::Type{T}, tmp_base=1, mode=:default, py="", SIMD_BITS) where T <: AbstractFloat
-    n = length(x)
-    MODULO = 4
-    
-    if n == 1
-        ""
-    elseif n == 2
-        s = if !isnothing(d)
-                if isnothing(w) # ROOT FFT2 KENREL
-                    load_gen(x; mode=mode, T=T, ptr_name="px", SIMD_BITS) * "\n" *
-                    "sum, diff = v1 + v2, v1 - v2" * "\n" * "$py" * 
-                    store_gen(y, d; root=root, T=T, ptr_name="py", SIMD_BITS) 
-                end 
-            else
-            if root
-                load_gen(x; mode=mode, T=T, ptr_name="px", SIMD_BITS) * "\n" *
-                ""
-                
-            
-                    
-
-end
-
 # Helper function to apply twiddle factors using SIMD
 function apply_twiddle_simd(vec_name, twiddle, T, n_complex)
     if twiddle == "1"
@@ -856,3 +714,645 @@ end
     ptr = reinterpret(Ptr{Float64}, pointer(input))
     return unsafe_wrap(Vector{Float64}, ptr, 2*length(input), own=false)
 end
+"""
+SIMD-Vectorized FFT Kernel Generator
+Explicit SIMD operations for complex arithmetic with optimal use of vector registers
+"""
+
+# Core SIMD saturated arithmetic for complex numbers stored as [r1,i1,r2,i2,...]
+
+function sat_expr_simd_vec(sign::String, v1_name::String, v2_name::String, w::String, ::Type{T}, n_complex::Int) where T <: AbstractFloat
+    """
+    Perform complex butterfly with twiddle: (v1 ± v2) * w
+    Vectors store complex as interleaved: [r1,i1,r2,i2,...]
+    """
+    
+    if w == "1"
+        # Simple add/subtract
+        op = sign == "+" ? "+" : "-"
+        return """
+        Vec{$(2*n_complex),$T}($v1_name $op $v2_name)
+        """
+        
+    elseif w == "-im"
+        # -i * (v1 ± v2) = ±(i1 ∓ i2) ± i*(r1 ∓ r2)
+        # Result: swap real/imag and negate appropriately
+        op = sign == "+" ? "+" : "-"
+        return """
+        begin
+            diff = $v1_name $op $v2_name
+            # Swap real/imag: [r,i] -> [i,-r] for -im multiplication
+            shufflevector(diff, Val($(join([2*i-1 for i in 1:n_complex], ",")))) * 
+                Vec{$(2*n_complex),$T}($((join(["1" for _ in 1:n_complex], ",")))) -
+            shufflevector(diff, Val($(join([2*i-2 for i in 1:n_complex], ",")))) * 
+                Vec{$(2*n_complex),$T}($((join(["1" for _ in 1:n_complex], ","))))
+        end
+        """
+        
+    elseif w == "INV_SQRT2_Q4"
+        # (v1 ± v2) * (1-i)/√2 = [(r±s+i±t)/√2, (i±t-r∓s)/√2]
+        op = sign == "+" ? "+" : "-"
+        return """
+        begin
+            diff = $v1_name $op $v2_name
+            r_plus_i = shufflevector(diff, Val($(join([i for i in 0:2*n_complex-1 if i%2==0], ",")))) + 
+                       shufflevector(diff, Val($(join([i for i in 0:2*n_complex-1 if i%2==1], ","))))
+            i_minus_r = shufflevector(diff, Val($(join([i for i in 0:2*n_complex-1 if i%2==1], ",")))) - 
+                        shufflevector(diff, Val($(join([i for i in 0:2*n_complex-1 if i%2==0], ","))))
+            # Interleave back: [r1,i1,r2,i2,...]
+            shufflevector(r_plus_i, i_minus_r, Val($(join(vcat([[2*i,2*i+n_complex] for i in 0:n_complex-1]...), ",")))) * 
+                Vec{$(2*n_complex),$T}(($(join(["INV_SQRT2" for _ in 1:2*n_complex], ","))))
+        end
+        """
+        
+    elseif w == "-INV_SQRT2_Q1"
+        # -(v1 ± v2) * (1+i)/√2 = [-(r±s-i∓t)/√2, -(r±s+i±t)/√2]
+        op = sign == "+" ? "+" : "-"
+        return """
+        begin
+            diff = $v1_name $op $v2_name
+            i_minus_r = shufflevector(diff, Val($(join([i for i in 0:2*n_complex-1 if i%2==1], ",")))) - 
+                        shufflevector(diff, Val($(join([i for i in 0:2*n_complex-1 if i%2==0], ","))))
+            neg_r_plus_i = -(shufflevector(diff, Val($(join([i for i in 0:2*n_complex-1 if i%2==0], ",")))) + 
+                            shufflevector(diff, Val($(join([i for i in 0:2*n_complex-1 if i%2==1], ",")))))
+            shufflevector(i_minus_r, neg_r_plus_i, Val($(join(vcat([[2*i,2*i+n_complex] for i in 0:n_complex-1]...), ",")))) * 
+                Vec{$(2*n_complex),$T}(($(join(["INV_SQRT2" for _ in 1:2*n_complex], ","))))
+        end
+        """
+        
+    else
+        # General CISPI twiddle factors
+        parsed = parse_cispi(w)
+        num, den, is_q1 = parsed.num, parsed.den, parsed.q1
+        c = "COSPI_$(num)_$(den)"
+        s = "SINPI_$(num)_$(den)"
+        
+        # Build cosine and sine vectors (broadcast to all complex numbers)
+        cos_vec = "Vec{$(2*n_complex),$T}(($(join(["$c" for _ in 1:2*n_complex], ","))))"
+        sin_vec = "Vec{$(2*n_complex),$T}(($(join(["$s" for _ in 1:2*n_complex], ","))))"
+        
+        if startswith(w, "CISPI")
+            # (a+bi)(c+di) = (ac-bd) + i(ad+bc)
+            # Q1: cos+i*sin, Q4: cos-i*sin
+            sign_s = is_q1 ? "+" : "-"
+            op = sign == "+" ? "+" : "-"
+            
+            return """
+            begin
+                diff = $v1_name $op $v2_name
+                # Extract real and imag parts
+                real_parts = shufflevector(diff, Val($(join([i for i in 0:2*n_complex-1 if i%2==0], ","))))
+                imag_parts = shufflevector(diff, Val($(join([i for i in 0:2*n_complex-1 if i%2==1], ","))))
+                
+                # Complex multiply: (r+ii) * (c±is)
+                # Result real: r*c ∓ i*s
+                # Result imag: r*s ± i*c
+                res_real = muladd(real_parts, $cos_vec[0:$(n_complex-1)], 
+                                  $(is_q1 ? "-" : "+")imag_parts * $sin_vec[0:$(n_complex-1)])
+                res_imag = muladd(real_parts, $sin_vec[0:$(n_complex-1)], 
+                                  $(is_q1 ? "+" : "-")imag_parts * $cos_vec[0:$(n_complex-1)])
+                
+                # Interleave back
+                shufflevector(res_real, res_imag, Val($(join(vcat([[2*i,2*i+n_complex] for i in 0:n_complex-1]...), ","))))
+            end
+            """
+            
+        elseif startswith(w, "-im*CISPI")
+            # -i*(cos±i*sin) = ±sin - i*cos
+            op = sign == "+" ? "+" : "-"
+            sign_real = is_q1 ? "+" : "-"
+            
+            return """
+            begin
+                diff = $v1_name $op $v2_name
+                real_parts = shufflevector(diff, Val($(join([i for i in 0:2*n_complex-1 if i%2==0], ","))))
+                imag_parts = shufflevector(diff, Val($(join([i for i in 0:2*n_complex-1 if i%2==1], ","))))
+                
+                # -i * (cos±i*sin) = ±sin - i*cos
+                res_real = muladd($(sign_real == "+" ? "" : "-")real_parts, $sin_vec[0:$(n_complex-1)], 
+                                  imag_parts * $cos_vec[0:$(n_complex-1)])
+                res_imag = muladd(-real_parts, $cos_vec[0:$(n_complex-1)], 
+                                  $(sign_real == "+" ? "" : "-")imag_parts * $sin_vec[0:$(n_complex-1)])
+                
+                shufflevector(res_real, res_imag, Val($(join(vcat([[2*i,2*i+n_complex] for i in 0:n_complex-1]...), ","))))
+            end
+            """
+            
+        elseif startswith(w, "-CISPI")
+            # -(cos±i*sin)
+            op = sign == "+" ? "+" : "-"
+            sign_s = is_q1 ? "-" : "+"
+            
+            return """
+            begin
+                diff = $v1_name $op $v2_name
+                real_parts = shufflevector(diff, Val($(join([i for i in 0:2*n_complex-1 if i%2==0], ","))))
+                imag_parts = shufflevector(diff, Val($(join([i for i in 0:2*n_complex-1 if i%2==1], ","))))
+                
+                res_real = muladd(-real_parts, $cos_vec[0:$(n_complex-1)], 
+                                  $(sign_s)imag_parts * $sin_vec[0:$(n_complex-1)])
+                res_imag = muladd(-real_parts, $sin_vec[0:$(n_complex-1)], 
+                                  $(is_q1 ? "-" : "+")imag_parts * $cos_vec[0:$(n_complex-1)])
+                
+                shufflevector(res_real, res_imag, Val($(join(vcat([[2*i,2*i+n_complex] for i in 0:n_complex-1]...), ","))))
+            end
+            """
+            
+        elseif startswith(w, "im*CISPI")
+            # i*(cos±i*sin) = ∓sin + i*cos
+            op = sign == "+" ? "+" : "-"
+            sign_real = is_q1 ? "-" : "+"
+            
+            return """
+            begin
+                diff = $v1_name $op $v2_name
+                real_parts = shufflevector(diff, Val($(join([i for i in 0:2*n_complex-1 if i%2==0], ","))))
+                imag_parts = shufflevector(diff, Val($(join([i for i in 0:2*n_complex-1 if i%2==1], ","))))
+                
+                res_real = muladd($(sign_real)real_parts, $sin_vec[0:$(n_complex-1)], 
+                                  -imag_parts * $cos_vec[0:$(n_complex-1)])
+                res_imag = muladd(real_parts, $cos_vec[0:$(n_complex-1)], 
+                                  $(sign_real)imag_parts * $sin_vec[0:$(n_complex-1)])
+                
+                shufflevector(res_real, res_imag, Val($(join(vcat([[2*i,2*i+n_complex] for i in 0:n_complex-1]...), ","))))
+            end
+            """
+        end
+    end
+end
+
+# Scalar version 1: Apply twiddle to single temp variable (tmp already computed)
+function sat_expr_simd_scalar(tmp::String, w::String, ::Type{T}) where T <: AbstractFloat
+    if w == "1"
+        return "$(tmp)_r, $(tmp)_i"
+    elseif w == "-im"
+        return "$(tmp)_i, -$(tmp)_r"
+    elseif w == "INV_SQRT2_Q4"
+        return "INV_SQRT2*($(tmp)_r + $(tmp)_i), INV_SQRT2*($(tmp)_i - $(tmp)_r)"
+    elseif w == "-INV_SQRT2_Q1"
+        return "INV_SQRT2*($(tmp)_i - $(tmp)_r), -INV_SQRT2*($(tmp)_r + $(tmp)_i)"
+    else
+        parsed = parse_cispi(w)
+        c = "COSPI_$(parsed.num)_$(parsed.den)"
+        s = "SINPI_$(parsed.num)_$(parsed.den)"
+        
+        if startswith(w, "CISPI")
+            if parsed.q1
+                return "muladd($c, $(tmp)_r, -$s * $(tmp)_i), muladd($s, $(tmp)_r, $c * $(tmp)_i)"
+            else
+                return "muladd($c, $(tmp)_r, $s * $(tmp)_i), muladd(-$s, $(tmp)_r, $c * $(tmp)_i)"
+            end
+        elseif startswith(w, "-im*CISPI")
+            if parsed.q1
+                return "muladd($s, $(tmp)_r, $c * $(tmp)_i), muladd(-$c, $(tmp)_r, $s * $(tmp)_i)"
+            else
+                return "muladd(-$s, $(tmp)_r, $c * $(tmp)_i), muladd(-$c, $(tmp)_r, -$s * $(tmp)_i)"
+            end
+        elseif startswith(w, "-CISPI")
+            if parsed.q1
+                return "muladd(-$c, $(tmp)_r, $s * $(tmp)_i), muladd(-$s, $(tmp)_r, -$c * $(tmp)_i)"
+            else
+                return "muladd(-$c, $(tmp)_r, -$s * $(tmp)_i), muladd($s, $(tmp)_r, -$c * $(tmp)_i)"
+            end
+        elseif startswith(w, "im*CISPI")
+            if parsed.q1
+                return "muladd(-$s, $(tmp)_r, -$c * $(tmp)_i), muladd($c, $(tmp)_r, -$s * $(tmp)_i)"
+            else
+                return "muladd($s, $(tmp)_r, -$c * $(tmp)_i), muladd($c, $(tmp)_r, $s * $(tmp)_i)"
+            end
+        end
+    end
+end
+
+# Scalar version 2: Butterfly operation with twiddle: (x1 ± x2) * w
+function sat_expr_simd_scalar(sign::String, x1::String, x2::String, w::String, ::Type{T}) where T <: AbstractFloat
+    if w == "1"
+        return "$(x1)_r $sign $(x2)_r, $(x1)_i $sign $(x2)_i"
+        
+    elseif w == "-im"
+        # -i*(x1 ± x2) = ±(i1 ∓ i2) ± i*(r1 ∓ r2)
+        return "$(x1)_i $sign $(x2)_i, $(x2)_r $sign $(x1)_r"
+        
+    elseif w == "INV_SQRT2_Q4"
+        # (x1 ± x2) * (1-i)/√2
+        return "INV_SQRT2*(($(x1)_r $sign $(x2)_r) + ($(x1)_i $sign $(x2)_i)), " *
+               "INV_SQRT2*(($(x1)_i $sign $(x2)_i) - ($(x1)_r $sign $(x2)_r))"
+               
+    elseif w == "-INV_SQRT2_Q1"
+        # -(x1 ± x2) * (1+i)/√2
+        return "INV_SQRT2*(($(x1)_i $sign $(x2)_i) - ($(x1)_r $sign $(x2)_r)), " *
+               "-INV_SQRT2*(($(x1)_r $sign $(x2)_r) + ($(x1)_i $sign $(x2)_i))"
+               
+    else
+        parsed = parse_cispi(w)
+        c = "COSPI_$(parsed.num)_$(parsed.den)"
+        s = "SINPI_$(parsed.num)_$(parsed.den)"
+        
+        if startswith(w, "CISPI")
+            if parsed.q1
+                # Q1: cos + i*sin
+                return "muladd($c, $(x1)_r $sign $(x2)_r, -$s * ($(x1)_i $sign $(x2)_i)), " *
+                       "muladd($s, $(x1)_r $sign $(x2)_r, $c * ($(x1)_i $sign $(x2)_i))"
+            else
+                # Q4: cos - i*sin
+                return "muladd($c, $(x1)_r $sign $(x2)_r, $s * ($(x1)_i $sign $(x2)_i)), " *
+                       "muladd(-$s, $(x1)_r $sign $(x2)_r, $c * ($(x1)_i $sign $(x2)_i))"
+            end
+            
+        elseif startswith(w, "-im*CISPI")
+            if parsed.q1
+                # -i*(cos + i*sin) = sin - i*cos
+                return "muladd($s, $(x1)_r $sign $(x2)_r, $c * ($(x1)_i $sign $(x2)_i)), " *
+                       "muladd(-$c, $(x1)_r $sign $(x2)_r, $s * ($(x1)_i $sign $(x2)_i))"
+            else
+                # -i*(cos - i*sin) = -sin - i*cos
+                return "muladd(-$s, $(x1)_r $sign $(x2)_r, $c * ($(x1)_i $sign $(x2)_i)), " *
+                       "muladd(-$c, $(x1)_r $sign $(x2)_r, -$s * ($(x1)_i $sign $(x2)_i))"
+            end
+            
+        elseif startswith(w, "-CISPI")
+            if parsed.q1
+                # -cos - i*sin
+                return "muladd(-$c, $(x1)_r $sign $(x2)_r, $s * ($(x1)_i $sign $(x2)_i)), " *
+                       "muladd(-$s, $(x1)_r $sign $(x2)_r, -$c * ($(x1)_i $sign $(x2)_i))"
+            else
+                # -cos + i*sin
+                return "muladd(-$c, $(x1)_r $sign $(x2)_r, -$s * ($(x1)_i $sign $(x2)_i)), " *
+                       "muladd($s, $(x1)_r $sign $(x2)_r, -$c * ($(x1)_i $sign $(x2)_i))"
+            end
+            
+        elseif startswith(w, "im*CISPI")
+            if parsed.q1
+                # i*(cos + i*sin) = -sin + i*cos
+                return "muladd(-$s, $(x1)_r $sign $(x2)_r, -$c * ($(x1)_i $sign $(x2)_i)), " *
+                       "muladd($c, $(x1)_r $sign $(x2)_r, -$s * ($(x1)_i $sign $(x2)_i))"
+            else
+                # i*(cos - i*sin) = sin + i*cos
+                return "muladd($s, $(x1)_r $sign $(x2)_r, -$c * ($(x1)_i $sign $(x2)_i)), " *
+                       "muladd($c, $(x1)_r $sign $(x2)_r, $s * ($(x1)_i $sign $(x2)_i))"
+            end
+        end
+    end
+end
+
+# Complete SIMD FFT kernel generator
+function recfft2_simd(y, x, d, w, root, ::Type{T}, tmp_base=1, mode=:vgather, py="", SIMD_BITS=256) where T <: AbstractFloat
+    n = length(x)
+    MODULO = 4
+    
+    # Calculate SIMD vector capacity
+    complex_size_bits = 2 * sizeof(T) * 8
+    complexes_per_vec = SIMD_BITS ÷ complex_size_bits
+    
+    if n == 1
+        return ""
+        
+    elseif n == 2
+        # Base case: 2-point butterfly
+        if !isnothing(d)
+            if isnothing(w) && root
+                # Root FFT2 with D matrix - use scalar operations for now
+                return """
+                x1_r, x1_i = real($(x[1])), imag($(x[1]))
+                x2_r, x2_i = real($(x[2])), imag($(x[2]))
+                sum_r, sum_i = x1_r + x2_r, x1_i + x2_i
+                diff_r, diff_i = x1_r - x2_r, x1_i - x2_i
+                $(y[1]) = Complex{$T}(sum_r, sum_i)
+                $(y[2]) = Complex{$T}($(sat_expr_simd_scalar("diff", d[1], T)))
+                """
+            end
+        else
+            if root
+                # Simple 2-point FFT without twiddles - use scalar for simplicity
+                return """
+                x1_r, x1_i = real($(x[1])), imag($(x[1]))
+                x2_r, x2_i = real($(x[2])), imag($(x[2]))
+                $(y[1]) = Complex{$T}(x1_r + x2_r, x1_i + x2_i)
+                $(y[2]) = Complex{$T}(x1_r - x2_r, x1_i - x2_i)
+                """
+            else
+                # Non-root 2-point
+                if isnothing(w)
+                    return """
+                    $(y[1])_r, $(y[1])_i = $(x[1])_r + $(x[2])_r, $(x[1])_i + $(x[2])_i
+                    $(y[2])_r, $(y[2])_i = $(x[1])_r - $(x[2])_r, $(x[1])_i - $(x[2])_i
+                    """
+                else
+                    # With twiddle factors
+                    if w[1] == "1"
+                        twiddle1 = "$(x[1])_r + $(x[2])_r, $(x[1])_i + $(x[2])_i"
+                    else
+                        twiddle1 = sat_expr_simd_scalar("+", "$(x[1])", "$(x[2])", w[1], T)
+                    end
+                    twiddle2 = sat_expr_simd_scalar("-", "$(x[1])", "$(x[2])", w[2], T)
+                    
+                    return """
+                    $(y[1])_r, $(y[1])_i = $twiddle1
+                    $(y[2])_r, $(y[2])_i = $twiddle2
+                    """
+                end
+            end
+        end
+        
+    else
+        # Recursive decomposition
+        n2 = n ÷ 2
+        t = ["t$i" for i in tmp_base:tmp_base + n - 1]
+        new_tmp_base = tmp_base + n
+        
+        # Recursively process even and odd elements
+        s1 = recfft2_simd(t[1:n2], x[1:2:n], nothing, nothing, false, T, new_tmp_base, mode, py, SIMD_BITS)
+        s2 = recfft2_simd(t[n2+1:n], x[2:2:n], nothing, get_twiddle_expression(collect(0:n2-1), n), false, T, new_tmp_base, mode, py, SIMD_BITS)
+        
+        # Combine results with butterfly operations
+        s3p, s3m = generate_butterfly_combination(y, t, d, w, n, n2, root, T, py)
+        
+        # Add load operations at the base recursion level
+        load_code = n == MODULO ? load_gen_simd(x; mode=mode, T=T, ptr_name="px", SIMD_BITS=SIMD_BITS) * "\n" : ""
+        
+        return load_code * s1 * s2 * s3p * s3m
+    end
+end
+
+# Helper to generate butterfly combination code
+function generate_butterfly_combination(y, t, d, w, n, n2, root, ::Type{T}, py) where T
+    # Generate temporary variables for sum/diff
+    tmp_decls = if n > 2
+        parts = String[]
+        for i in 2:n2
+            push!(parts, "tmp$(i-2)_r, tmp$(i-2)_i = $(t[i])_r + $(t[i+n2])_r, $(t[i])_i + $(t[i+n2])_i")
+            push!(parts, "tmp$(i-2+n2)_r, tmp$(i-2+n2)_i = $(t[i])_r - $(t[i+n2])_r, $(t[i])_i - $(t[i+n2])_i")
+        end
+        join(parts, "\n") * "\n"
+    else
+        ""
+    end
+    
+    # Generate output assignments
+    if !isnothing(d)
+        # With D matrix
+        s3p = root ? "$py\n$tmp_decls$(y[1]) = Complex{$T}($(t[1])_r + $(t[1+n2])_r, $(t[1])_i + $(t[1+n2])_i)\n" : ""
+        for i in 2:n2
+            s3p *= "$(y[i]) = Complex{$T}($(sat_expr_simd_scalar("tmp$(i-2)", d[i-1], T)))\n"
+        end
+        
+        s3m = "$(y[n2+1]) = Complex{$T}($(sat_expr_simd_scalar("-", "$(t[1])", "$(t[1+n2])", d[n2], T)))\n"
+        for i in 2:n2
+            s3m *= "$(y[i+n2]) = Complex{$T}($(sat_expr_simd_scalar("tmp$(i-3+n2)", d[i+n2-1], T)))\n"
+        end
+        
+    elseif !isnothing(w)
+        # With twiddle factors
+        s3p = "$tmp_decls"
+        
+        # For first element: directly compute (t[1] + t[1+n2]) * w[1]
+        if w[1] == "1"
+            s3p *= "$(y[1])_r, $(y[1])_i = $(t[1])_r + $(t[1+n2])_r, $(t[1])_i + $(t[1+n2])_i\n"
+        else
+            s3p *= "$(y[1])_r, $(y[1])_i = $(sat_expr_simd_scalar("+", "$(t[1])", "$(t[1+n2])", w[1], T))\n"
+        end
+        
+        # For remaining elements: use precomputed tmp values
+        for i in 2:n2
+            s3p *= "$(y[i])_r, $(y[i])_i = $(sat_expr_simd_scalar("tmp$(i-2)", w[i], T))\n"
+        end
+        
+        # Minus part: (t[1] - t[1+n2]) * w[n2+1]
+        s3m = "$(y[n2+1])_r, $(y[n2+1])_i = $(sat_expr_simd_scalar("-", "$(t[1])", "$(t[1+n2])", w[n2+1], T))\n"
+        for i in 2:n2
+            s3m *= "$(y[i+n2])_r, $(y[i+n2])_i = $(sat_expr_simd_scalar("tmp$(i-3+n2)", w[n2+i], T))\n"
+        end
+        
+    else
+        # Simple butterfly
+        if root
+            s3p = "$py\n"
+            for i in 1:n2
+                s3p *= "$(y[i]) = Complex{$T}($(t[i])_r + $(t[i+n2])_r, $(t[i])_i + $(t[i+n2])_i)\n"
+            end
+            s3m = ""
+            for i in 1:n2
+                s3m *= "$(y[n2+i]) = Complex{$T}($(t[i])_r - $(t[i+n2])_r, $(t[i])_i - $(t[i+n2])_i)\n"
+            end
+        else
+            s3p = ""
+            for i in 1:n2
+                s3p *= "$(y[i])_r, $(y[i])_i = $(t[i])_r + $(t[i+n2])_r, $(t[i])_i + $(t[i+n2])_i\n"
+            end
+            s3m = ""
+            for i in 1:n2
+                s3m *= "$(y[n2+i])_r, $(y[n2+i])_i = $(t[i])_r - $(t[i+n2])_r, $(t[i])_i - $(t[i+n2])_i\n"
+            end
+        end
+    end
+    
+    return s3p, s3m
+end
+
+# Updated load_gen for SIMD vector loading
+function load_gen_simd(x_vars; mode, T, ptr_name="px", SIMD_BITS=256)
+    n = length(x_vars)
+    complex_size_bits = 2 * sizeof(T) * 8
+    complexes_per_vec = SIMD_BITS ÷ complex_size_bits
+    n_floats = 2 * n
+    
+    # Extract indices from variable names
+    indices = Int[]
+    for var in x_vars
+        m = match(r"(\d+)", var)
+        push!(indices, parse(Int, m.captures[1]))
+    end
+    
+    # Check if contiguous
+    is_contiguous = all(i -> indices[i] == indices[1] + i - 1, 2:length(indices))
+    
+    if mode == :vgather
+        if is_contiguous && n <= complexes_per_vec
+            # Contiguous load - single vload
+            offset = 2 * (indices[1] - 1) * sizeof(T)
+            return """
+            # Load $n contiguous complex numbers as Vec{$(n_floats),$T}
+            v_all = vload(Vec{$(n_floats),$T}, $ptr_name, $offset)
+            """
+        elseif n <= complexes_per_vec
+            # Non-contiguous - use vgather
+            float_indices = Int[]
+            for idx in indices
+                push!(float_indices, 2*idx - 1)
+                push!(float_indices, 2*idx)
+            end
+            idx_tuple = Tuple(float_indices)
+            @show idx_tuple typeof(idx_tuple)
+            
+            return """
+            # Gather $n non-contiguous complex numbers
+            idx = Vec($idx_tuple)
+            v_all = vgather($ptr_name, idx)
+            """
+        else
+            # Multiple vectors needed
+            code_parts = String[]
+            for chunk_start in 1:complexes_per_vec:n
+                chunk_end = min(chunk_start + complexes_per_vec - 1, n)
+                chunk_size = chunk_end - chunk_start + 1
+                chunk_indices = indices[chunk_start:chunk_end]
+                
+                float_indices = Int[]
+                for idx in chunk_indices
+                    push!(float_indices, 2*idx - 1)
+                    push!(float_indices, 2*idx)
+                end
+                
+                chunk_id = (chunk_start - 1) ÷ complexes_per_vec + 1
+                idx_tuple = Tuple(float_indices)
+                @show idx_tuple typeof(idx_tuple)
+                
+                push!(code_parts, "idx$chunk_id = Vec($idx_tuple)")
+                push!(code_parts, "v$chunk_id = vgather($ptr_name, idx$chunk_id)")
+            end
+            
+            return join(code_parts, "\n")
+        end
+    end
+end
+
+# Updated store_gen for SIMD vector storing
+function store_gen_simd(y_vars, src_vars; mode, T, ptr_name="py", SIMD_BITS=256)
+    n = length(y_vars)
+    complex_size_bits = 2 * sizeof(T) * 8
+    complexes_per_vec = SIMD_BITS ÷ complex_size_bits
+    n_floats = 2 * n
+    
+    # Extract indices from y variable names
+    indices = Int[]
+    for var in y_vars
+        m = match(r"\[(\d+)\]", var)
+        if m !== nothing
+            push!(indices, parse(Int, m.captures[1]))
+        end
+    end
+    
+    # Check if contiguous
+    is_contiguous = all(i -> indices[i] == indices[1] + i - 1, 2:length(indices))
+    
+    if mode == :vgather
+        if is_contiguous && n <= complexes_per_vec
+            # Contiguous store - use vstore
+            offset = 2 * (indices[1] - 1) * sizeof(T)
+            
+            # Handle special cases for src_vars
+            if src_vars == ["+", "-"]
+                return """
+                # Store sum and diff
+                vstore(v1 + v2, $ptr_name, $offset)
+                vstore(v1 - v2, $ptr_name, $(offset + n_floats * sizeof(T)))
+                """
+            else
+                # Build vector from source variables
+                vals = String[]
+                for src in src_vars
+                    if endswith(src, "_r") || endswith(src, "_i")
+                        push!(vals, src)
+                    else
+                        push!(vals, "$(src)_r", "$(src)_i")
+                    end
+                end
+                vals_tuple = "(" * join(vals, ",") * ")"
+                
+                return """
+                # Store $n contiguous complex numbers
+                v_out = Vec{$(n_floats),$T}($vals_tuple)
+                vstore(v_out, $ptr_name, $offset)
+                """
+            end
+        elseif n <= complexes_per_vec
+            # Non-contiguous - use vscatter
+            float_indices = Int[]
+            for idx in indices
+                push!(float_indices, 2*idx - 1)
+                push!(float_indices, 2*idx)
+            end
+            
+            vals = String[]
+            for src in src_vars
+                push!(vals, "$(src)_r", "$(src)_i")
+            end
+            
+            idx_tuple = "(" * join(float_indices, ",") * ")"
+            vals_tuple = "(" * join(vals, ",") * ")"
+            
+            return """
+            # Scatter $n non-contiguous complex numbers
+            idx = Vec{$(n_floats),Int64}($idx_tuple)
+            v_out = Vec{$(n_floats),$T}($vals_tuple)
+            vscatter(v_out, $ptr_name, idx)
+            """
+        else
+            # Multiple vscatters for large radix
+            code_parts = String[]
+            for chunk_start in 1:complexes_per_vec:n
+                chunk_end = min(chunk_start + complexes_per_vec - 1, n)
+                chunk_size = chunk_end - chunk_start + 1
+                chunk_indices = indices[chunk_start:chunk_end]
+                chunk_src = src_vars[chunk_start:chunk_end]
+                
+                float_indices = Int[]
+                for idx in chunk_indices
+                    push!(float_indices, 2*idx - 1)
+                    push!(float_indices, 2*idx)
+                end
+                
+                vals = String[]
+                for src in chunk_src
+                    push!(vals, "$(src)_r", "$(src)_i")
+                end
+                
+                chunk_id = (chunk_start - 1) ÷ complexes_per_vec + 1
+                idx_tuple = "(" * join(float_indices, ",") * ")"
+                vals_tuple = "(" * join(vals, ",") * ")"
+                
+                push!(code_parts, "idx$chunk_id = Vec{$(2*chunk_size),Int64}($idx_tuple)")
+                push!(code_parts, "v_out$chunk_id = Vec{$(2*chunk_size),$T}($vals_tuple)")
+                push!(code_parts, "vscatter(v_out$chunk_id, $ptr_name, idx$chunk_id)")
+            end
+            
+            return join(code_parts, "\n")
+        end
+    end
+end
+
+# Usage example for makefftradix
+#=
+"""
+Update makefftradix to use SIMD version:
+
+function makefftradix(n::Int, suffixes::SuffixFlags, D::AbstractArray{String}, 
+                      p::Int, s::Int, SIZE::Int, ::Type{T}, SIMD_BITS=256) where T <: AbstractFloat
+    
+    # Determine input/output arrays
+    mode = :vgather
+    has_y = has_flag(suffixes, Y)
+    has_mat = has_flag(suffixes, MAT)
+    input = has_y ? "y" : "x"
+    output = "y"
+    groups = SIZE ÷ s
+    
+    # Setup pointer conversion
+    px = "px = pointer(reinterpret($T, $(input)));"
+    py = "py = pointer(reinterpret($T, $(output)));"
+    
+    # Generate kernel using SIMD version
+    kernel_code = recfft2_simd(y, x, d, nothing, true, T, 1, mode, py, SIMD_BITS)
+    kernel_code = px * "\\n" * kernel_code
+    
+    return Meta.parse("begin\\n\$kernel_code\\nend")
+end
+"""
+
+=#
+"""
+SIMD-Vectorized FFT Kernel Generator
+Explicit SIMD operations for complex arithmetic with optimal use of vector registers
+"""
+
+# Core SIMD saturated arithmetic for complex numbers stored as [r1,i1,r2,i2,...]
