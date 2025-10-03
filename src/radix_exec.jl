@@ -48,11 +48,13 @@ function GenerateMatrixExpr!(plan::RadixPlan, show_function::Bool=true)::Expr
                 #body = remove_constants_from_kernel(body)
                 #body = substitute_kernel_vars(body, current_output, current_input)
             push!(ops, body)
-        elseif !is_final_stage
+        elseif !is_final_stage # TODO FIX N ≥ 32 hard offset problem from here!!!
             n_groups_per_radix = SIZE ÷ radix
+            
             for p in 0:(n_groups_per_radix-1)
+                # Each kernel has unique p and hardcoded indices
                 key = "fft$(radix)_$(stride)x$(n_g)_$(p)!"
-                #show_function && println(" Kernel name: $key")
+                
                 haskey(kernel_exprs, key) || error("Missing kernel: $key")
                 body = kernel_exprs[key]
                 body = remove_constants_from_kernel(body)
@@ -106,7 +108,7 @@ end
 
 function materialize_plan_function!(plan::RadixPlan, ::Type{T}) where {T}
     constants_dict = RadixGenerator.generate_local_constants_dict(plan.n, T)
-    body = GenerateMatrixExpr!(plan, false)
+    body = GenerateMatrixExpr!(plan, true)
     substituted_body = substitute_constants_in_expr(body, constants_dict)
     
     fexpr = quote

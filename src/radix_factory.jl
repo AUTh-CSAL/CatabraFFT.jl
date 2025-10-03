@@ -125,24 +125,26 @@ function generate_all_kernel_expressions(plan_data::NamedTuple, ::Type{T};
             radix = get_radix_divisor(op.op_type)
             is_final = (stage_idx == length(plan_data.operations))
             
-            # Use CURRENT operation's parameters for kernel generation
-            n_kernels = op.n_groups ÷ radix
+            # Calculate SIZE for this stage
+            SIZE = op.n_groups * op.stride
+            n_kernels_needed = SIZE ÷ radix
             
             if !is_final
-                # Intermediate stage: needs D matrix from NEXT stage's perspective
+                # Non-final stage: generate with D matrix twiddles
                 next_op = plan_data.operations[stage_idx + 1]
+                n_unique_d_columns = next_op.n_groups
                 
-                for p in 0:(n_kernels-1)
-                    # D matrix uses the stride/groups of where data WILL BE after this stage
-                    D = generate_D_kernel(p+1, next_op.stride, next_op.n_groups, T)
-                    # But kernel uses CURRENT op's parameters
+                for p in 0:(n_kernels_needed-1)
+                    # Cycle through D matrix columns
+                    d_column_idx = (p % n_unique_d_columns) + 1
+                    D = generate_D_kernel(d_column_idx, next_op.stride, next_op.n_groups, T)
                     name, expr = generate_kernel_expression(radix, op, suffix_combinations, p, D, false, T)
                     kernels[name] = expr
                 end
             else
-                # Final stage: VEC version, no D matrix
+                # Final stage: VEC version
                 vec_suffix = add_flag(suffix_combinations, VEC)
-                for p in 0:(n_kernels-1)
+                for p in 0:(n_kernels_needed-1)
                     name, expr = generate_kernel_expression(radix, op, vec_suffix, p, String[], true, T)
                     kernels[name] = expr
                 end
