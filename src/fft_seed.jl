@@ -143,7 +143,7 @@ function makefftradix(n::Int,  suffixes::SuffixFlags, D::AbstractArray{String}, 
   has_vec = has_flag(suffixes, VEC)
   input = has_y ? "y" : "x"
   output = "y"
-  groups = SIZE ÷ s
+  groups = SIZE ÷ n
 
   prev_output = output
   unsafe_load_mode = mode == :unsafe_load
@@ -161,7 +161,8 @@ function makefftradix(n::Int,  suffixes::SuffixFlags, D::AbstractArray{String}, 
           y = ["$(output)[$(2*(i + p*s) - 1 + j)]" for i in 1:n for j in 0:1]
         else
           x = ["$(input)$(p + 1 + (i-1)*groups)" for i in 1:n]
-          y = ["$output[$(i + p*s)]" for i in 1:n]
+          #y = ["$output[$(i + p*s)]" for i in 1:n]
+          y = ["$output[$(p + 1 + (i-1)*groups)]" for i in 1:n]  # Changed from $(i + p*s)
         end
       end
       d = D == String[] ? nothing : D

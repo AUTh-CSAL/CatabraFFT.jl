@@ -9,12 +9,14 @@ using SIMD
 
 include("helper_tools.jl")
 
-# Generate a complete monolithic FFT function with all kernels inlined
+# Generate a complete monolithic FFT function or function group for decompositions with all kernels inlined
 function GenerateMatrixExpr!(plan::RadixPlan, show_function::Bool=true)::Expr
     T = typeof(plan).parameters[1]
 
     # 1) Gather kernels
-    kernel_exprs = extract_kernel_expressions(plan, T)
+    plan_data = (n=plan.n, operations=plan.operations)
+    kernel_exprs = RadixGenerator.create_kernel_dictionary(plan_data, T)
+
     show_function && println("Available kernels: ", collect(keys(kernel_exprs)))
 
     # 2) Collect constants once
@@ -50,21 +52,26 @@ function GenerateMatrixExpr!(plan::RadixPlan, show_function::Bool=true)::Expr
             n_groups_per_radix = SIZE ÷ radix
             for p in 0:(n_groups_per_radix-1)
                 key = "fft$(radix)_$(stride)x$(n_g)_$(p)!"
-                show_function && println("  kernel: $key")
+                #show_function && println(" Kernel name: $key")
                 haskey(kernel_exprs, key) || error("Missing kernel: $key")
                 body = kernel_exprs[key]
                 body = remove_constants_from_kernel(body)
                 body = substitute_kernel_vars(body, current_output, current_input)
+                show_function && println("Sub-Kernel Named $key with Body: $body")
                 push!(ops, body)
             end
         else
+            key = "fft$(radix)_$(stride)x$(n_g)_0!"
+            body = kernel_exprs[key]
+            show_function && println("Terminal Kernel Named $key (x $stride times) with Body: $body")
             for j in 1:stride
-                key = "fft$(radix)_$(stride)x$(n_g)_0!"
-                show_function && println("  final kernel: $key (offset=$j)")
+                #key = "fft$(radix)_$(stride)x$(n_g)_0!"
+                #show_function && println(" final kernel: $key (offset=$j)")
                 haskey(kernel_exprs, key) || error("Missing kernel: $key")
                 body = kernel_exprs[key]
                 body = remove_constants_from_kernel(body)
                 body = substitute_strided_final_stage(body, current_output, current_input, j, stride, SIZE)
+                show_function && println("Kernel Body (offset=$j): $body")
                 push!(ops, body)
             end
         end
@@ -73,7 +80,9 @@ function GenerateMatrixExpr!(plan::RadixPlan, show_function::Bool=true)::Expr
     end
 
     # 4) Final body block
-    return isempty(ops) ? :(copyto!(y, x)) : Expr(:block, ops...)
+    BLOCK = Expr(:block, ops...)
+    return BLOCK
+    #return isempty(ops) ? :(copyto!(y, x)) : 
 end
 
 function generate_mat_execute_function!(plan::RadixPlan, show_function::Bool=true)::Expr
@@ -97,7 +106,7 @@ end
 
 function materialize_plan_function!(plan::RadixPlan, ::Type{T}) where {T}
     constants_dict = RadixGenerator.generate_local_constants_dict(plan.n, T)
-    body = GenerateMatrixExpr!(plan, true)
+    body = GenerateMatrixExpr!(plan, false)
     substituted_body = substitute_constants_in_expr(body, constants_dict)
     
     fexpr = quote
@@ -299,12 +308,6 @@ function substitute_kernel_vars(kernel_expr::Expr, out_var, in_var)
     end
 end
 
-# Extract kernel expressions directly
-function extract_kernel_expressions(plan::RadixPlan{T}, ::Type{T}) where T
-    plan_data = (n=plan.n, operations=plan.operations)
-    return RadixGenerator.create_kernel_module(plan_data, T)
-end
-
 # Simple expression tree walker
 function postwalk(f, expr)
     if isa(expr, Expr)
@@ -332,7 +335,7 @@ function return_best_static_linear_expr(plans::Vector{RadixPlan{T}}, show_functi
 
     best_time = Inf
     best_body_expr::Union{Expr,Nothing} = nothing
-
+    
     for plan in plans
         try
             show_function && println("Benchmarking plan: ", plan.operations)
@@ -349,7 +352,7 @@ function return_best_static_linear_expr(plans::Vector{RadixPlan{T}}, show_functi
 
             if t < best_time
                 best_time = t
-                best_body_expr = GenerateMatrixExpr!(plan, true)  # store BODY expr for compile-time splice
+                best_body_expr = GenerateMatrixExpr!(plan, show_function)  # store BODY expr for compile-time splice
             end
         catch e
             @warn "Failed to benchmark plan $(plan.operations): $e"

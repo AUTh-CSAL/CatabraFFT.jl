@@ -14,7 +14,7 @@ include("fft_seed.jl")
 using LoopVectorization, SIMD
 using .Radix_Plan
 
-export create_kernel_module, extract_plan_data
+export create_kernel_dictionary, extract_plan_data
 
 # Instead of generating a module, generate a dictionary of kernel expressions
 function create_kernel_dictionary(plan_data::NamedTuple, ::Type{T})::Dict{String, Expr} where T <: AbstractFloat
@@ -110,39 +110,40 @@ function generate_local_constants_dict(n::Int, ::Type{T}) where T <: AbstractFlo
 end
 
 # Modified to return expressions instead of string code
-function generate_all_kernel_expressions(plan_data::NamedTuple, ::Type{T}; suffix_combinations::Union{Nothing, SuffixFlags}=nothing) where T <: AbstractFloat
+function generate_all_kernel_expressions(plan_data::NamedTuple, ::Type{T}; 
+                                        suffix_combinations::Union{Nothing, SuffixFlags}=nothing) where T <: AbstractFloat
     kernels = Dict{String, Expr}()
-    symbols = Vector{Symbol}()
-    radices = Vector{Int}()
-
-    @inbounds for op in plan_data.operations
-        push!(symbols, op.op_type)
-    end
-
-    @inbounds for symbol in symbols
-        num_str = String(symbol)[4:end]
-        push!(radices, parse(Int, num_str))
-    end
-
+    
     if has_flag(suffix_combinations, NONE)
-        name, expr = generate_kernel_expression(radices[1], plan_data.operations[1], suffix_combinations, 0, String[], true, T)
+        op = plan_data.operations[1]
+        radix = get_radix_divisor(op.op_type)
+        name, expr = generate_kernel_expression(radix, op, suffix_combinations, 0, String[], true, T)
         kernels[name] = expr
+        
     elseif has_flag(suffix_combinations, MAT)
-        for (i, (rad, op)) in enumerate(zip(radices, plan_data.operations))
-            future_op = i < length(plan_data.operations) ? plan_data.operations[i+1] : nothing
-            n1 = op.n_groups ÷ rad
-
-            if !isnothing(future_op) 
-                op.n_groups, op.stride = future_op.n_groups, future_op.stride
-                for p in 1:n1
-                    D = generate_D_kernel(p, op.stride, op.n_groups, T)
-                    name, expr = generate_kernel_expression(rad, op, suffix_combinations, p-1, D, false, T)
+        for (stage_idx, op) in enumerate(plan_data.operations)
+            radix = get_radix_divisor(op.op_type)
+            is_final = (stage_idx == length(plan_data.operations))
+            
+            # Use CURRENT operation's parameters for kernel generation
+            n_kernels = op.n_groups ÷ radix
+            
+            if !is_final
+                # Intermediate stage: needs D matrix from NEXT stage's perspective
+                next_op = plan_data.operations[stage_idx + 1]
+                
+                for p in 0:(n_kernels-1)
+                    # D matrix uses the stride/groups of where data WILL BE after this stage
+                    D = generate_D_kernel(p+1, next_op.stride, next_op.n_groups, T)
+                    # But kernel uses CURRENT op's parameters
+                    name, expr = generate_kernel_expression(radix, op, suffix_combinations, p, D, false, T)
                     kernels[name] = expr
                 end
             else
-                suffix_combinations = add_flag(suffix_combinations, VEC)
-                for p in 1:n1
-                    name, expr = generate_kernel_expression(rad, op, suffix_combinations, p-1, String[], true, T)
+                # Final stage: VEC version, no D matrix
+                vec_suffix = add_flag(suffix_combinations, VEC)
+                for p in 0:(n_kernels-1)
+                    name, expr = generate_kernel_expression(radix, op, vec_suffix, p, String[], true, T)
                     kernels[name] = expr
                 end
             end
@@ -150,7 +151,6 @@ function generate_all_kernel_expressions(plan_data::NamedTuple, ::Type{T}; suffi
     end
     
     return kernels
-    @show kernel_body
 end
 
 # Modified to return expression instead of string
@@ -165,7 +165,7 @@ function generate_kernel_expression(radix::Int, op, suffixes::SuffixFlags, p::In
     SIMD_BITS = 256
     kernel_body = makefftradix(radix, suffixes, D, p, op.stride, SIZE, T, SIMD_BITS)
     #kernel_body = makefftradix_simd(radix, suffixes, D, p, op.stride, SIZE, T)
-    @show kernel_body
+    #@show kernel_body
     
     return name, kernel_body
 end
@@ -295,11 +295,6 @@ function get_constant_expression(w::Complex{T}, n::Integer)::String where T <: A
     
     # Fallback to numerical
     return "($(round(real_part, digits=16))$(sign_str(imag_part))$(abs(round(imag_part, digits=16)))*im)"
-end
-
-# Instead of evaluating a module, return the kernel dictionary
-function create_kernel_module(plan_data::NamedTuple, ::Type{T}) where T <: AbstractFloat
-    return create_kernel_dictionary(plan_data, T)
 end
 
 function extract_plan_data(plan::T) where T
