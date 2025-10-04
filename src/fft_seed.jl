@@ -1,4 +1,5 @@
 include("suffix.jl")
+include("radix_plan.jl")
 using BenchmarkTools, SIMD
 
 const SIMD_BITS = 256
@@ -132,7 +133,7 @@ load_real_imag_gen = (t; mode, T, ptr_name="px") -> begin
 end
 
 # Wrapper for any other kernel shell strategy planer
-function makefftradix(n::Int,  suffixes::SuffixFlags, D::AbstractArray{String}, p::Int, s::Int, SIZE::Int, ::Type{T}, SIMD_BITS) where T <: AbstractFloat
+function makefftradix(n::Int,  suffixes::SuffixFlags, D::AbstractArray{String}, p::Int, op, SIZE::Int, ::Type{T}, SIMD_BITS) where T <: AbstractFloat
 
   global inc = inccounter() # nullify global tmp 't' var counter for each new kernel generated
   
@@ -141,8 +142,9 @@ function makefftradix(n::Int,  suffixes::SuffixFlags, D::AbstractArray{String}, 
   has_y = has_flag(suffixes, Y)
   has_mat = has_flag(suffixes, MAT)
   has_vec = has_flag(suffixes, VEC)
-  input = has_y ? "y" : "x"
-  output = "y"
+  input =  op.eo ? "y" : "x"
+  output = !has_y && op.eo ? "x" : "y"
+  s = op.stride
   groups = SIZE ÷ n
 
   prev_output = output
@@ -154,15 +156,15 @@ function makefftradix(n::Int,  suffixes::SuffixFlags, D::AbstractArray{String}, 
   if has_mat
       if has_vec
         x = ["$(input)$(i + p*s)" for i in 1:n]
-        y = ["$output[$(i + p*s)]" for i in 1:n]
+        #y = ["$output[$(i + p*s)]" for i in 1:n]
+        y = ["$output[$(p*n + i)]" for i in 1:n]             
       else
         if unsafe_load_mode
           x = ["$(input)[$(2*(p + 1 + (i-1)*groups) - 1 + j)]" for i in 1:n for j in 0:1]
           y = ["$(output)[$(2*(i + p*s) - 1 + j)]" for i in 1:n for j in 0:1]
         else
-          x = ["$(input)$(p + 1 + (i-1)*groups)" for i in 1:n]
-          #y = ["$output[$(i + p*s)]" for i in 1:n]
-          y = ["$output[$(p + 1 + (i-1)*groups)]" for i in 1:n]  # Changed from $(i + p*s)
+            x = ["$(input)$(p + 1 + (i-1)*groups)" for i in 1:n]  
+            y = ["$output[$(p*n + i)]" for i in 1:n]             
         end
       end
       d = D == String[] ? nothing : D
@@ -176,7 +178,8 @@ function makefftradix(n::Int,  suffixes::SuffixFlags, D::AbstractArray{String}, 
         y = ["$output[$i]" for i in 1:2n]
       else
         x = ["$(input)$i" for i in 1:s:n]
-        y = ["$output[$i]" for i in 1:n]
+        #y = ["$output[$i]" for i in 1:n]
+        y = ["$output[$(p*n + i)]" for i in 1:n]             
       end
     end
     d = nothing
@@ -277,7 +280,7 @@ function sat_expr(tmp, w)
     if w == "1"
         return "$(tmp)_r, $(tmp)_i"
     elseif w == "-im"
-        return "$(tmp)_i, $(tmp)_r"
+        return "$(tmp)_i, -$(tmp)_r"
     elseif w == "INV_SQRT2_Q4"
         # (a ± b) * (1-i)/√2 = [ (a_r ± b_r + a_i ± b_i)/√2 , (a_i ± b_i - a_r ∓ b_r)/√2 ]
         return "INV_SQRT2*($(tmp)_r + $(tmp)_i), " *

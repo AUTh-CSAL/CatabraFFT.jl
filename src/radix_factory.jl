@@ -165,7 +165,7 @@ function generate_kernel_expression(radix::Int, op, suffixes::SuffixFlags, p::In
     
     SIZE = op.n_groups * op.stride
     SIMD_BITS = 256
-    kernel_body = makefftradix(radix, suffixes, D, p, op.stride, SIZE, T, SIMD_BITS)
+    kernel_body = makefftradix(radix, suffixes, D, p, op, SIZE, T, SIMD_BITS)
     #kernel_body = makefftradix_simd(radix, suffixes, D, p, op.stride, SIZE, T)
     #@show kernel_body
     

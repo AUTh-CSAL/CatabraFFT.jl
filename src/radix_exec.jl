@@ -26,17 +26,25 @@ function GenerateMatrixExpr!(plan::RadixPlan, show_function::Bool=true)::Expr
         push!(ops, :($(Symbol(const_name)) = $const_value))
     end
 
-    # 3) Inline all stages
-    current_input  = :x
-    current_output = :y
 
     for (stage_idx, op) in enumerate(plan.operations)
+
+        if !op.eo
+            current_input  = :x
+            current_output = :y
+        else
+            current_input  = :y
+            current_output = :x
+        end
+
         is_final_stage = (stage_idx == length(plan.operations))
         radix  = get_radix_divisor(op.op_type)
         n_g    = op.n_groups
         stride = op.stride
         SIZE   = n_g * stride
         is_monolithic_shell = (radix == n_g) && (stride == 1)
+        
+        @show current_input, current_output, is_final_stage, radix, n_g, stride, SIZE, is_monolithic_shell
 
         show_function && println("Stage $stage_idx: radix=$radix, n_groups=$n_g, stride=$stride, in=$current_input, out=$current_output")
 
@@ -45,10 +53,8 @@ function GenerateMatrixExpr!(plan::RadixPlan, show_function::Bool=true)::Expr
             show_function && println("  kernel: $key")
             haskey(kernel_exprs, key) || error("Missing kernel: $key")
             body = kernel_exprs[key]
-                #body = remove_constants_from_kernel(body)
-                #body = substitute_kernel_vars(body, current_output, current_input)
             push!(ops, body)
-        elseif !is_final_stage # TODO FIX N ≥ 32 hard offset problem from here!!!
+        elseif !is_final_stage 
             n_groups_per_radix = SIZE ÷ radix
             
             for p in 0:(n_groups_per_radix-1)
@@ -57,9 +63,10 @@ function GenerateMatrixExpr!(plan::RadixPlan, show_function::Bool=true)::Expr
                 
                 haskey(kernel_exprs, key) || error("Missing kernel: $key")
                 body = kernel_exprs[key]
-                body = remove_constants_from_kernel(body)
+                #body = remove_constants_from_kernel(body)
                 body = substitute_kernel_vars(body, current_output, current_input)
-                show_function && println("Sub-Kernel Named $key with Body: $body")
+                #show_function && println("Sub-Kernel Named $key with Body: $body")
+                show_function && println("Sub-Kernel Named $key with Body: ")
                 push!(ops, body)
             end
         else
@@ -68,17 +75,17 @@ function GenerateMatrixExpr!(plan::RadixPlan, show_function::Bool=true)::Expr
             show_function && println("Terminal Kernel Named $key (x $stride times) with Body: $body")
             for j in 1:stride
                 #key = "fft$(radix)_$(stride)x$(n_g)_0!"
-                #show_function && println(" final kernel: $key (offset=$j)")
                 haskey(kernel_exprs, key) || error("Missing kernel: $key")
                 body = kernel_exprs[key]
-                body = remove_constants_from_kernel(body)
+                #body = remove_constants_from_kernel(body)
                 body = substitute_strided_final_stage(body, current_output, current_input, j, stride, SIZE)
-                show_function && println("Kernel Body (offset=$j): $body")
+                #show_function && println("Kernel Body (offset=$j): $body")
+                show_function && println("Kernel Body (offset=$j): ")
                 push!(ops, body)
             end
         end
         # Stockham swap
-        current_input, current_output = current_output, current_input
+        #current_input, current_output = current_output, current_input
     end
 
     # 4) Final body block

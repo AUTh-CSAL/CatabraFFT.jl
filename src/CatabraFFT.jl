@@ -146,6 +146,11 @@ function plan_fft(x::AbstractVector{Complex{T}}, flags::FLAG) where T <: Abstrac
     return spell
 end
 
+function show_kernel(spell)
+    spell_type = typeof(spell)
+    @show COMPILED_FFT_EXPRS[spell_type]
+end
+
 function AbstractFFTs.plan_fft(x::AbstractVector{Complex{T}}, region=1:1; flags::FLAG=NO_FLAG) where T <: AbstractFloat
     plan_fft(x, flags)
 end
