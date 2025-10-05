@@ -1,0 +1,1016 @@
+COMPILED_FFT_EXPRS[spell_type] = quote
+    begin
+        begin
+            #= none:3 =#
+            (x1_r, x1_i) = (real(x[1]), imag(x[1]))
+            #= none:3 =#
+            (x17_r, x17_i) = (real(x[17]), imag(x[17]))
+            #= none:3 =#
+            (x33_r, x33_i) = (real(x[33]), imag(x[33]))
+            #= none:3 =#
+            (x49_r, x49_i) = (real(x[49]), imag(x[49]))
+            #= none:4 =#
+            (t1_r, t1_i, t2_r, t2_i) = (x1_r + x33_r, x1_i + x33_i, x1_r - x33_r, x1_i - x33_i)
+            #= none:5 =#
+            (t3_r, t3_i, t4_r, t4_i) = (x17_r + x49_r, x17_i + x49_i, x17_i - x49_i, x49_r - x17_r)
+            #= none:7 =#
+            (y[1], y[2]) = (Complex{Float32}(t1_r + t3_r, t1_i + t3_i), Complex{Float32}(t2_r + t4_r, t2_i + t4_i))
+            #= none:8 =#
+            (y[3], y[4]) = (Complex{Float32}(t1_r - t3_r, t1_i - t3_i), Complex{Float32}(t2_r - t4_r, t2_i - t4_i))
+        end
+    end
+    begin
+        begin
+            #= none:3 =#
+            (x2_r, x2_i) = (real(x[2]), imag(x[2]))
+            #= none:3 =#
+            (x18_r, x18_i) = (real(x[18]), imag(x[18]))
+            #= none:3 =#
+            (x34_r, x34_i) = (real(x[34]), imag(x[34]))
+            #= none:3 =#
+            (x50_r, x50_i) = (real(x[50]), imag(x[50]))
+            #= none:4 =#
+            (t1_r, t1_i, t2_r, t2_i) = (x2_r + x34_r, x2_i + x34_i, x2_r - x34_r, x2_i - x34_i)
+            #= none:5 =#
+            (t3_r, t3_i, t4_r, t4_i) = (x18_r + x50_r, x18_i + x50_i, x18_i - x50_i, x50_r - x18_r)
+            #= none:7 =#
+            (tmp0_r, tmp0_i, tmp1_r, tmp1_i) = (t2_r + t4_r, t2_i + t4_i, t2_r - t4_r, t2_i - t4_i)
+            #= none:9 =#
+            (y[5], y[6]) = (Complex{Float32}(t1_r + t3_r, t1_i + t3_i), Complex{Float32}(muladd(COSPI_1_32, tmp0_r, SINPI_1_32 * tmp0_i), muladd(-SINPI_1_32, tmp0_r, COSPI_1_32 * tmp0_i)))
+            #= none:10 =#
+            (y[7], y[8]) = (Complex{Float32}(muladd(COSPI_1_16, t1_r - t3_r, SINPI_1_16 * (t1_i - t3_i)), muladd(-SINPI_1_16, t1_r - t3_r, COSPI_1_16 * (t1_i - t3_i))), Complex{Float32}(muladd(COSPI_3_32, tmp1_r, SINPI_3_32 * tmp1_i), muladd(-SINPI_3_32, tmp1_r, COSPI_3_32 * tmp1_i)))
+        end
+    end
+    begin
+        begin
+            #= none:3 =#
+            (x3_r, x3_i) = (real(x[3]), imag(x[3]))
+            #= none:3 =#
+            (x19_r, x19_i) = (real(x[19]), imag(x[19]))
+            #= none:3 =#
+            (x35_r, x35_i) = (real(x[35]), imag(x[35]))
+            #= none:3 =#
+            (x51_r, x51_i) = (real(x[51]), imag(x[51]))
+            #= none:4 =#
+            (t1_r, t1_i, t2_r, t2_i) = (x3_r + x35_r, x3_i + x35_i, x3_r - x35_r, x3_i - x35_i)
+            #= none:5 =#
+            (t3_r, t3_i, t4_r, t4_i) = (x19_r + x51_r, x19_i + x51_i, x19_i - x51_i, x51_r - x19_r)
+            #= none:7 =#
+            (tmp0_r, tmp0_i, tmp1_r, tmp1_i) = (t2_r + t4_r, t2_i + t4_i, t2_r - t4_r, t2_i - t4_i)
+            #= none:9 =#
+            (y[9], y[10]) = (Complex{Float32}(t1_r + t3_r, t1_i + t3_i), Complex{Float32}(muladd(COSPI_1_16, tmp0_r, SINPI_1_16 * tmp0_i), muladd(-SINPI_1_16, tmp0_r, COSPI_1_16 * tmp0_i)))
+            #= none:10 =#
+            (y[11], y[12]) = (Complex{Float32}(muladd(COSPI_1_8, t1_r - t3_r, SINPI_1_8 * (t1_i - t3_i)), muladd(-SINPI_1_8, t1_r - t3_r, COSPI_1_8 * (t1_i - t3_i))), Complex{Float32}(muladd(COSPI_3_16, tmp1_r, SINPI_3_16 * tmp1_i), muladd(-SINPI_3_16, tmp1_r, COSPI_3_16 * tmp1_i)))
+        end
+    end
+    begin
+        begin
+            #= none:3 =#
+            (x4_r, x4_i) = (real(x[4]), imag(x[4]))
+            #= none:3 =#
+            (x20_r, x20_i) = (real(x[20]), imag(x[20]))
+            #= none:3 =#
+            (x36_r, x36_i) = (real(x[36]), imag(x[36]))
+            #= none:3 =#
+            (x52_r, x52_i) = (real(x[52]), imag(x[52]))
+            #= none:4 =#
+            (t1_r, t1_i, t2_r, t2_i) = (x4_r + x36_r, x4_i + x36_i, x4_r - x36_r, x4_i - x36_i)
+            #= none:5 =#
+            (t3_r, t3_i, t4_r, t4_i) = (x20_r + x52_r, x20_i + x52_i, x20_i - x52_i, x52_r - x20_r)
+            #= none:7 =#
+            (tmp0_r, tmp0_i, tmp1_r, tmp1_i) = (t2_r + t4_r, t2_i + t4_i, t2_r - t4_r, t2_i - t4_i)
+            #= none:9 =#
+            (y[13], y[14]) = (Complex{Float32}(t1_r + t3_r, t1_i + t3_i), Complex{Float32}(muladd(COSPI_3_32, tmp0_r, SINPI_3_32 * tmp0_i), muladd(-SINPI_3_32, tmp0_r, COSPI_3_32 * tmp0_i)))
+            #= none:10 =#
+            (y[15], y[16]) = (Complex{Float32}(muladd(COSPI_3_16, t1_r - t3_r, SINPI_3_16 * (t1_i - t3_i)), muladd(-SINPI_3_16, t1_r - t3_r, COSPI_3_16 * (t1_i - t3_i))), Complex{Float32}(muladd(SINPI_7_32, tmp1_r, COSPI_7_32 * tmp1_i), muladd(-COSPI_7_32, tmp1_r, SINPI_7_32 * tmp1_i)))
+        end
+    end
+    begin
+        begin
+            #= none:3 =#
+            (x5_r, x5_i) = (real(x[5]), imag(x[5]))
+            #= none:3 =#
+            (x21_r, x21_i) = (real(x[21]), imag(x[21]))
+            #= none:3 =#
+            (x37_r, x37_i) = (real(x[37]), imag(x[37]))
+            #= none:3 =#
+            (x53_r, x53_i) = (real(x[53]), imag(x[53]))
+            #= none:4 =#
+            (t1_r, t1_i, t2_r, t2_i) = (x5_r + x37_r, x5_i + x37_i, x5_r - x37_r, x5_i - x37_i)
+            #= none:5 =#
+            (t3_r, t3_i, t4_r, t4_i) = (x21_r + x53_r, x21_i + x53_i, x21_i - x53_i, x53_r - x21_r)
+            #= none:7 =#
+            (tmp0_r, tmp0_i, tmp1_r, tmp1_i) = (t2_r + t4_r, t2_i + t4_i, t2_r - t4_r, t2_i - t4_i)
+            #= none:9 =#
+            (y[17], y[18]) = (Complex{Float32}(t1_r + t3_r, t1_i + t3_i), Complex{Float32}(muladd(COSPI_1_8, tmp0_r, SINPI_1_8 * tmp0_i), muladd(-SINPI_1_8, tmp0_r, COSPI_1_8 * tmp0_i)))
+            #= none:10 =#
+            (y[19], y[20]) = (Complex{Float32}(INV_SQRT2 * ((t1_r - t3_r) + (t1_i - t3_i)), INV_SQRT2 * ((t1_i - t3_i) - (t1_r - t3_r))), Complex{Float32}(muladd(SINPI_1_8, tmp1_r, COSPI_1_8 * tmp1_i), muladd(-COSPI_1_8, tmp1_r, SINPI_1_8 * tmp1_i)))
+        end
+    end
+    begin
+        begin
+            #= none:3 =#
+            (x6_r, x6_i) = (real(x[6]), imag(x[6]))
+            #= none:3 =#
+            (x22_r, x22_i) = (real(x[22]), imag(x[22]))
+            #= none:3 =#
+            (x38_r, x38_i) = (real(x[38]), imag(x[38]))
+            #= none:3 =#
+            (x54_r, x54_i) = (real(x[54]), imag(x[54]))
+            #= none:4 =#
+            (t1_r, t1_i, t2_r, t2_i) = (x6_r + x38_r, x6_i + x38_i, x6_r - x38_r, x6_i - x38_i)
+            #= none:5 =#
+            (t3_r, t3_i, t4_r, t4_i) = (x22_r + x54_r, x22_i + x54_i, x22_i - x54_i, x54_r - x22_r)
+            #= none:7 =#
+            (tmp0_r, tmp0_i, tmp1_r, tmp1_i) = (t2_r + t4_r, t2_i + t4_i, t2_r - t4_r, t2_i - t4_i)
+            #= none:9 =#
+            (y[21], y[22]) = (Complex{Float32}(t1_r + t3_r, t1_i + t3_i), Complex{Float32}(muladd(COSPI_5_32, tmp0_r, SINPI_5_32 * tmp0_i), muladd(-SINPI_5_32, tmp0_r, COSPI_5_32 * tmp0_i)))
+            #= none:10 =#
+            (y[23], y[24]) = (Complex{Float32}(muladd(SINPI_3_16, t1_r - t3_r, COSPI_3_16 * (t1_i - t3_i)), muladd(-COSPI_3_16, t1_r - t3_r, SINPI_3_16 * (t1_i - t3_i))), Complex{Float32}(muladd(SINPI_1_32, tmp1_r, COSPI_1_32 * tmp1_i), muladd(-COSPI_1_32, tmp1_r, SINPI_1_32 * tmp1_i)))
+        end
+    end
+    begin
+        begin
+            #= none:3 =#
+            (x7_r, x7_i) = (real(x[7]), imag(x[7]))
+            #= none:3 =#
+            (x23_r, x23_i) = (real(x[23]), imag(x[23]))
+            #= none:3 =#
+            (x39_r, x39_i) = (real(x[39]), imag(x[39]))
+            #= none:3 =#
+            (x55_r, x55_i) = (real(x[55]), imag(x[55]))
+            #= none:4 =#
+            (t1_r, t1_i, t2_r, t2_i) = (x7_r + x39_r, x7_i + x39_i, x7_r - x39_r, x7_i - x39_i)
+            #= none:5 =#
+            (t3_r, t3_i, t4_r, t4_i) = (x23_r + x55_r, x23_i + x55_i, x23_i - x55_i, x55_r - x23_r)
+            #= none:7 =#
+            (tmp0_r, tmp0_i, tmp1_r, tmp1_i) = (t2_r + t4_r, t2_i + t4_i, t2_r - t4_r, t2_i - t4_i)
+            #= none:9 =#
+            (y[25], y[26]) = (Complex{Float32}(t1_r + t3_r, t1_i + t3_i), Complex{Float32}(muladd(COSPI_3_16, tmp0_r, SINPI_3_16 * tmp0_i), muladd(-SINPI_3_16, tmp0_r, COSPI_3_16 * tmp0_i)))
+            #= none:10 =#
+            (y[27], y[28]) = (Complex{Float32}(muladd(SINPI_1_8, t1_r - t3_r, COSPI_1_8 * (t1_i - t3_i)), muladd(-COSPI_1_8, t1_r - t3_r, SINPI_1_8 * (t1_i - t3_i))), Complex{Float32}(muladd(-SINPI_1_16, tmp1_r, COSPI_1_16 * tmp1_i), muladd(-COSPI_1_16, tmp1_r, -SINPI_1_16 * tmp1_i)))
+        end
+    end
+    begin
+        begin
+            #= none:3 =#
+            (x8_r, x8_i) = (real(x[8]), imag(x[8]))
+            #= none:3 =#
+            (x24_r, x24_i) = (real(x[24]), imag(x[24]))
+            #= none:3 =#
+            (x40_r, x40_i) = (real(x[40]), imag(x[40]))
+            #= none:3 =#
+            (x56_r, x56_i) = (real(x[56]), imag(x[56]))
+            #= none:4 =#
+            (t1_r, t1_i, t2_r, t2_i) = (x8_r + x40_r, x8_i + x40_i, x8_r - x40_r, x8_i - x40_i)
+            #= none:5 =#
+            (t3_r, t3_i, t4_r, t4_i) = (x24_r + x56_r, x24_i + x56_i, x24_i - x56_i, x56_r - x24_r)
+            #= none:7 =#
+            (tmp0_r, tmp0_i, tmp1_r, tmp1_i) = (t2_r + t4_r, t2_i + t4_i, t2_r - t4_r, t2_i - t4_i)
+            #= none:9 =#
+            (y[29], y[30]) = (Complex{Float32}(t1_r + t3_r, t1_i + t3_i), Complex{Float32}(muladd(COSPI_7_32, tmp0_r, SINPI_7_32 * tmp0_i), muladd(-SINPI_7_32, tmp0_r, COSPI_7_32 * tmp0_i)))
+            #= none:10 =#
+            (y[31], y[32]) = (Complex{Float32}(muladd(SINPI_1_16, t1_r - t3_r, COSPI_1_16 * (t1_i - t3_i)), muladd(-COSPI_1_16, t1_r - t3_r, SINPI_1_16 * (t1_i - t3_i))), Complex{Float32}(muladd(-SINPI_5_32, tmp1_r, COSPI_5_32 * tmp1_i), muladd(-COSPI_5_32, tmp1_r, -SINPI_5_32 * tmp1_i)))
+        end
+    end
+    begin
+        begin
+            #= none:3 =#
+            (x9_r, x9_i) = (real(x[9]), imag(x[9]))
+            #= none:3 =#
+            (x25_r, x25_i) = (real(x[25]), imag(x[25]))
+            #= none:3 =#
+            (x41_r, x41_i) = (real(x[41]), imag(x[41]))
+            #= none:3 =#
+            (x57_r, x57_i) = (real(x[57]), imag(x[57]))
+            #= none:4 =#
+            (t1_r, t1_i, t2_r, t2_i) = (x9_r + x41_r, x9_i + x41_i, x9_r - x41_r, x9_i - x41_i)
+            #= none:5 =#
+            (t3_r, t3_i, t4_r, t4_i) = (x25_r + x57_r, x25_i + x57_i, x25_i - x57_i, x57_r - x25_r)
+            #= none:7 =#
+            (tmp0_r, tmp0_i, tmp1_r, tmp1_i) = (t2_r + t4_r, t2_i + t4_i, t2_r - t4_r, t2_i - t4_i)
+            #= none:9 =#
+            (y[33], y[34]) = (Complex{Float32}(t1_r + t3_r, t1_i + t3_i), Complex{Float32}(INV_SQRT2 * (tmp0_r + tmp0_i), INV_SQRT2 * (tmp0_i - tmp0_r)))
+            #= none:10 =#
+            (y[35], y[36]) = (Complex{Float32}(t1_i - t3_i, t3_r - t1_r), Complex{Float32}(INV_SQRT2 * (tmp1_i - tmp1_r), -INV_SQRT2 * (tmp1_r + tmp1_i)))
+        end
+    end
+    begin
+        begin
+            #= none:3 =#
+            (x10_r, x10_i) = (real(x[10]), imag(x[10]))
+            #= none:3 =#
+            (x26_r, x26_i) = (real(x[26]), imag(x[26]))
+            #= none:3 =#
+            (x42_r, x42_i) = (real(x[42]), imag(x[42]))
+            #= none:3 =#
+            (x58_r, x58_i) = (real(x[58]), imag(x[58]))
+            #= none:4 =#
+            (t1_r, t1_i, t2_r, t2_i) = (x10_r + x42_r, x10_i + x42_i, x10_r - x42_r, x10_i - x42_i)
+            #= none:5 =#
+            (t3_r, t3_i, t4_r, t4_i) = (x26_r + x58_r, x26_i + x58_i, x26_i - x58_i, x58_r - x26_r)
+            #= none:7 =#
+            (tmp0_r, tmp0_i, tmp1_r, tmp1_i) = (t2_r + t4_r, t2_i + t4_i, t2_r - t4_r, t2_i - t4_i)
+            #= none:9 =#
+            (y[37], y[38]) = (Complex{Float32}(t1_r + t3_r, t1_i + t3_i), Complex{Float32}(muladd(SINPI_7_32, tmp0_r, COSPI_7_32 * tmp0_i), muladd(-COSPI_7_32, tmp0_r, SINPI_7_32 * tmp0_i)))
+            #= none:10 =#
+            (y[39], y[40]) = (Complex{Float32}(muladd(-SINPI_1_16, t1_r - t3_r, COSPI_1_16 * (t1_i - t3_i)), muladd(-COSPI_1_16, t1_r - t3_r, -SINPI_1_16 * (t1_i - t3_i))), Complex{Float32}(muladd(-COSPI_5_32, tmp1_r, SINPI_5_32 * tmp1_i), muladd(-SINPI_5_32, tmp1_r, -COSPI_5_32 * tmp1_i)))
+        end
+    end
+    begin
+        begin
+            #= none:3 =#
+            (x11_r, x11_i) = (real(x[11]), imag(x[11]))
+            #= none:3 =#
+            (x27_r, x27_i) = (real(x[27]), imag(x[27]))
+            #= none:3 =#
+            (x43_r, x43_i) = (real(x[43]), imag(x[43]))
+            #= none:3 =#
+            (x59_r, x59_i) = (real(x[59]), imag(x[59]))
+            #= none:4 =#
+            (t1_r, t1_i, t2_r, t2_i) = (x11_r + x43_r, x11_i + x43_i, x11_r - x43_r, x11_i - x43_i)
+            #= none:5 =#
+            (t3_r, t3_i, t4_r, t4_i) = (x27_r + x59_r, x27_i + x59_i, x27_i - x59_i, x59_r - x27_r)
+            #= none:7 =#
+            (tmp0_r, tmp0_i, tmp1_r, tmp1_i) = (t2_r + t4_r, t2_i + t4_i, t2_r - t4_r, t2_i - t4_i)
+            #= none:9 =#
+            (y[41], y[42]) = (Complex{Float32}(t1_r + t3_r, t1_i + t3_i), Complex{Float32}(muladd(SINPI_3_16, tmp0_r, COSPI_3_16 * tmp0_i), muladd(-COSPI_3_16, tmp0_r, SINPI_3_16 * tmp0_i)))
+            #= none:10 =#
+            (y[43], y[44]) = (Complex{Float32}(muladd(-SINPI_1_8, t1_r - t3_r, COSPI_1_8 * (t1_i - t3_i)), muladd(-COSPI_1_8, t1_r - t3_r, -SINPI_1_8 * (t1_i - t3_i))), Complex{Float32}(muladd(-COSPI_1_16, tmp1_r, SINPI_1_16 * tmp1_i), muladd(-SINPI_1_16, tmp1_r, -COSPI_1_16 * tmp1_i)))
+        end
+    end
+    begin
+        begin
+            #= none:3 =#
+            (x12_r, x12_i) = (real(x[12]), imag(x[12]))
+            #= none:3 =#
+            (x28_r, x28_i) = (real(x[28]), imag(x[28]))
+            #= none:3 =#
+            (x44_r, x44_i) = (real(x[44]), imag(x[44]))
+            #= none:3 =#
+            (x60_r, x60_i) = (real(x[60]), imag(x[60]))
+            #= none:4 =#
+            (t1_r, t1_i, t2_r, t2_i) = (x12_r + x44_r, x12_i + x44_i, x12_r - x44_r, x12_i - x44_i)
+            #= none:5 =#
+            (t3_r, t3_i, t4_r, t4_i) = (x28_r + x60_r, x28_i + x60_i, x28_i - x60_i, x60_r - x28_r)
+            #= none:7 =#
+            (tmp0_r, tmp0_i, tmp1_r, tmp1_i) = (t2_r + t4_r, t2_i + t4_i, t2_r - t4_r, t2_i - t4_i)
+            #= none:9 =#
+            (y[45], y[46]) = (Complex{Float32}(t1_r + t3_r, t1_i + t3_i), Complex{Float32}(muladd(SINPI_5_32, tmp0_r, COSPI_5_32 * tmp0_i), muladd(-COSPI_5_32, tmp0_r, SINPI_5_32 * tmp0_i)))
+            #= none:10 =#
+            (y[47], y[48]) = (Complex{Float32}(muladd(-SINPI_3_16, t1_r - t3_r, COSPI_3_16 * (t1_i - t3_i)), muladd(-COSPI_3_16, t1_r - t3_r, -SINPI_3_16 * (t1_i - t3_i))), Complex{Float32}(muladd(-COSPI_1_32, tmp1_r, -SINPI_1_32 * tmp1_i), muladd(SINPI_1_32, tmp1_r, -COSPI_1_32 * tmp1_i)))
+        end
+    end
+    begin
+        begin
+            #= none:3 =#
+            (x13_r, x13_i) = (real(x[13]), imag(x[13]))
+            #= none:3 =#
+            (x29_r, x29_i) = (real(x[29]), imag(x[29]))
+            #= none:3 =#
+            (x45_r, x45_i) = (real(x[45]), imag(x[45]))
+            #= none:3 =#
+            (x61_r, x61_i) = (real(x[61]), imag(x[61]))
+            #= none:4 =#
+            (t1_r, t1_i, t2_r, t2_i) = (x13_r + x45_r, x13_i + x45_i, x13_r - x45_r, x13_i - x45_i)
+            #= none:5 =#
+            (t3_r, t3_i, t4_r, t4_i) = (x29_r + x61_r, x29_i + x61_i, x29_i - x61_i, x61_r - x29_r)
+            #= none:7 =#
+            (tmp0_r, tmp0_i, tmp1_r, tmp1_i) = (t2_r + t4_r, t2_i + t4_i, t2_r - t4_r, t2_i - t4_i)
+            #= none:9 =#
+            (y[49], y[50]) = (Complex{Float32}(t1_r + t3_r, t1_i + t3_i), Complex{Float32}(muladd(SINPI_1_8, tmp0_r, COSPI_1_8 * tmp0_i), muladd(-COSPI_1_8, tmp0_r, SINPI_1_8 * tmp0_i)))
+            #= none:10 =#
+            (y[51], y[52]) = (Complex{Float32}(INV_SQRT2 * ((t1_i - t3_i) - (t1_r - t3_r)), -INV_SQRT2 * ((t1_r - t3_r) + (t1_i - t3_i))), Complex{Float32}(muladd(-COSPI_1_8, tmp1_r, -SINPI_1_8 * tmp1_i), muladd(SINPI_1_8, tmp1_r, -COSPI_1_8 * tmp1_i)))
+        end
+    end
+    begin
+        begin
+            #= none:3 =#
+            (x14_r, x14_i) = (real(x[14]), imag(x[14]))
+            #= none:3 =#
+            (x30_r, x30_i) = (real(x[30]), imag(x[30]))
+            #= none:3 =#
+            (x46_r, x46_i) = (real(x[46]), imag(x[46]))
+            #= none:3 =#
+            (x62_r, x62_i) = (real(x[62]), imag(x[62]))
+            #= none:4 =#
+            (t1_r, t1_i, t2_r, t2_i) = (x14_r + x46_r, x14_i + x46_i, x14_r - x46_r, x14_i - x46_i)
+            #= none:5 =#
+            (t3_r, t3_i, t4_r, t4_i) = (x30_r + x62_r, x30_i + x62_i, x30_i - x62_i, x62_r - x30_r)
+            #= none:7 =#
+            (tmp0_r, tmp0_i, tmp1_r, tmp1_i) = (t2_r + t4_r, t2_i + t4_i, t2_r - t4_r, t2_i - t4_i)
+            #= none:9 =#
+            (y[53], y[54]) = (Complex{Float32}(t1_r + t3_r, t1_i + t3_i), Complex{Float32}(muladd(SINPI_3_32, tmp0_r, COSPI_3_32 * tmp0_i), muladd(-COSPI_3_32, tmp0_r, SINPI_3_32 * tmp0_i)))
+            #= none:10 =#
+            (y[55], y[56]) = (Complex{Float32}(muladd(-COSPI_3_16, t1_r - t3_r, SINPI_3_16 * (t1_i - t3_i)), muladd(-SINPI_3_16, t1_r - t3_r, -COSPI_3_16 * (t1_i - t3_i))), Complex{Float32}(muladd(-COSPI_7_32, tmp1_r, -SINPI_7_32 * tmp1_i), muladd(SINPI_7_32, tmp1_r, -COSPI_7_32 * tmp1_i)))
+        end
+    end
+    begin
+        begin
+            #= none:3 =#
+            (x15_r, x15_i) = (real(x[15]), imag(x[15]))
+            #= none:3 =#
+            (x31_r, x31_i) = (real(x[31]), imag(x[31]))
+            #= none:3 =#
+            (x47_r, x47_i) = (real(x[47]), imag(x[47]))
+            #= none:3 =#
+            (x63_r, x63_i) = (real(x[63]), imag(x[63]))
+            #= none:4 =#
+            (t1_r, t1_i, t2_r, t2_i) = (x15_r + x47_r, x15_i + x47_i, x15_r - x47_r, x15_i - x47_i)
+            #= none:5 =#
+            (t3_r, t3_i, t4_r, t4_i) = (x31_r + x63_r, x31_i + x63_i, x31_i - x63_i, x63_r - x31_r)
+            #= none:7 =#
+            (tmp0_r, tmp0_i, tmp1_r, tmp1_i) = (t2_r + t4_r, t2_i + t4_i, t2_r - t4_r, t2_i - t4_i)
+            #= none:9 =#
+            (y[57], y[58]) = (Complex{Float32}(t1_r + t3_r, t1_i + t3_i), Complex{Float32}(muladd(SINPI_1_16, tmp0_r, COSPI_1_16 * tmp0_i), muladd(-COSPI_1_16, tmp0_r, SINPI_1_16 * tmp0_i)))
+            #= none:10 =#
+            (y[59], y[60]) = (Complex{Float32}(muladd(-COSPI_1_8, t1_r - t3_r, SINPI_1_8 * (t1_i - t3_i)), muladd(-SINPI_1_8, t1_r - t3_r, -COSPI_1_8 * (t1_i - t3_i))), Complex{Float32}(muladd(-SINPI_3_16, tmp1_r, -COSPI_3_16 * tmp1_i), muladd(COSPI_3_16, tmp1_r, -SINPI_3_16 * tmp1_i)))
+        end
+    end
+    begin
+        begin
+            #= none:3 =#
+            (x16_r, x16_i) = (real(x[16]), imag(x[16]))
+            #= none:3 =#
+            (x32_r, x32_i) = (real(x[32]), imag(x[32]))
+            #= none:3 =#
+            (x48_r, x48_i) = (real(x[48]), imag(x[48]))
+            #= none:3 =#
+            (x64_r, x64_i) = (real(x[64]), imag(x[64]))
+            #= none:4 =#
+            (t1_r, t1_i, t2_r, t2_i) = (x16_r + x48_r, x16_i + x48_i, x16_r - x48_r, x16_i - x48_i)
+            #= none:5 =#
+            (t3_r, t3_i, t4_r, t4_i) = (x32_r + x64_r, x32_i + x64_i, x32_i - x64_i, x64_r - x32_r)
+            #= none:7 =#
+            (tmp0_r, tmp0_i, tmp1_r, tmp1_i) = (t2_r + t4_r, t2_i + t4_i, t2_r - t4_r, t2_i - t4_i)
+            #= none:9 =#
+            (y[61], y[62]) = (Complex{Float32}(t1_r + t3_r, t1_i + t3_i), Complex{Float32}(muladd(SINPI_1_32, tmp0_r, COSPI_1_32 * tmp0_i), muladd(-COSPI_1_32, tmp0_r, SINPI_1_32 * tmp0_i)))
+            #= none:10 =#
+            (y[63], y[64]) = (Complex{Float32}(muladd(-COSPI_1_16, t1_r - t3_r, SINPI_1_16 * (t1_i - t3_i)), muladd(-SINPI_1_16, t1_r - t3_r, -COSPI_1_16 * (t1_i - t3_i))), Complex{Float32}(muladd(-SINPI_3_32, tmp1_r, -COSPI_3_32 * tmp1_i), muladd(COSPI_3_32, tmp1_r, -SINPI_3_32 * tmp1_i)))
+        end
+    end
+    begin
+        begin
+            #= none:3 =#
+            (y1_r, y1_i) = (real(y[1]), imag(y[1]))
+            #= none:3 =#
+            (y17_r, y17_i) = (real(y[17]), imag(y[17]))
+            #= none:3 =#
+            (y33_r, y33_i) = (real(y[33]), imag(y[33]))
+            #= none:3 =#
+            (y49_r, y49_i) = (real(y[49]), imag(y[49]))
+            #= none:4 =#
+            (t1_r, t1_i, t2_r, t2_i) = (y1_r + y33_r, y1_i + y33_i, y1_r - y33_r, y1_i - y33_i)
+            #= none:5 =#
+            (t3_r, t3_i, t4_r, t4_i) = (y17_r + y49_r, y17_i + y49_i, y17_i - y49_i, y49_r - y17_r)
+            #= none:7 =#
+            (x[1], x[2]) = (Complex{Float32}(t1_r + t3_r, t1_i + t3_i), Complex{Float32}(t2_r + t4_r, t2_i + t4_i))
+            #= none:8 =#
+            (x[3], x[4]) = (Complex{Float32}(t1_r - t3_r, t1_i - t3_i), Complex{Float32}(t2_r - t4_r, t2_i - t4_i))
+        end
+    end
+    begin
+        begin
+            #= none:3 =#
+            (y2_r, y2_i) = (real(y[2]), imag(y[2]))
+            #= none:3 =#
+            (y18_r, y18_i) = (real(y[18]), imag(y[18]))
+            #= none:3 =#
+            (y34_r, y34_i) = (real(y[34]), imag(y[34]))
+            #= none:3 =#
+            (y50_r, y50_i) = (real(y[50]), imag(y[50]))
+            #= none:4 =#
+            (t1_r, t1_i, t2_r, t2_i) = (y2_r + y34_r, y2_i + y34_i, y2_r - y34_r, y2_i - y34_i)
+            #= none:5 =#
+            (t3_r, t3_i, t4_r, t4_i) = (y18_r + y50_r, y18_i + y50_i, y18_i - y50_i, y50_r - y18_r)
+            #= none:7 =#
+            (tmp0_r, tmp0_i, tmp1_r, tmp1_i) = (t2_r + t4_r, t2_i + t4_i, t2_r - t4_r, t2_i - t4_i)
+            #= none:9 =#
+            (x[5], x[6]) = (Complex{Float32}(t1_r + t3_r, t1_i + t3_i), Complex{Float32}(muladd(COSPI_1_32, tmp0_r, SINPI_1_32 * tmp0_i), muladd(-SINPI_1_32, tmp0_r, COSPI_1_32 * tmp0_i)))
+            #= none:10 =#
+            (x[7], x[8]) = (Complex{Float32}(muladd(COSPI_1_16, t1_r - t3_r, SINPI_1_16 * (t1_i - t3_i)), muladd(-SINPI_1_16, t1_r - t3_r, COSPI_1_16 * (t1_i - t3_i))), Complex{Float32}(muladd(COSPI_3_32, tmp1_r, SINPI_3_32 * tmp1_i), muladd(-SINPI_3_32, tmp1_r, COSPI_3_32 * tmp1_i)))
+        end
+    end
+    begin
+        begin
+            #= none:3 =#
+            (y3_r, y3_i) = (real(y[3]), imag(y[3]))
+            #= none:3 =#
+            (y19_r, y19_i) = (real(y[19]), imag(y[19]))
+            #= none:3 =#
+            (y35_r, y35_i) = (real(y[35]), imag(y[35]))
+            #= none:3 =#
+            (y51_r, y51_i) = (real(y[51]), imag(y[51]))
+            #= none:4 =#
+            (t1_r, t1_i, t2_r, t2_i) = (y3_r + y35_r, y3_i + y35_i, y3_r - y35_r, y3_i - y35_i)
+            #= none:5 =#
+            (t3_r, t3_i, t4_r, t4_i) = (y19_r + y51_r, y19_i + y51_i, y19_i - y51_i, y51_r - y19_r)
+            #= none:7 =#
+            (tmp0_r, tmp0_i, tmp1_r, tmp1_i) = (t2_r + t4_r, t2_i + t4_i, t2_r - t4_r, t2_i - t4_i)
+            #= none:9 =#
+            (x[9], x[10]) = (Complex{Float32}(t1_r + t3_r, t1_i + t3_i), Complex{Float32}(muladd(COSPI_1_16, tmp0_r, SINPI_1_16 * tmp0_i), muladd(-SINPI_1_16, tmp0_r, COSPI_1_16 * tmp0_i)))
+            #= none:10 =#
+            (x[11], x[12]) = (Complex{Float32}(muladd(COSPI_1_8, t1_r - t3_r, SINPI_1_8 * (t1_i - t3_i)), muladd(-SINPI_1_8, t1_r - t3_r, COSPI_1_8 * (t1_i - t3_i))), Complex{Float32}(muladd(COSPI_3_16, tmp1_r, SINPI_3_16 * tmp1_i), muladd(-SINPI_3_16, tmp1_r, COSPI_3_16 * tmp1_i)))
+        end
+    end
+    begin
+        begin
+            #= none:3 =#
+            (y4_r, y4_i) = (real(y[4]), imag(y[4]))
+            #= none:3 =#
+            (y20_r, y20_i) = (real(y[20]), imag(y[20]))
+            #= none:3 =#
+            (y36_r, y36_i) = (real(y[36]), imag(y[36]))
+            #= none:3 =#
+            (y52_r, y52_i) = (real(y[52]), imag(y[52]))
+            #= none:4 =#
+            (t1_r, t1_i, t2_r, t2_i) = (y4_r + y36_r, y4_i + y36_i, y4_r - y36_r, y4_i - y36_i)
+            #= none:5 =#
+            (t3_r, t3_i, t4_r, t4_i) = (y20_r + y52_r, y20_i + y52_i, y20_i - y52_i, y52_r - y20_r)
+            #= none:7 =#
+            (tmp0_r, tmp0_i, tmp1_r, tmp1_i) = (t2_r + t4_r, t2_i + t4_i, t2_r - t4_r, t2_i - t4_i)
+            #= none:9 =#
+            (x[13], x[14]) = (Complex{Float32}(t1_r + t3_r, t1_i + t3_i), Complex{Float32}(muladd(COSPI_3_32, tmp0_r, SINPI_3_32 * tmp0_i), muladd(-SINPI_3_32, tmp0_r, COSPI_3_32 * tmp0_i)))
+            #= none:10 =#
+            (x[15], x[16]) = (Complex{Float32}(muladd(COSPI_3_16, t1_r - t3_r, SINPI_3_16 * (t1_i - t3_i)), muladd(-SINPI_3_16, t1_r - t3_r, COSPI_3_16 * (t1_i - t3_i))), Complex{Float32}(muladd(SINPI_7_32, tmp1_r, COSPI_7_32 * tmp1_i), muladd(-COSPI_7_32, tmp1_r, SINPI_7_32 * tmp1_i)))
+        end
+    end
+    begin
+        begin
+            #= none:3 =#
+            (y5_r, y5_i) = (real(y[5]), imag(y[5]))
+            #= none:3 =#
+            (y21_r, y21_i) = (real(y[21]), imag(y[21]))
+            #= none:3 =#
+            (y37_r, y37_i) = (real(y[37]), imag(y[37]))
+            #= none:3 =#
+            (y53_r, y53_i) = (real(y[53]), imag(y[53]))
+            #= none:4 =#
+            (t1_r, t1_i, t2_r, t2_i) = (y5_r + y37_r, y5_i + y37_i, y5_r - y37_r, y5_i - y37_i)
+            #= none:5 =#
+            (t3_r, t3_i, t4_r, t4_i) = (y21_r + y53_r, y21_i + y53_i, y21_i - y53_i, y53_r - y21_r)
+            #= none:7 =#
+            (x[17], x[18]) = (Complex{Float32}(t1_r + t3_r, t1_i + t3_i), Complex{Float32}(t2_r + t4_r, t2_i + t4_i))
+            #= none:8 =#
+            (x[19], x[20]) = (Complex{Float32}(t1_r - t3_r, t1_i - t3_i), Complex{Float32}(t2_r - t4_r, t2_i - t4_i))
+        end
+    end
+    begin
+        begin
+            #= none:3 =#
+            (y6_r, y6_i) = (real(y[6]), imag(y[6]))
+            #= none:3 =#
+            (y22_r, y22_i) = (real(y[22]), imag(y[22]))
+            #= none:3 =#
+            (y38_r, y38_i) = (real(y[38]), imag(y[38]))
+            #= none:3 =#
+            (y54_r, y54_i) = (real(y[54]), imag(y[54]))
+            #= none:4 =#
+            (t1_r, t1_i, t2_r, t2_i) = (y6_r + y38_r, y6_i + y38_i, y6_r - y38_r, y6_i - y38_i)
+            #= none:5 =#
+            (t3_r, t3_i, t4_r, t4_i) = (y22_r + y54_r, y22_i + y54_i, y22_i - y54_i, y54_r - y22_r)
+            #= none:7 =#
+            (tmp0_r, tmp0_i, tmp1_r, tmp1_i) = (t2_r + t4_r, t2_i + t4_i, t2_r - t4_r, t2_i - t4_i)
+            #= none:9 =#
+            (x[21], x[22]) = (Complex{Float32}(t1_r + t3_r, t1_i + t3_i), Complex{Float32}(muladd(COSPI_1_32, tmp0_r, SINPI_1_32 * tmp0_i), muladd(-SINPI_1_32, tmp0_r, COSPI_1_32 * tmp0_i)))
+            #= none:10 =#
+            (x[23], x[24]) = (Complex{Float32}(muladd(COSPI_1_16, t1_r - t3_r, SINPI_1_16 * (t1_i - t3_i)), muladd(-SINPI_1_16, t1_r - t3_r, COSPI_1_16 * (t1_i - t3_i))), Complex{Float32}(muladd(COSPI_3_32, tmp1_r, SINPI_3_32 * tmp1_i), muladd(-SINPI_3_32, tmp1_r, COSPI_3_32 * tmp1_i)))
+        end
+    end
+    begin
+        begin
+            #= none:3 =#
+            (y7_r, y7_i) = (real(y[7]), imag(y[7]))
+            #= none:3 =#
+            (y23_r, y23_i) = (real(y[23]), imag(y[23]))
+            #= none:3 =#
+            (y39_r, y39_i) = (real(y[39]), imag(y[39]))
+            #= none:3 =#
+            (y55_r, y55_i) = (real(y[55]), imag(y[55]))
+            #= none:4 =#
+            (t1_r, t1_i, t2_r, t2_i) = (y7_r + y39_r, y7_i + y39_i, y7_r - y39_r, y7_i - y39_i)
+            #= none:5 =#
+            (t3_r, t3_i, t4_r, t4_i) = (y23_r + y55_r, y23_i + y55_i, y23_i - y55_i, y55_r - y23_r)
+            #= none:7 =#
+            (tmp0_r, tmp0_i, tmp1_r, tmp1_i) = (t2_r + t4_r, t2_i + t4_i, t2_r - t4_r, t2_i - t4_i)
+            #= none:9 =#
+            (x[25], x[26]) = (Complex{Float32}(t1_r + t3_r, t1_i + t3_i), Complex{Float32}(muladd(COSPI_1_16, tmp0_r, SINPI_1_16 * tmp0_i), muladd(-SINPI_1_16, tmp0_r, COSPI_1_16 * tmp0_i)))
+            #= none:10 =#
+            (x[27], x[28]) = (Complex{Float32}(muladd(COSPI_1_8, t1_r - t3_r, SINPI_1_8 * (t1_i - t3_i)), muladd(-SINPI_1_8, t1_r - t3_r, COSPI_1_8 * (t1_i - t3_i))), Complex{Float32}(muladd(COSPI_3_16, tmp1_r, SINPI_3_16 * tmp1_i), muladd(-SINPI_3_16, tmp1_r, COSPI_3_16 * tmp1_i)))
+        end
+    end
+    begin
+        begin
+            #= none:3 =#
+            (y8_r, y8_i) = (real(y[8]), imag(y[8]))
+            #= none:3 =#
+            (y24_r, y24_i) = (real(y[24]), imag(y[24]))
+            #= none:3 =#
+            (y40_r, y40_i) = (real(y[40]), imag(y[40]))
+            #= none:3 =#
+            (y56_r, y56_i) = (real(y[56]), imag(y[56]))
+            #= none:4 =#
+            (t1_r, t1_i, t2_r, t2_i) = (y8_r + y40_r, y8_i + y40_i, y8_r - y40_r, y8_i - y40_i)
+            #= none:5 =#
+            (t3_r, t3_i, t4_r, t4_i) = (y24_r + y56_r, y24_i + y56_i, y24_i - y56_i, y56_r - y24_r)
+            #= none:7 =#
+            (tmp0_r, tmp0_i, tmp1_r, tmp1_i) = (t2_r + t4_r, t2_i + t4_i, t2_r - t4_r, t2_i - t4_i)
+            #= none:9 =#
+            (x[29], x[30]) = (Complex{Float32}(t1_r + t3_r, t1_i + t3_i), Complex{Float32}(muladd(COSPI_3_32, tmp0_r, SINPI_3_32 * tmp0_i), muladd(-SINPI_3_32, tmp0_r, COSPI_3_32 * tmp0_i)))
+            #= none:10 =#
+            (x[31], x[32]) = (Complex{Float32}(muladd(COSPI_3_16, t1_r - t3_r, SINPI_3_16 * (t1_i - t3_i)), muladd(-SINPI_3_16, t1_r - t3_r, COSPI_3_16 * (t1_i - t3_i))), Complex{Float32}(muladd(SINPI_7_32, tmp1_r, COSPI_7_32 * tmp1_i), muladd(-COSPI_7_32, tmp1_r, SINPI_7_32 * tmp1_i)))
+        end
+    end
+    begin
+        begin
+            #= none:3 =#
+            (y9_r, y9_i) = (real(y[9]), imag(y[9]))
+            #= none:3 =#
+            (y25_r, y25_i) = (real(y[25]), imag(y[25]))
+            #= none:3 =#
+            (y41_r, y41_i) = (real(y[41]), imag(y[41]))
+            #= none:3 =#
+            (y57_r, y57_i) = (real(y[57]), imag(y[57]))
+            #= none:4 =#
+            (t1_r, t1_i, t2_r, t2_i) = (y9_r + y41_r, y9_i + y41_i, y9_r - y41_r, y9_i - y41_i)
+            #= none:5 =#
+            (t3_r, t3_i, t4_r, t4_i) = (y25_r + y57_r, y25_i + y57_i, y25_i - y57_i, y57_r - y25_r)
+            #= none:7 =#
+            (x[33], x[34]) = (Complex{Float32}(t1_r + t3_r, t1_i + t3_i), Complex{Float32}(t2_r + t4_r, t2_i + t4_i))
+            #= none:8 =#
+            (x[35], x[36]) = (Complex{Float32}(t1_r - t3_r, t1_i - t3_i), Complex{Float32}(t2_r - t4_r, t2_i - t4_i))
+        end
+    end
+    begin
+        begin
+            #= none:3 =#
+            (y10_r, y10_i) = (real(y[10]), imag(y[10]))
+            #= none:3 =#
+            (y26_r, y26_i) = (real(y[26]), imag(y[26]))
+            #= none:3 =#
+            (y42_r, y42_i) = (real(y[42]), imag(y[42]))
+            #= none:3 =#
+            (y58_r, y58_i) = (real(y[58]), imag(y[58]))
+            #= none:4 =#
+            (t1_r, t1_i, t2_r, t2_i) = (y10_r + y42_r, y10_i + y42_i, y10_r - y42_r, y10_i - y42_i)
+            #= none:5 =#
+            (t3_r, t3_i, t4_r, t4_i) = (y26_r + y58_r, y26_i + y58_i, y26_i - y58_i, y58_r - y26_r)
+            #= none:7 =#
+            (tmp0_r, tmp0_i, tmp1_r, tmp1_i) = (t2_r + t4_r, t2_i + t4_i, t2_r - t4_r, t2_i - t4_i)
+            #= none:9 =#
+            (x[37], x[38]) = (Complex{Float32}(t1_r + t3_r, t1_i + t3_i), Complex{Float32}(muladd(COSPI_1_32, tmp0_r, SINPI_1_32 * tmp0_i), muladd(-SINPI_1_32, tmp0_r, COSPI_1_32 * tmp0_i)))
+            #= none:10 =#
+            (x[39], x[40]) = (Complex{Float32}(muladd(COSPI_1_16, t1_r - t3_r, SINPI_1_16 * (t1_i - t3_i)), muladd(-SINPI_1_16, t1_r - t3_r, COSPI_1_16 * (t1_i - t3_i))), Complex{Float32}(muladd(COSPI_3_32, tmp1_r, SINPI_3_32 * tmp1_i), muladd(-SINPI_3_32, tmp1_r, COSPI_3_32 * tmp1_i)))
+        end
+    end
+    begin
+        begin
+            #= none:3 =#
+            (y11_r, y11_i) = (real(y[11]), imag(y[11]))
+            #= none:3 =#
+            (y27_r, y27_i) = (real(y[27]), imag(y[27]))
+            #= none:3 =#
+            (y43_r, y43_i) = (real(y[43]), imag(y[43]))
+            #= none:3 =#
+            (y59_r, y59_i) = (real(y[59]), imag(y[59]))
+            #= none:4 =#
+            (t1_r, t1_i, t2_r, t2_i) = (y11_r + y43_r, y11_i + y43_i, y11_r - y43_r, y11_i - y43_i)
+            #= none:5 =#
+            (t3_r, t3_i, t4_r, t4_i) = (y27_r + y59_r, y27_i + y59_i, y27_i - y59_i, y59_r - y27_r)
+            #= none:7 =#
+            (tmp0_r, tmp0_i, tmp1_r, tmp1_i) = (t2_r + t4_r, t2_i + t4_i, t2_r - t4_r, t2_i - t4_i)
+            #= none:9 =#
+            (x[41], x[42]) = (Complex{Float32}(t1_r + t3_r, t1_i + t3_i), Complex{Float32}(muladd(COSPI_1_16, tmp0_r, SINPI_1_16 * tmp0_i), muladd(-SINPI_1_16, tmp0_r, COSPI_1_16 * tmp0_i)))
+            #= none:10 =#
+            (x[43], x[44]) = (Complex{Float32}(muladd(COSPI_1_8, t1_r - t3_r, SINPI_1_8 * (t1_i - t3_i)), muladd(-SINPI_1_8, t1_r - t3_r, COSPI_1_8 * (t1_i - t3_i))), Complex{Float32}(muladd(COSPI_3_16, tmp1_r, SINPI_3_16 * tmp1_i), muladd(-SINPI_3_16, tmp1_r, COSPI_3_16 * tmp1_i)))
+        end
+    end
+    begin
+        begin
+            #= none:3 =#
+            (y12_r, y12_i) = (real(y[12]), imag(y[12]))
+            #= none:3 =#
+            (y28_r, y28_i) = (real(y[28]), imag(y[28]))
+            #= none:3 =#
+            (y44_r, y44_i) = (real(y[44]), imag(y[44]))
+            #= none:3 =#
+            (y60_r, y60_i) = (real(y[60]), imag(y[60]))
+            #= none:4 =#
+            (t1_r, t1_i, t2_r, t2_i) = (y12_r + y44_r, y12_i + y44_i, y12_r - y44_r, y12_i - y44_i)
+            #= none:5 =#
+            (t3_r, t3_i, t4_r, t4_i) = (y28_r + y60_r, y28_i + y60_i, y28_i - y60_i, y60_r - y28_r)
+            #= none:7 =#
+            (tmp0_r, tmp0_i, tmp1_r, tmp1_i) = (t2_r + t4_r, t2_i + t4_i, t2_r - t4_r, t2_i - t4_i)
+            #= none:9 =#
+            (x[45], x[46]) = (Complex{Float32}(t1_r + t3_r, t1_i + t3_i), Complex{Float32}(muladd(COSPI_3_32, tmp0_r, SINPI_3_32 * tmp0_i), muladd(-SINPI_3_32, tmp0_r, COSPI_3_32 * tmp0_i)))
+            #= none:10 =#
+            (x[47], x[48]) = (Complex{Float32}(muladd(COSPI_3_16, t1_r - t3_r, SINPI_3_16 * (t1_i - t3_i)), muladd(-SINPI_3_16, t1_r - t3_r, COSPI_3_16 * (t1_i - t3_i))), Complex{Float32}(muladd(SINPI_7_32, tmp1_r, COSPI_7_32 * tmp1_i), muladd(-COSPI_7_32, tmp1_r, SINPI_7_32 * tmp1_i)))
+        end
+    end
+    begin
+        begin
+            #= none:3 =#
+            (y13_r, y13_i) = (real(y[13]), imag(y[13]))
+            #= none:3 =#
+            (y29_r, y29_i) = (real(y[29]), imag(y[29]))
+            #= none:3 =#
+            (y45_r, y45_i) = (real(y[45]), imag(y[45]))
+            #= none:3 =#
+            (y61_r, y61_i) = (real(y[61]), imag(y[61]))
+            #= none:4 =#
+            (t1_r, t1_i, t2_r, t2_i) = (y13_r + y45_r, y13_i + y45_i, y13_r - y45_r, y13_i - y45_i)
+            #= none:5 =#
+            (t3_r, t3_i, t4_r, t4_i) = (y29_r + y61_r, y29_i + y61_i, y29_i - y61_i, y61_r - y29_r)
+            #= none:7 =#
+            (x[49], x[50]) = (Complex{Float32}(t1_r + t3_r, t1_i + t3_i), Complex{Float32}(t2_r + t4_r, t2_i + t4_i))
+            #= none:8 =#
+            (x[51], x[52]) = (Complex{Float32}(t1_r - t3_r, t1_i - t3_i), Complex{Float32}(t2_r - t4_r, t2_i - t4_i))
+        end
+    end
+    begin
+        begin
+            #= none:3 =#
+            (y14_r, y14_i) = (real(y[14]), imag(y[14]))
+            #= none:3 =#
+            (y30_r, y30_i) = (real(y[30]), imag(y[30]))
+            #= none:3 =#
+            (y46_r, y46_i) = (real(y[46]), imag(y[46]))
+            #= none:3 =#
+            (y62_r, y62_i) = (real(y[62]), imag(y[62]))
+            #= none:4 =#
+            (t1_r, t1_i, t2_r, t2_i) = (y14_r + y46_r, y14_i + y46_i, y14_r - y46_r, y14_i - y46_i)
+            #= none:5 =#
+            (t3_r, t3_i, t4_r, t4_i) = (y30_r + y62_r, y30_i + y62_i, y30_i - y62_i, y62_r - y30_r)
+            #= none:7 =#
+            (tmp0_r, tmp0_i, tmp1_r, tmp1_i) = (t2_r + t4_r, t2_i + t4_i, t2_r - t4_r, t2_i - t4_i)
+            #= none:9 =#
+            (x[53], x[54]) = (Complex{Float32}(t1_r + t3_r, t1_i + t3_i), Complex{Float32}(muladd(COSPI_1_32, tmp0_r, SINPI_1_32 * tmp0_i), muladd(-SINPI_1_32, tmp0_r, COSPI_1_32 * tmp0_i)))
+            #= none:10 =#
+            (x[55], x[56]) = (Complex{Float32}(muladd(COSPI_1_16, t1_r - t3_r, SINPI_1_16 * (t1_i - t3_i)), muladd(-SINPI_1_16, t1_r - t3_r, COSPI_1_16 * (t1_i - t3_i))), Complex{Float32}(muladd(COSPI_3_32, tmp1_r, SINPI_3_32 * tmp1_i), muladd(-SINPI_3_32, tmp1_r, COSPI_3_32 * tmp1_i)))
+        end
+    end
+    begin
+        begin
+            #= none:3 =#
+            (y15_r, y15_i) = (real(y[15]), imag(y[15]))
+            #= none:3 =#
+            (y31_r, y31_i) = (real(y[31]), imag(y[31]))
+            #= none:3 =#
+            (y47_r, y47_i) = (real(y[47]), imag(y[47]))
+            #= none:3 =#
+            (y63_r, y63_i) = (real(y[63]), imag(y[63]))
+            #= none:4 =#
+            (t1_r, t1_i, t2_r, t2_i) = (y15_r + y47_r, y15_i + y47_i, y15_r - y47_r, y15_i - y47_i)
+            #= none:5 =#
+            (t3_r, t3_i, t4_r, t4_i) = (y31_r + y63_r, y31_i + y63_i, y31_i - y63_i, y63_r - y31_r)
+            #= none:7 =#
+            (tmp0_r, tmp0_i, tmp1_r, tmp1_i) = (t2_r + t4_r, t2_i + t4_i, t2_r - t4_r, t2_i - t4_i)
+            #= none:9 =#
+            (x[57], x[58]) = (Complex{Float32}(t1_r + t3_r, t1_i + t3_i), Complex{Float32}(muladd(COSPI_1_16, tmp0_r, SINPI_1_16 * tmp0_i), muladd(-SINPI_1_16, tmp0_r, COSPI_1_16 * tmp0_i)))
+            #= none:10 =#
+            (x[59], x[60]) = (Complex{Float32}(muladd(COSPI_1_8, t1_r - t3_r, SINPI_1_8 * (t1_i - t3_i)), muladd(-SINPI_1_8, t1_r - t3_r, COSPI_1_8 * (t1_i - t3_i))), Complex{Float32}(muladd(COSPI_3_16, tmp1_r, SINPI_3_16 * tmp1_i), muladd(-SINPI_3_16, tmp1_r, COSPI_3_16 * tmp1_i)))
+        end
+    end
+    begin
+        begin
+            #= none:3 =#
+            (y16_r, y16_i) = (real(y[16]), imag(y[16]))
+            #= none:3 =#
+            (y32_r, y32_i) = (real(y[32]), imag(y[32]))
+            #= none:3 =#
+            (y48_r, y48_i) = (real(y[48]), imag(y[48]))
+            #= none:3 =#
+            (y64_r, y64_i) = (real(y[64]), imag(y[64]))
+            #= none:4 =#
+            (t1_r, t1_i, t2_r, t2_i) = (y16_r + y48_r, y16_i + y48_i, y16_r - y48_r, y16_i - y48_i)
+            #= none:5 =#
+            (t3_r, t3_i, t4_r, t4_i) = (y32_r + y64_r, y32_i + y64_i, y32_i - y64_i, y64_r - y32_r)
+            #= none:7 =#
+            (tmp0_r, tmp0_i, tmp1_r, tmp1_i) = (t2_r + t4_r, t2_i + t4_i, t2_r - t4_r, t2_i - t4_i)
+            #= none:9 =#
+            (x[61], x[62]) = (Complex{Float32}(t1_r + t3_r, t1_i + t3_i), Complex{Float32}(muladd(COSPI_3_32, tmp0_r, SINPI_3_32 * tmp0_i), muladd(-SINPI_3_32, tmp0_r, COSPI_3_32 * tmp0_i)))
+            #= none:10 =#
+            (x[63], x[64]) = (Complex{Float32}(muladd(COSPI_3_16, t1_r - t3_r, SINPI_3_16 * (t1_i - t3_i)), muladd(-SINPI_3_16, t1_r - t3_r, COSPI_3_16 * (t1_i - t3_i))), Complex{Float32}(muladd(SINPI_7_32, tmp1_r, COSPI_7_32 * tmp1_i), muladd(-COSPI_7_32, tmp1_r, SINPI_7_32 * tmp1_i)))
+        end
+    end
+    begin
+        begin
+            #= none:3 =#
+            (x1_r, x1_i) = (real(x[1]), imag(x[1]))
+            #= none:3 =#
+            (x2_r, x2_i) = (real(x[17]), imag(x[17]))
+            #= none:3 =#
+            (x3_r, x3_i) = (real(x[33]), imag(x[33]))
+            #= none:3 =#
+            (x4_r, x4_i) = (real(x[49]), imag(x[49]))
+            #= none:4 =#
+            (t1_r, t1_i, t2_r, t2_i) = (x1_r + x3_r, x1_i + x3_i, x1_r - x3_r, x1_i - x3_i)
+            #= none:5 =#
+            (t3_r, t3_i, t4_r, t4_i) = (x2_r + x4_r, x2_i + x4_i, x2_i - x4_i, x4_r - x2_r)
+            #= none:7 =#
+            (y[1], y[17]) = (Complex{Float32}(t1_r + t3_r, t1_i + t3_i), Complex{Float32}(t2_r + t4_r, t2_i + t4_i))
+            #= none:8 =#
+            (y[33], y[49]) = (Complex{Float32}(t1_r - t3_r, t1_i - t3_i), Complex{Float32}(t2_r - t4_r, t2_i - t4_i))
+        end
+    end
+    begin
+        begin
+            #= none:3 =#
+            (x1_r, x1_i) = (real(x[2]), imag(x[2]))
+            #= none:3 =#
+            (x2_r, x2_i) = (real(x[18]), imag(x[18]))
+            #= none:3 =#
+            (x3_r, x3_i) = (real(x[34]), imag(x[34]))
+            #= none:3 =#
+            (x4_r, x4_i) = (real(x[50]), imag(x[50]))
+            #= none:4 =#
+            (t1_r, t1_i, t2_r, t2_i) = (x1_r + x3_r, x1_i + x3_i, x1_r - x3_r, x1_i - x3_i)
+            #= none:5 =#
+            (t3_r, t3_i, t4_r, t4_i) = (x2_r + x4_r, x2_i + x4_i, x2_i - x4_i, x4_r - x2_r)
+            #= none:7 =#
+            (y[2], y[18]) = (Complex{Float32}(t1_r + t3_r, t1_i + t3_i), Complex{Float32}(t2_r + t4_r, t2_i + t4_i))
+            #= none:8 =#
+            (y[34], y[50]) = (Complex{Float32}(t1_r - t3_r, t1_i - t3_i), Complex{Float32}(t2_r - t4_r, t2_i - t4_i))
+        end
+    end
+    begin
+        begin
+            #= none:3 =#
+            (x1_r, x1_i) = (real(x[3]), imag(x[3]))
+            #= none:3 =#
+            (x2_r, x2_i) = (real(x[19]), imag(x[19]))
+            #= none:3 =#
+            (x3_r, x3_i) = (real(x[35]), imag(x[35]))
+            #= none:3 =#
+            (x4_r, x4_i) = (real(x[51]), imag(x[51]))
+            #= none:4 =#
+            (t1_r, t1_i, t2_r, t2_i) = (x1_r + x3_r, x1_i + x3_i, x1_r - x3_r, x1_i - x3_i)
+            #= none:5 =#
+            (t3_r, t3_i, t4_r, t4_i) = (x2_r + x4_r, x2_i + x4_i, x2_i - x4_i, x4_r - x2_r)
+            #= none:7 =#
+            (y[3], y[19]) = (Complex{Float32}(t1_r + t3_r, t1_i + t3_i), Complex{Float32}(t2_r + t4_r, t2_i + t4_i))
+            #= none:8 =#
+            (y[35], y[51]) = (Complex{Float32}(t1_r - t3_r, t1_i - t3_i), Complex{Float32}(t2_r - t4_r, t2_i - t4_i))
+        end
+    end
+    begin
+        begin
+            #= none:3 =#
+            (x1_r, x1_i) = (real(x[4]), imag(x[4]))
+            #= none:3 =#
+            (x2_r, x2_i) = (real(x[20]), imag(x[20]))
+            #= none:3 =#
+            (x3_r, x3_i) = (real(x[36]), imag(x[36]))
+            #= none:3 =#
+            (x4_r, x4_i) = (real(x[52]), imag(x[52]))
+            #= none:4 =#
+            (t1_r, t1_i, t2_r, t2_i) = (x1_r + x3_r, x1_i + x3_i, x1_r - x3_r, x1_i - x3_i)
+            #= none:5 =#
+            (t3_r, t3_i, t4_r, t4_i) = (x2_r + x4_r, x2_i + x4_i, x2_i - x4_i, x4_r - x2_r)
+            #= none:7 =#
+            (y[4], y[20]) = (Complex{Float32}(t1_r + t3_r, t1_i + t3_i), Complex{Float32}(t2_r + t4_r, t2_i + t4_i))
+            #= none:8 =#
+            (y[36], y[52]) = (Complex{Float32}(t1_r - t3_r, t1_i - t3_i), Complex{Float32}(t2_r - t4_r, t2_i - t4_i))
+        end
+    end
+    begin
+        begin
+            #= none:3 =#
+            (x1_r, x1_i) = (real(x[5]), imag(x[5]))
+            #= none:3 =#
+            (x2_r, x2_i) = (real(x[21]), imag(x[21]))
+            #= none:3 =#
+            (x3_r, x3_i) = (real(x[37]), imag(x[37]))
+            #= none:3 =#
+            (x4_r, x4_i) = (real(x[53]), imag(x[53]))
+            #= none:4 =#
+            (t1_r, t1_i, t2_r, t2_i) = (x1_r + x3_r, x1_i + x3_i, x1_r - x3_r, x1_i - x3_i)
+            #= none:5 =#
+            (t3_r, t3_i, t4_r, t4_i) = (x2_r + x4_r, x2_i + x4_i, x2_i - x4_i, x4_r - x2_r)
+            #= none:7 =#
+            (y[5], y[21]) = (Complex{Float32}(t1_r + t3_r, t1_i + t3_i), Complex{Float32}(t2_r + t4_r, t2_i + t4_i))
+            #= none:8 =#
+            (y[37], y[53]) = (Complex{Float32}(t1_r - t3_r, t1_i - t3_i), Complex{Float32}(t2_r - t4_r, t2_i - t4_i))
+        end
+    end
+    begin
+        begin
+            #= none:3 =#
+            (x1_r, x1_i) = (real(x[6]), imag(x[6]))
+            #= none:3 =#
+            (x2_r, x2_i) = (real(x[22]), imag(x[22]))
+            #= none:3 =#
+            (x3_r, x3_i) = (real(x[38]), imag(x[38]))
+            #= none:3 =#
+            (x4_r, x4_i) = (real(x[54]), imag(x[54]))
+            #= none:4 =#
+            (t1_r, t1_i, t2_r, t2_i) = (x1_r + x3_r, x1_i + x3_i, x1_r - x3_r, x1_i - x3_i)
+            #= none:5 =#
+            (t3_r, t3_i, t4_r, t4_i) = (x2_r + x4_r, x2_i + x4_i, x2_i - x4_i, x4_r - x2_r)
+            #= none:7 =#
+            (y[6], y[22]) = (Complex{Float32}(t1_r + t3_r, t1_i + t3_i), Complex{Float32}(t2_r + t4_r, t2_i + t4_i))
+            #= none:8 =#
+            (y[38], y[54]) = (Complex{Float32}(t1_r - t3_r, t1_i - t3_i), Complex{Float32}(t2_r - t4_r, t2_i - t4_i))
+        end
+    end
+    begin
+        begin
+            #= none:3 =#
+            (x1_r, x1_i) = (real(x[7]), imag(x[7]))
+            #= none:3 =#
+            (x2_r, x2_i) = (real(x[23]), imag(x[23]))
+            #= none:3 =#
+            (x3_r, x3_i) = (real(x[39]), imag(x[39]))
+            #= none:3 =#
+            (x4_r, x4_i) = (real(x[55]), imag(x[55]))
+            #= none:4 =#
+            (t1_r, t1_i, t2_r, t2_i) = (x1_r + x3_r, x1_i + x3_i, x1_r - x3_r, x1_i - x3_i)
+            #= none:5 =#
+            (t3_r, t3_i, t4_r, t4_i) = (x2_r + x4_r, x2_i + x4_i, x2_i - x4_i, x4_r - x2_r)
+            #= none:7 =#
+            (y[7], y[23]) = (Complex{Float32}(t1_r + t3_r, t1_i + t3_i), Complex{Float32}(t2_r + t4_r, t2_i + t4_i))
+            #= none:8 =#
+            (y[39], y[55]) = (Complex{Float32}(t1_r - t3_r, t1_i - t3_i), Complex{Float32}(t2_r - t4_r, t2_i - t4_i))
+        end
+    end
+    begin
+        begin
+            #= none:3 =#
+            (x1_r, x1_i) = (real(x[8]), imag(x[8]))
+            #= none:3 =#
+            (x2_r, x2_i) = (real(x[24]), imag(x[24]))
+            #= none:3 =#
+            (x3_r, x3_i) = (real(x[40]), imag(x[40]))
+            #= none:3 =#
+            (x4_r, x4_i) = (real(x[56]), imag(x[56]))
+            #= none:4 =#
+            (t1_r, t1_i, t2_r, t2_i) = (x1_r + x3_r, x1_i + x3_i, x1_r - x3_r, x1_i - x3_i)
+            #= none:5 =#
+            (t3_r, t3_i, t4_r, t4_i) = (x2_r + x4_r, x2_i + x4_i, x2_i - x4_i, x4_r - x2_r)
+            #= none:7 =#
+            (y[8], y[24]) = (Complex{Float32}(t1_r + t3_r, t1_i + t3_i), Complex{Float32}(t2_r + t4_r, t2_i + t4_i))
+            #= none:8 =#
+            (y[40], y[56]) = (Complex{Float32}(t1_r - t3_r, t1_i - t3_i), Complex{Float32}(t2_r - t4_r, t2_i - t4_i))
+        end
+    end
+    begin
+        begin
+            #= none:3 =#
+            (x1_r, x1_i) = (real(x[9]), imag(x[9]))
+            #= none:3 =#
+            (x2_r, x2_i) = (real(x[25]), imag(x[25]))
+            #= none:3 =#
+            (x3_r, x3_i) = (real(x[41]), imag(x[41]))
+            #= none:3 =#
+            (x4_r, x4_i) = (real(x[57]), imag(x[57]))
+            #= none:4 =#
+            (t1_r, t1_i, t2_r, t2_i) = (x1_r + x3_r, x1_i + x3_i, x1_r - x3_r, x1_i - x3_i)
+            #= none:5 =#
+            (t3_r, t3_i, t4_r, t4_i) = (x2_r + x4_r, x2_i + x4_i, x2_i - x4_i, x4_r - x2_r)
+            #= none:7 =#
+            (y[9], y[25]) = (Complex{Float32}(t1_r + t3_r, t1_i + t3_i), Complex{Float32}(t2_r + t4_r, t2_i + t4_i))
+            #= none:8 =#
+            (y[41], y[57]) = (Complex{Float32}(t1_r - t3_r, t1_i - t3_i), Complex{Float32}(t2_r - t4_r, t2_i - t4_i))
+        end
+    end
+    begin
+        begin
+            #= none:3 =#
+            (x1_r, x1_i) = (real(x[10]), imag(x[10]))
+            #= none:3 =#
+            (x2_r, x2_i) = (real(x[26]), imag(x[26]))
+            #= none:3 =#
+            (x3_r, x3_i) = (real(x[42]), imag(x[42]))
+            #= none:3 =#
+            (x4_r, x4_i) = (real(x[58]), imag(x[58]))
+            #= none:4 =#
+            (t1_r, t1_i, t2_r, t2_i) = (x1_r + x3_r, x1_i + x3_i, x1_r - x3_r, x1_i - x3_i)
+            #= none:5 =#
+            (t3_r, t3_i, t4_r, t4_i) = (x2_r + x4_r, x2_i + x4_i, x2_i - x4_i, x4_r - x2_r)
+            #= none:7 =#
+            (y[10], y[26]) = (Complex{Float32}(t1_r + t3_r, t1_i + t3_i), Complex{Float32}(t2_r + t4_r, t2_i + t4_i))
+            #= none:8 =#
+            (y[42], y[58]) = (Complex{Float32}(t1_r - t3_r, t1_i - t3_i), Complex{Float32}(t2_r - t4_r, t2_i - t4_i))
+        end
+    end
+    begin
+        begin
+            #= none:3 =#
+            (x1_r, x1_i) = (real(x[11]), imag(x[11]))
+            #= none:3 =#
+            (x2_r, x2_i) = (real(x[27]), imag(x[27]))
+            #= none:3 =#
+            (x3_r, x3_i) = (real(x[43]), imag(x[43]))
+            #= none:3 =#
+            (x4_r, x4_i) = (real(x[59]), imag(x[59]))
+            #= none:4 =#
+            (t1_r, t1_i, t2_r, t2_i) = (x1_r + x3_r, x1_i + x3_i, x1_r - x3_r, x1_i - x3_i)
+            #= none:5 =#
+            (t3_r, t3_i, t4_r, t4_i) = (x2_r + x4_r, x2_i + x4_i, x2_i - x4_i, x4_r - x2_r)
+            #= none:7 =#
+            (y[11], y[27]) = (Complex{Float32}(t1_r + t3_r, t1_i + t3_i), Complex{Float32}(t2_r + t4_r, t2_i + t4_i))
+            #= none:8 =#
+            (y[43], y[59]) = (Complex{Float32}(t1_r - t3_r, t1_i - t3_i), Complex{Float32}(t2_r - t4_r, t2_i - t4_i))
+        end
+    end
+    begin
+        begin
+            #= none:3 =#
+            (x1_r, x1_i) = (real(x[12]), imag(x[12]))
+            #= none:3 =#
+            (x2_r, x2_i) = (real(x[28]), imag(x[28]))
+            #= none:3 =#
+            (x3_r, x3_i) = (real(x[44]), imag(x[44]))
+            #= none:3 =#
+            (x4_r, x4_i) = (real(x[60]), imag(x[60]))
+            #= none:4 =#
+            (t1_r, t1_i, t2_r, t2_i) = (x1_r + x3_r, x1_i + x3_i, x1_r - x3_r, x1_i - x3_i)
+            #= none:5 =#
+            (t3_r, t3_i, t4_r, t4_i) = (x2_r + x4_r, x2_i + x4_i, x2_i - x4_i, x4_r - x2_r)
+            #= none:7 =#
+            (y[12], y[28]) = (Complex{Float32}(t1_r + t3_r, t1_i + t3_i), Complex{Float32}(t2_r + t4_r, t2_i + t4_i))
+            #= none:8 =#
+            (y[44], y[60]) = (Complex{Float32}(t1_r - t3_r, t1_i - t3_i), Complex{Float32}(t2_r - t4_r, t2_i - t4_i))
+        end
+    end
+    begin
+        begin
+            #= none:3 =#
+            (x1_r, x1_i) = (real(x[13]), imag(x[13]))
+            #= none:3 =#
+            (x2_r, x2_i) = (real(x[29]), imag(x[29]))
+            #= none:3 =#
+            (x3_r, x3_i) = (real(x[45]), imag(x[45]))
+            #= none:3 =#
+            (x4_r, x4_i) = (real(x[61]), imag(x[61]))
+            #= none:4 =#
+            (t1_r, t1_i, t2_r, t2_i) = (x1_r + x3_r, x1_i + x3_i, x1_r - x3_r, x1_i - x3_i)
+            #= none:5 =#
+            (t3_r, t3_i, t4_r, t4_i) = (x2_r + x4_r, x2_i + x4_i, x2_i - x4_i, x4_r - x2_r)
+            #= none:7 =#
+            (y[13], y[29]) = (Complex{Float32}(t1_r + t3_r, t1_i + t3_i), Complex{Float32}(t2_r + t4_r, t2_i + t4_i))
+            #= none:8 =#
+            (y[45], y[61]) = (Complex{Float32}(t1_r - t3_r, t1_i - t3_i), Complex{Float32}(t2_r - t4_r, t2_i - t4_i))
+        end
+    end
+    begin
+        begin
+            #= none:3 =#
+            (x1_r, x1_i) = (real(x[14]), imag(x[14]))
+            #= none:3 =#
+            (x2_r, x2_i) = (real(x[30]), imag(x[30]))
+            #= none:3 =#
+            (x3_r, x3_i) = (real(x[46]), imag(x[46]))
+            #= none:3 =#
+            (x4_r, x4_i) = (real(x[62]), imag(x[62]))
+            #= none:4 =#
+            (t1_r, t1_i, t2_r, t2_i) = (x1_r + x3_r, x1_i + x3_i, x1_r - x3_r, x1_i - x3_i)
+            #= none:5 =#
+            (t3_r, t3_i, t4_r, t4_i) = (x2_r + x4_r, x2_i + x4_i, x2_i - x4_i, x4_r - x2_r)
+            #= none:7 =#
+            (y[14], y[30]) = (Complex{Float32}(t1_r + t3_r, t1_i + t3_i), Complex{Float32}(t2_r + t4_r, t2_i + t4_i))
+            #= none:8 =#
+            (y[46], y[62]) = (Complex{Float32}(t1_r - t3_r, t1_i - t3_i), Complex{Float32}(t2_r - t4_r, t2_i - t4_i))
+        end
+    end
+    begin
+        begin
+            #= none:3 =#
+            (x1_r, x1_i) = (real(x[15]), imag(x[15]))
+            #= none:3 =#
+            (x2_r, x2_i) = (real(x[31]), imag(x[31]))
+            #= none:3 =#
+            (x3_r, x3_i) = (real(x[47]), imag(x[47]))
+            #= none:3 =#
+            (x4_r, x4_i) = (real(x[63]), imag(x[63]))
+            #= none:4 =#
+            (t1_r, t1_i, t2_r, t2_i) = (x1_r + x3_r, x1_i + x3_i, x1_r - x3_r, x1_i - x3_i)
+            #= none:5 =#
+            (t3_r, t3_i, t4_r, t4_i) = (x2_r + x4_r, x2_i + x4_i, x2_i - x4_i, x4_r - x2_r)
+            #= none:7 =#
+            (y[15], y[31]) = (Complex{Float32}(t1_r + t3_r, t1_i + t3_i), Complex{Float32}(t2_r + t4_r, t2_i + t4_i))
+            #= none:8 =#
+            (y[47], y[63]) = (Complex{Float32}(t1_r - t3_r, t1_i - t3_i), Complex{Float32}(t2_r - t4_r, t2_i - t4_i))
+        end
+    end
+    begin
+        begin
+            #= none:3 =#
+            (x1_r, x1_i) = (real(x[16]), imag(x[16]))
+            #= none:3 =#
+            (x2_r, x2_i) = (real(x[32]), imag(x[32]))
+            #= none:3 =#
+            (x3_r, x3_i) = (real(x[48]), imag(x[48]))
+            #= none:3 =#
+            (x4_r, x4_i) = (real(x[64]), imag(x[64]))
+            #= none:4 =#
+            (t1_r, t1_i, t2_r, t2_i) = (x1_r + x3_r, x1_i + x3_i, x1_r - x3_r, x1_i - x3_i)
+            #= none:5 =#
+            (t3_r, t3_i, t4_r, t4_i) = (x2_r + x4_r, x2_i + x4_i, x2_i - x4_i, x4_r - x2_r)
+            #= none:7 =#
+            (y[16], y[32]) = (Complex{Float32}(t1_r + t3_r, t1_i + t3_i), Complex{Float32}(t2_r + t4_r, t2_i + t4_i))
+            #= none:8 =#
+            (y[48], y[64]) = (Complex{Float32}(t1_r - t3_r, t1_i - t3_i), Complex{Float32}(t2_r - t4_r, t2_i - t4_i))
+        end
+    end
+end
