@@ -133,84 +133,57 @@ load_real_imag_gen = (t; mode, T, ptr_name="px") -> begin
 end
 
 # Wrapper for any other kernel shell strategy planer
-function makefftradix(n::Int,  suffixes::SuffixFlags, D::AbstractArray{String}, p::Int, op, SIZE::Int, ::Type{T}, SIMD_BITS) where T <: AbstractFloat
-
-  global inc = inccounter() # nullify global tmp 't' var counter for each new kernel generated
-  
-  mode = :default
-
-  has_y = has_flag(suffixes, Y)
-  has_mat = has_flag(suffixes, MAT)
-  has_vec = has_flag(suffixes, VEC)
-  input =  op.eo ? "y" : "x"
-  output = !has_y && op.eo ? "x" : "y"
-  s = op.stride
-  groups = SIZE ÷ n
-
-  prev_output = output
-  unsafe_load_mode = mode == :unsafe_load
-  if unsafe_load_mode
-    output *= "_floats"
-  end
-  
-  if has_mat
-      if has_vec
-        x = ["$(input)$(i + p*s)" for i in 1:n]
-        #y = ["$output[$(i + p*s)]" for i in 1:n]
-        y = ["$output[$(p*n + i)]" for i in 1:n]             
-      else
-        if unsafe_load_mode
-          x = ["$(input)[$(2*(p + 1 + (i-1)*groups) - 1 + j)]" for i in 1:n for j in 0:1]
-          y = ["$(output)[$(2*(i + p*s) - 1 + j)]" for i in 1:n for j in 0:1]
-        else
-            x = ["$(input)$(p + 1 + (i-1)*groups)" for i in 1:n]  
-            y = ["$output[$(p*n + i)]" for i in 1:n]             
-        end
-      end
-      d = D == String[] ? nothing : D
-  else
-    if has_vec
-      x = ["$(input)($i + offset)" for i in 1:n]
-      y = ["$output[$i + offset]" for i in 1:n]
-    else
-      if unsafe_load_mode
-        x = ["$(input)$i" for i in 1:s:n]
-        y = ["$output[$i]" for i in 1:2n]
-      else
-        x = ["$(input)$i" for i in 1:s:n]
-        #y = ["$output[$i]" for i in 1:n]
-        y = ["$output[$(p*n + i)]" for i in 1:n]             
-      end
-    end
-    d = nothing
-  end
-
-  px = if (mode == :vgather) "p$(input) =reinterpret($T, $(input));"
-      else "" end
-  py = (mode == :unsafe_load) ? "$(output) = reinterpret($T, $(prev_output));" : ""
-  #kernel_code = recfft2_simd(y, x, d, nothing, true, T, 1, mode, py, SIMD_BITS) 
-  kernel_code = recfft2(y, x, d, nothing, true, T, 1, mode, py)
-  kernel_code = "$px" * "\n" * kernel_code
+function makefftradix(n::Int, suffixes::SuffixFlags, D::AbstractArray{String}, p::Int, op, SIZE::Int, ::Type{T}, SIMD_BITS) where T <: AbstractFloat
+    global inc = inccounter()
     
-  
-  # Parse the string into actual Julia expressions
-  if isempty(kernel_code)
-      return quote end
-  else
-      try
-          # Wrap in begin...end block for parsing multiple statements
-          parsed_expr = Meta.parse("begin\n$kernel_code\nend")
-          #@show parsed_expr
-          return parsed_expr
-      catch e
-          @warn "Failed to parse kernel code: $e"
-          @warn "Kernel code was: $kernel_code"
-          # Return a fallback expression
-          return quote
-              copyto!(y, x)
-          end
-      end
-  end
+    mode = :default
+
+    has_y = has_flag(suffixes, Y)
+
+    input = op.eo ? "y" : "x"
+    output = !has_y && op.eo ? "x" : "y"
+    
+    # Key parameters for Stockham algorithm
+    @show SIZE, op, p
+    input_spacing = SIZE ÷ n  # Spacing between elements in each butterfly
+    
+    prev_output = output
+    unsafe_load_mode = mode == :unsafe_load
+    if unsafe_load_mode
+        output *= "_floats"
+    end
+    
+    # Universal input indexing formula: p + 1 + (i-1)*input_spacing
+        if unsafe_load_mode
+            x = ["$(input)[$(2*(p + 1 + (i-1)*input_spacing) - 1 + j)]" for i in 1:n for j in 0:1]
+            y = ["$(output)[$(2*(p*n + i) - 1 + j)]" for i in 1:n for j in 0:1]
+        else
+            # Uniform formula for both VEC and non-VEC cases
+            x = ["$(input)$(p + 1 + (i-1)*input_spacing)" for i in 1:n]
+            y = ["$output[$(p*n + i)]" for i in 1:n]
+        end
+        d = D == String[] ? nothing : D
+    
+    px = mode == :vgather ? "p$(input) = reinterpret($T, $(input));" : ""
+    py = unsafe_load_mode ? "$(output) = reinterpret($T, $(prev_output));" : ""
+    
+    kernel_code = recfft2(y, x, d, nothing, true, T, 1, mode, py)
+    kernel_code = "$px\n$kernel_code"
+    
+    if isempty(kernel_code)
+        return quote end
+    else
+        try
+            parsed_expr = Meta.parse("begin\n$kernel_code\nend")
+            return parsed_expr
+        catch e
+            @warn "Failed to parse kernel code: $e"
+            @warn "Kernel code was: $kernel_code"
+            return quote
+                copyto!(y, x)
+            end
+        end
+    end
 end
 
 function parse_x(s::String)

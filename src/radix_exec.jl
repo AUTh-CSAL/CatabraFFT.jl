@@ -53,6 +53,7 @@ function GenerateMatrixExpr!(plan::RadixPlan, show_function::Bool=true)::Expr
             show_function && println("  kernel: $key")
             haskey(kernel_exprs, key) || error("Missing kernel: $key")
             body = kernel_exprs[key]
+            @show body
             push!(ops, body)
         elseif !is_final_stage 
             n_groups_per_radix = SIZE ÷ radix
@@ -64,25 +65,36 @@ function GenerateMatrixExpr!(plan::RadixPlan, show_function::Bool=true)::Expr
                 haskey(kernel_exprs, key) || error("Missing kernel: $key")
                 body = kernel_exprs[key]
                 #body = remove_constants_from_kernel(body)
-                body = substitute_kernel_vars(body, current_output, current_input)
+                #body = substitute_kernel_vars(body, current_output, current_input)
                 #show_function && println("Sub-Kernel Named $key with Body: $body")
+                @show body
                 show_function && println("Sub-Kernel Named $key with Body: ")
                 push!(ops, body)
             end
         else
+            # Terminal stage: generate loop-based kernel
             key = "fft$(radix)_$(stride)x$(n_g)_0!"
+            haskey(kernel_exprs, key) || error("Missing kernel: $key")
             body = kernel_exprs[key]
-            show_function && println("Terminal Kernel Named $key (x $stride times) with Body: $body")
-            for j in 1:stride
-                #key = "fft$(radix)_$(stride)x$(n_g)_0!"
-                haskey(kernel_exprs, key) || error("Missing kernel: $key")
-                body = kernel_exprs[key]
-                #body = remove_constants_from_kernel(body)
-                body = substitute_strided_final_stage(body, current_output, current_input, j, stride, SIZE)
-                #show_function && println("Kernel Body (offset=$j): $body")
-                show_function && println("Kernel Body (offset=$j): ")
-                push!(ops, body)
+            
+            show_function && println("Terminal Kernel Named $key (looped $stride times) with Body: $body")
+            
+            # Transform template to use idx variable
+            @show length(plan.operations)
+            if length(plan.operations) % 2 == 0 current_output = current_input end # has_y condition
+            @show current_input, current_output
+            loop_body = substitute_strided_final_loop(body, current_output, current_input, stride, SIZE, radix)
+            @show loop_body
+            
+            # Wrap in loop
+            loop_expr = quote
+                @inbounds @simd for idx in 1:$stride
+                    $loop_body
+                end
             end
+            @show loop_expr
+            
+            push!(ops, loop_expr)
         end
         # Stockham swap
         #current_input, current_output = current_output, current_input
@@ -241,60 +253,50 @@ function remove_constants_from_kernel(expr::Expr)
     end
 end
 
-# Substitute variables for final stage with direct strided indexing
-function substitute_strided_final_stage(kernel_expr::Expr, out_var, in_var, offset::Int, stride::Int, size::Int)
-    return postwalk(kernel_expr) do ex
-        if isa(ex, Expr) && ex.head == :ref
-            if length(ex.args) >= 2
-                array_name = ex.args[1]
-                index_expr = ex.args[2]
+# TODO FIX
+function substitute_strided_final_loop(kernel_expr::Expr, out_var, in_var, stride::Int, size::Int, radix::Int)
+    input_spacing = size ÷ radix
+    
+    # Simple recursive walk
+    function transform(ex, is_output_lhs::Bool)
+        if isa(ex, Expr)
+            if ex.head == :ref && length(ex.args) == 2
+                arr = ex.args[1]
+                idx = ex.args[2]
+                @show ex.head, arr, idx
                 
-                # For the final stage kernel, y[1] becomes out_var[offset], y[2] becomes out_var[offset + stride]
-                if array_name == :y
-                    if isa(index_expr, Int)
-                        actual_index = offset + (index_expr - 1) * stride
-                        return Expr(:ref, out_var, actual_index)
+                if arr == Symbol(String(in_var)) && isa(idx, Int)
+                    if is_output_lhs
+                        # Output: y[1]→y[idx], y[2]→y[idx+stride]
+                        offset = (idx - 1) * stride
+                        return offset == 0 ? Expr(:ref, out_var, :idx) : Expr(:ref, out_var, :(idx + $offset))
                     else
-                        # Handle symbolic indices
-                        return Expr(:ref, out_var, :($offset + ($index_expr - 1) * $stride))
-                    end
-                elseif array_name == :x
-                    if isa(index_expr, Int)
-                        actual_index = offset + (index_expr - 1) * stride
-                        return Expr(:ref, in_var, actual_index)
-                    else
-                        return Expr(:ref, in_var, :($offset + ($index_expr - 1) * $stride))
+                        # Input: y[1]→y[idx], y[5]→y[idx+4]
+                        offset = idx - 1
+                        return offset == 0 ? Expr(:ref, in_var, :idx) : Expr(:ref, in_var, :(idx + $offset))
                     end
                 end
-            end
-        elseif ex == :y
-            # This shouldn't happen in well-formed kernels, but handle it
-            return out_var
-        elseif ex == :x
-            return in_var
-        elseif isa(ex, Symbol)
-            # Replace y1, y2, etc. with appropriate variable names
-            s = string(ex)
-            if startswith(s, "y") && length(s) > 1
-                # Parse the number after 'y'
-                num_str = s[2:end]
-                if all(isdigit, num_str)
-                    idx = parse(Int, num_str)
-                    # Generate proper variable name: y1 -> y1, y5, etc.
-                    actual_index = offset + (idx - 1) * stride
-                    return Symbol("y$actual_index")
-                end
-            elseif startswith(s, "x") && length(s) > 1
-                num_str = s[2:end]
-                if all(isdigit, num_str)
-                    idx = parse(Int, num_str)
-                    actual_index = offset + (idx - 1) * stride
-                    return Symbol("x$actual_index")
-                end
+            elseif ex.head == :(=)
+                # Assignment: check if LHS has array refs (output line)
+                lhs = ex.args[1]
+                rhs = ex.args[2]
+                
+                # Check if LHS is a tuple with array references
+                has_array_ref = isa(lhs, Expr) && (lhs.head == :tuple || lhs.head == :ref)
+                
+                new_lhs = transform(lhs, has_array_ref)
+                new_rhs = transform(rhs, false)
+                return Expr(:(=), new_lhs, new_rhs)
+            else
+                # Recursively transform all args
+                new_args = [transform(arg, is_output_lhs) for arg in ex.args]
+                return Expr(ex.head, new_args...)
             end
         end
         return ex
     end
+    
+    return transform(kernel_expr, false)
 end
 
 # Standard variable substitution for non-final stages
