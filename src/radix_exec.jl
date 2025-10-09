@@ -10,7 +10,7 @@ using SIMD
 include("helper_tools.jl")
 
 # Generate a complete monolithic FFT function or function group for decompositions with all kernels inlined
-function GenerateMatrixExpr!(plan::RadixPlan, show_function::Bool=true)::Expr
+function GenerateMatrixExpr!(plan::RadixPlan, show_function::Bool=false)::Expr
     T = typeof(plan).parameters[1]
 
     # 1) Gather kernels
@@ -44,8 +44,6 @@ function GenerateMatrixExpr!(plan::RadixPlan, show_function::Bool=true)::Expr
         SIZE   = n_g * stride
         is_monolithic_shell = (radix == n_g) && (stride == 1)
         
-        @show current_input, current_output, is_final_stage, radix, n_g, stride, SIZE, is_monolithic_shell
-
         show_function && println("Stage $stage_idx: radix=$radix, n_groups=$n_g, stride=$stride, in=$current_input, out=$current_output")
 
         if is_monolithic_shell
@@ -53,7 +51,6 @@ function GenerateMatrixExpr!(plan::RadixPlan, show_function::Bool=true)::Expr
             show_function && println("  kernel: $key")
             haskey(kernel_exprs, key) || error("Missing kernel: $key")
             body = kernel_exprs[key]
-            @show body
             push!(ops, body)
         elseif !is_final_stage 
             n_groups_per_radix = SIZE ÷ radix
@@ -67,7 +64,6 @@ function GenerateMatrixExpr!(plan::RadixPlan, show_function::Bool=true)::Expr
                 #body = remove_constants_from_kernel(body)
                 #body = substitute_kernel_vars(body, current_output, current_input)
                 #show_function && println("Sub-Kernel Named $key with Body: $body")
-                @show body
                 show_function && println("Sub-Kernel Named $key with Body: ")
                 push!(ops, body)
             end
@@ -77,22 +73,19 @@ function GenerateMatrixExpr!(plan::RadixPlan, show_function::Bool=true)::Expr
             haskey(kernel_exprs, key) || error("Missing kernel: $key")
             body = kernel_exprs[key]
             
-            show_function && println("Terminal Kernel Named $key (looped $stride times) with Body: $body")
+            #show_function && println("Terminal Kernel Named $key (looped $stride times) with Body: $body")
+            show_function && println("Terminal Kernel Named $key (looped $stride times) with Body: ")
             
             # Transform template to use idx variable
-            @show length(plan.operations)
             if length(plan.operations) % 2 == 0 current_output = current_input end # has_y condition
-            @show current_input, current_output
             loop_body = substitute_strided_final_loop(body, current_output, current_input, stride, SIZE, radix)
-            @show loop_body
             
             # Wrap in loop
             loop_expr = quote
-                @inbounds @simd for idx in 1:$stride
+                @inbounds @simd ivdep for idx in 1:$stride
                     $loop_body
                 end
             end
-            @show loop_expr
             
             push!(ops, loop_expr)
         end
@@ -106,7 +99,7 @@ function GenerateMatrixExpr!(plan::RadixPlan, show_function::Bool=true)::Expr
     #return isempty(ops) ? :(copyto!(y, x)) : 
 end
 
-function generate_mat_execute_function!(plan::RadixPlan, show_function::Bool=true)::Expr
+function generate_mat_execute_function!(plan::RadixPlan, show_function::Bool=false)::Expr
     T = typeof(plan).parameters[1]
     function_body = GenerateMatrixExpr!(plan, show_function)
     
@@ -127,7 +120,7 @@ end
 
 function materialize_plan_function!(plan::RadixPlan, ::Type{T}) where {T}
     constants_dict = RadixGenerator.generate_local_constants_dict(plan.n, T)
-    body = GenerateMatrixExpr!(plan, true)
+    body = GenerateMatrixExpr!(plan, false)
     substituted_body = substitute_constants_in_expr(body, constants_dict)
     
     fexpr = quote
@@ -253,43 +246,54 @@ function remove_constants_from_kernel(expr::Expr)
     end
 end
 
-# TODO FIX
+# Corrected substitute_strided_final_loop function
+# This function is CORRECT - it transforms p=0 kernel template for looping
 function substitute_strided_final_loop(kernel_expr::Expr, out_var, in_var, stride::Int, size::Int, radix::Int)
     input_spacing = size ÷ radix
     
+    # Normalize variable names to Symbols for comparison
+    out_sym = out_var isa Symbol ? out_var : Symbol(out_var)
+    in_sym = in_var isa Symbol ? in_var : Symbol(in_var)
+    
     # Simple recursive walk
-    function transform(ex, is_output_lhs::Bool)
+    function transform(ex, is_output_context::Bool)
         if isa(ex, Expr)
             if ex.head == :ref && length(ex.args) == 2
                 arr = ex.args[1]
                 idx = ex.args[2]
-                @show ex.head, arr, idx
                 
-                if arr == Symbol(String(in_var)) && isa(idx, Int)
-                    if is_output_lhs
-                        # Output: y[1]→y[idx], y[2]→y[idx+stride]
-                        offset = (idx - 1) * stride
-                        return offset == 0 ? Expr(:ref, out_var, :idx) : Expr(:ref, out_var, :(idx + $offset))
-                    else
-                        # Input: y[1]→y[idx], y[5]→y[idx+4]
-                        offset = idx - 1
-                        return offset == 0 ? Expr(:ref, in_var, :idx) : Expr(:ref, in_var, :(idx + $offset))
-                    end
+                # Normalize array name to Symbol
+                arr_sym = arr isa Symbol ? arr : Symbol(arr)
+                
+                # Check for OUTPUT array references
+                if is_output_context && arr_sym == out_sym && isa(idx, Int)
+                    # Output transformation: y[k] → y[idx + (k-1)*stride]
+                    # Example with stride=4:
+                    #   y[1] → y[idx]
+                    #   y[2] → y[idx + 4]
+                    offset = (idx - 1) * stride
+                    return offset == 0 ? Expr(:ref, out_sym, :idx) : Expr(:ref, out_sym, :(idx + $offset))
+                    
+                # Check for INPUT array references
+                elseif !is_output_context && arr_sym == in_sym && isa(idx, Int)
+                    # Input transformation: x[k] → x[idx + (k-1)]
+                    # The input spacing was already baked into the template indices
+                    # Example: template has x[1], x[5] which become x[idx], x[idx+4]
+                    offset = idx - 1
+                    return offset == 0 ? Expr(:ref, in_sym, :idx) : Expr(:ref, in_sym, :(idx + $offset))
                 end
+                
             elseif ex.head == :(=)
-                # Assignment: check if LHS has array refs (output line)
+                # Assignment: LHS writes to output, RHS reads from input/temps
                 lhs = ex.args[1]
                 rhs = ex.args[2]
                 
-                # Check if LHS is a tuple with array references
-                has_array_ref = isa(lhs, Expr) && (lhs.head == :tuple || lhs.head == :ref)
-                
-                new_lhs = transform(lhs, has_array_ref)
-                new_rhs = transform(rhs, false)
+                new_lhs = transform(lhs, true)   # LHS is output context
+                new_rhs = transform(rhs, false)  # RHS is input context
                 return Expr(:(=), new_lhs, new_rhs)
             else
-                # Recursively transform all args
-                new_args = [transform(arg, is_output_lhs) for arg in ex.args]
+                # Recursively transform all args, preserving context
+                new_args = [transform(arg, is_output_context) for arg in ex.args]
                 return Expr(ex.head, new_args...)
             end
         end

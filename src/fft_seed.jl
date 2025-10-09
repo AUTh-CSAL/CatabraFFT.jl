@@ -137,15 +137,13 @@ function makefftradix(n::Int, suffixes::SuffixFlags, D::AbstractArray{String}, p
     global inc = inccounter()
     
     mode = :default
-
     has_y = has_flag(suffixes, Y)
 
     input = op.eo ? "y" : "x"
     output = !has_y && op.eo ? "x" : "y"
     
     # Key parameters for Stockham algorithm
-    @show SIZE, op, p
-    input_spacing = SIZE ÷ n  # Spacing between elements in each butterfly
+    input_spacing = SIZE ÷ n  # Spacing between input elements in each butterfly
     
     prev_output = output
     unsafe_load_mode = mode == :unsafe_load
@@ -154,15 +152,20 @@ function makefftradix(n::Int, suffixes::SuffixFlags, D::AbstractArray{String}, p
     end
     
     # Universal input indexing formula: p + 1 + (i-1)*input_spacing
-        if unsafe_load_mode
-            x = ["$(input)[$(2*(p + 1 + (i-1)*input_spacing) - 1 + j)]" for i in 1:n for j in 0:1]
-            y = ["$(output)[$(2*(p*n + i) - 1 + j)]" for i in 1:n for j in 0:1]
-        else
-            # Uniform formula for both VEC and non-VEC cases
-            x = ["$(input)$(p + 1 + (i-1)*input_spacing)" for i in 1:n]
-            y = ["$output[$(p*n + i)]" for i in 1:n]
-        end
-        d = D == String[] ? nothing : D
+    if unsafe_load_mode
+        x = ["$(input)[$(2*(p + 1 + (i-1)*input_spacing) - 1 + j)]" for i in 1:n for j in 0:1]
+        # Output: contiguous blocks per kernel (p*n + i)
+        y = ["$(output)[$(2*(p*n + i) - 1 + j)]" for i in 1:n for j in 0:1]
+    else
+        # Input indexing: accounts for Stockham data layout from previous stage
+        x = ["$(input)$(p + 1 + (i-1)*input_spacing)" for i in 1:n]
+        
+        # Output indexing: CORRECT formula - each kernel gets contiguous block
+        # p=0: [1..n], p=1: [n+1..2n], p=2: [2n+1..3n], etc.
+        y = ["$output[$(p*n + i)]" for i in 1:n]
+    end
+    
+    d = D == String[] ? nothing : D
     
     px = mode == :vgather ? "p$(input) = reinterpret($T, $(input));" : ""
     py = unsafe_load_mode ? "$(output) = reinterpret($T, $(prev_output));" : ""
@@ -1159,7 +1162,6 @@ function load_gen_simd(x_vars; mode, T, ptr_name="px", SIMD_BITS=256)
                 push!(float_indices, 2*idx)
             end
             idx_tuple = Tuple(float_indices)
-            @show idx_tuple typeof(idx_tuple)
             
             return """
             # Gather $n non-contiguous complex numbers
@@ -1182,7 +1184,6 @@ function load_gen_simd(x_vars; mode, T, ptr_name="px", SIMD_BITS=256)
                 
                 chunk_id = (chunk_start - 1) ÷ complexes_per_vec + 1
                 idx_tuple = Tuple(float_indices)
-                @show idx_tuple typeof(idx_tuple)
                 
                 push!(code_parts, "idx$chunk_id = Vec($idx_tuple)")
                 push!(code_parts, "v$chunk_id = vgather($ptr_name, idx$chunk_id)")

@@ -59,9 +59,6 @@ function create_all_radix_plans(n::Int, valid_radices::Vector{Int}, ::Type{T}) w
     end
     
     filtered = filter(is_valid, decompositions)
-    #filtered = [[2,2,2]]
-    #filtered = [[8,4]]
-    #filtered = [[8]]
     @show filtered
     return [create_radix_plan_from_decomposition(n, decomp, T) for decomp in filtered]
 end

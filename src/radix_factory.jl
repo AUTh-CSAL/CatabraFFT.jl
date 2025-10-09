@@ -138,7 +138,6 @@ function generate_all_kernel_expressions(plan_data::NamedTuple, ::Type{T};
                     # Cycle through D matrix columns
                     d_column_idx = (p % n_unique_d_columns) + 1
                     D = generate_D_kernel(d_column_idx, next_op.stride, next_op.n_groups, T)
-                    @show D, op
                     name, expr = generate_kernel_expression(radix, op, suffix_combinations, p, D, false, T)
                     kernels[name] = expr
                 end
