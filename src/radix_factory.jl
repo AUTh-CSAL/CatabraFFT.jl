@@ -138,7 +138,8 @@ function generate_all_kernel_expressions(plan_data::NamedTuple, ::Type{T};
                     # Cycle through D matrix columns
                     d_column_idx = (p % n_unique_d_columns) + 1
                     D = generate_D_kernel(d_column_idx, next_op.stride, next_op.n_groups, T)
-                    name, expr = generate_kernel_expression(radix, op, suffix_combinations, p, D, false, T)
+                    @show D
+                    @show name, expr = generate_kernel_expression(radix, op, suffix_combinations, p, D, false, T)
                     kernels[name] = expr
                 end
             else
@@ -154,6 +155,76 @@ function generate_all_kernel_expressions(plan_data::NamedTuple, ::Type{T};
     
     return kernels
 end
+
+#TODO D MATRIX BUG??
+#=
+# FINAL CORRECTED twiddle generation for radix_factory.jl
+
+function generate_all_kernel_expressions(plan_data::NamedTuple, ::Type{T}; 
+                                        suffix_combinations::Union{Nothing, SuffixFlags}=nothing) where T <: AbstractFloat
+    kernels = Dict{String, Expr}()
+    
+    if has_flag(suffix_combinations, NONE)
+        op = plan_data.operations[1]
+        radix = get_radix_divisor(op.op_type)
+        name, expr = generate_kernel_expression(radix, op, suffix_combinations, 0, String[], true, T)
+        kernels[name] = expr
+        
+    elseif has_flag(suffix_combinations, MAT)
+        for (stage_idx, op) in enumerate(plan_data.operations)
+            radix = get_radix_divisor(op.op_type)
+            is_final = (stage_idx == length(plan_data.operations))
+            
+            SIZE = op.n_groups * op.stride
+            n_kernels_needed = SIZE ÷ radix
+            
+            println("\n=== Stage $stage_idx: radix=$radix, stride=$(op.stride), n_groups=$(op.n_groups) ===")
+            
+            if !is_final
+                # CRITICAL FIX: The effective FFT size for twiddles is op.n_groups
+                # This represents the size after all previous radix decimations
+                effective_size = op.n_groups
+                
+                println("  Effective FFT size for twiddles: $effective_size")
+                
+                # Generate twiddle factors
+                # Kernels are grouped by stride - each group shares the same twiddle
+                for p in 0:(n_kernels_needed-1)
+                    # Which twiddle group?
+                    group_id = p ÷ op.stride
+                    
+                    # Generate twiddle W_{effective_size}^{group_id}
+                    if group_id == 0
+                        D = String[]  # Identity
+                    else
+                        D = String[]
+                        # For radix-r, generate r-1 twiddles (first is always identity)
+                        for i in 1:radix-1
+                            w = cispi(T(-2) * group_id * i / effective_size)
+                            twiddle_str = get_constant_expression(w, effective_size)
+                            push!(D, twiddle_str)
+                        end
+                    end
+                    
+                    println("  Kernel p=$p: group=$group_id, twiddle=W_$(effective_size)^$(group_id), D=$D")
+                    
+                    name, expr = generate_kernel_expression(radix, op, suffix_combinations, p, D, false, T)
+                    kernels[name] = expr
+                end
+            else
+                # Final stage: no twiddles
+                vec_suffix = add_flag(suffix_combinations, VEC)
+                for p in 0:(n_kernels_needed-1)
+                    name, expr = generate_kernel_expression(radix, op, vec_suffix, p, String[], true, T)
+                    kernels[name] = expr
+                end
+            end
+        end
+    end
+    
+    return kernels
+end
+=#
 
 # Modified to return expression instead of string
 function generate_kernel_expression(radix::Int, op, suffixes::SuffixFlags, p::Int, D, is_last::Bool, ::Type{T}) where T <: AbstractFloat

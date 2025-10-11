@@ -246,54 +246,39 @@ function remove_constants_from_kernel(expr::Expr)
     end
 end
 
-# Corrected substitute_strided_final_loop function
-# This function is CORRECT - it transforms p=0 kernel template for looping
 function substitute_strided_final_loop(kernel_expr::Expr, out_var, in_var, stride::Int, size::Int, radix::Int)
     input_spacing = size ÷ radix
     
-    # Normalize variable names to Symbols for comparison
+    # Normalize variable names to Symbols
     out_sym = out_var isa Symbol ? out_var : Symbol(out_var)
     in_sym = in_var isa Symbol ? in_var : Symbol(in_var)
     
-    # Simple recursive walk
-    function transform(ex, is_output_context::Bool)
+    # Recursive transformation
+    function transform(ex, is_lhs::Bool)
         if isa(ex, Expr)
             if ex.head == :ref && length(ex.args) == 2
                 arr = ex.args[1]
                 idx = ex.args[2]
                 
-                # Normalize array name to Symbol
                 arr_sym = arr isa Symbol ? arr : Symbol(arr)
                 
-                # Check for OUTPUT array references
-                if is_output_context && arr_sym == out_sym && isa(idx, Int)
-                    # Output transformation: y[k] → y[idx + (k-1)*stride]
-                    # Example with stride=4:
-                    #   y[1] → y[idx]
-                    #   y[2] → y[idx + 4]
-                    offset = (idx - 1) * stride
-                    return offset == 0 ? Expr(:ref, out_sym, :idx) : Expr(:ref, out_sym, :(idx + $offset))
-                    
-                # Check for INPUT array references
-                elseif !is_output_context && arr_sym == in_sym && isa(idx, Int)
-                    # Input transformation: x[k] → x[idx + (k-1)]
-                    # The input spacing was already baked into the template indices
-                    # Example: template has x[1], x[5] which become x[idx], x[idx+4]
+                # Transform array[k] → array[k + idx - 1]
+                # This works for both input and output since the template
+                # already has the correct strided pattern from makefftradix
+                if (arr_sym == out_sym || arr_sym == in_sym) && isa(idx, Int)
                     offset = idx - 1
-                    return offset == 0 ? Expr(:ref, in_sym, :idx) : Expr(:ref, in_sym, :(idx + $offset))
+                    return offset == 0 ? Expr(:ref, arr_sym, :idx) : Expr(:ref, arr_sym, :(idx + $offset))
                 end
                 
             elseif ex.head == :(=)
-                # Assignment: LHS writes to output, RHS reads from input/temps
                 lhs = ex.args[1]
                 rhs = ex.args[2]
                 
-                new_lhs = transform(lhs, true)   # LHS is output context
-                new_rhs = transform(rhs, false)  # RHS is input context
+                new_lhs = transform(lhs, true)
+                new_rhs = transform(rhs, false)
                 return Expr(:(=), new_lhs, new_rhs)
             else
-                # Recursively transform all args, preserving context
-                new_args = [transform(arg, is_output_context) for arg in ex.args]
+                new_args = [transform(arg, is_lhs) for arg in ex.args]
                 return Expr(ex.head, new_args...)
             end
         end

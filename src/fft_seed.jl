@@ -138,12 +138,18 @@ function makefftradix(n::Int, suffixes::SuffixFlags, D::AbstractArray{String}, p
     
     mode = :default
     has_y = has_flag(suffixes, Y)
+    has_vec = has_flag(suffixes, VEC)  # VEC flag indicates final stage
 
     input = op.eo ? "y" : "x"
     output = !has_y && op.eo ? "x" : "y"
     
     # Key parameters for Stockham algorithm
-    input_spacing = SIZE ÷ n  # Spacing between input elements in each butterfly
+    radix = n
+    stride = op.stride
+    n_groups = op.n_groups
+    input_spacing = SIZE ÷ radix  # Spacing between input elements in each butterfly
+    
+    @show p, stride, radix, input_spacing, n_groups
     
     prev_output = output
     unsafe_load_mode = mode == :unsafe_load
@@ -151,19 +157,35 @@ function makefftradix(n::Int, suffixes::SuffixFlags, D::AbstractArray{String}, p
         output *= "_floats"
     end
     
-    # Universal input indexing formula: p + 1 + (i-1)*input_spacing
+    # INPUT indexing: Always strided by input_spacing
+    # Formula: p + 1 + (i-1)*input_spacing for i = 1 to radix
     if unsafe_load_mode
-        x = ["$(input)[$(2*(p + 1 + (i-1)*input_spacing) - 1 + j)]" for i in 1:n for j in 0:1]
-        # Output: contiguous blocks per kernel (p*n + i)
-        y = ["$(output)[$(2*(p*n + i) - 1 + j)]" for i in 1:n for j in 0:1]
+        x = ["$(input)[$(2*(p + 1 + (i-1)*input_spacing) - 1 + j)]" for i in 1:radix for j in 0:1]
     else
-        # Input indexing: accounts for Stockham data layout from previous stage
-        x = ["$(input)$(p + 1 + (i-1)*input_spacing)" for i in 1:n]
-        
-        # Output indexing: CORRECT formula - each kernel gets contiguous block
-        # p=0: [1..n], p=1: [n+1..2n], p=2: [2n+1..3n], etc.
-        y = ["$output[$(p*n + i)]" for i in 1:n]
+        x = ["$(input)$(p + 1 + (i-1)*input_spacing)" for i in 1:radix]
     end
+    
+    # OUTPUT indexing: Depends on whether this is the final stage
+    if unsafe_load_mode
+        if has_vec
+            # Final stage: strided output
+            base = (p ÷ stride) * (stride * radix) + (p % stride)
+            y = ["$(output)[$(2*(base + 1 + i*stride) - 1 + j)]" for i in 0:radix-1 for j in 0:1]
+        else
+            # Non-final stage: strided by current stride
+            base = (p ÷ stride) * (stride * radix) + (p % stride)
+            y = ["$(output)[$(2*(base + 1 + i*stride) - 1 + j)]" for i in 0:radix-1 for j in 0:1]
+        end
+    else
+        # OUTPUT INDEXING FORMULA:
+        # base = (p ÷ stride) × (stride × radix) + (p % stride)
+        # output[i] = base + 1 + i × stride, for i = 0 to radix-1
+        
+        base = (p ÷ stride) * (stride * radix) + (p % stride)
+        y = ["$output[$(base + 1 + i*stride)]" for i in 0:radix-1]
+    end
+    
+    @show x, y
     
     d = D == String[] ? nothing : D
     
