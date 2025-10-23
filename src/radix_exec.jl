@@ -76,8 +76,9 @@ function GenerateMatrixExpr!(plan::RadixPlan, show_function::Bool=false)::Expr
             #show_function && println("Terminal Kernel Named $key (looped $stride times) with Body: $body")
             show_function && println("Terminal Kernel Named $key (looped $stride times) with Body: ")
             
-            # Transform template to use idx variable
-            if length(plan.operations) % 2 == 0 current_output = current_input end # has_y condition
+            # Unconditionally set correct output based on stage parity
+            current_output = (length(plan.operations) % 2 == 0) ? :x : :y
+
             loop_body = substitute_strided_final_loop(body, current_output, current_input, stride, SIZE, radix)
             
             # Wrap in loop

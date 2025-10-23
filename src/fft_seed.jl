@@ -277,6 +277,8 @@ end
 function sat_expr(tmp, w)
     if w == "1"
         return "$(tmp)_r, $(tmp)_i"
+    elseif w == "-1"
+        return "-$(tmp)_r, -$(tmp)_i"
     elseif w == "-im"
         return "$(tmp)_i, -$(tmp)_r"
     elseif w == "INV_SQRT2_Q4"
@@ -337,6 +339,8 @@ function sat_expr(sign, x1, x2, w)
       #return is_t ? 
           "$(x1)_r $sign $(x2)_r, $(x1)_i $sign $(x2)_i" #:
           #"$x1[2] $sign $x2[2], $x2[1] $sign $x1[1]"
+  elseif w == "-1"
+          "-($(x1)_r $sign $(x2)_r), -($(x1)_i $sign $(x2)_i)" #:
   elseif w == "-im"
       # -i*(a ± b) = ±(b_i ∓ a_i) ± i*(b_r ∓ a_r)
       #return is_t ? 
