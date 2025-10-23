@@ -1,18 +1,16 @@
-# Helper Tools used throught this project:
+#Helper Tools for CatabraFFT
 
 # Custom view type for zero-allocation reshaping of vectors to matrices
 struct StaticReshapedArray{T,N,AA<:AbstractArray} <: AbstractArray{T,N}
     parent::AA
     dims::NTuple{N,Int}
     
-    # Inner constructor to verify dimensions
     function StaticReshapedArray{T,N,AA}(parent::AA, dims::NTuple{N,Int}) where {T,N,AA<:AbstractArray}
         prod(dims) == length(parent) || throw(DimensionMismatch("New dimensions $(dims) must be consistent with array length $(length(parent))"))
         new{T,N,AA}(parent, dims)
     end
 end
 
-# Outer constructor
 function static_reshape(arr::AbstractArray{T}, dims::Vararg{Int,N}) where {T,N}
     StaticReshapedArray{T,N,typeof(arr)}(arr, dims)
 end
@@ -32,26 +30,25 @@ end
     v
 end
 
-function is_power_of(n::Int, p::Int)
-    while n > 1
-        if n % p != 0
-            return false
-        end
+@inline function is_power_of(n::Int, p::Int)
+    @inbounds while n > 1
+        n % p != 0 && return false
         n ÷= p
     end
     return true
 end
 
 function subpowers_of_two(N::Int)
-    # Check if N is a power of two
     @assert N > 1 && (N & (N - 1)) == 0 "N must be a power of two greater than 1"
     
-    # Generate the list of subpowers
-    subpowers = Vector{Int}()
-    while N >= 2
-        push!(subpowers, N)
-        N = div(N, 2)
+    # Pre-allocate with known size
+    log2N = trailing_zeros(N)
+    subpowers = Vector{Int}(undef, log2N)
+    
+    @inbounds for i in 1:log2N
+        subpowers[i] = N >> (i - 1)
     end
+    
     return subpowers
 end
 
@@ -59,7 +56,7 @@ function get_radix_family(op_type::Symbol)
     radix = parse(Int, String(op_type)[4:end])
     if ispow2(radix)
         return radix_2_family
-    elseif radix ∈ [3, 9]
+    elseif radix ∈ (3, 9)
         return radix_3_family
     elseif radix == 5
         return radix_5_family
@@ -70,64 +67,50 @@ function get_radix_family(op_type::Symbol)
     end
 end
 
-# Int mapping for specific symbol naming
-function get_radix_divisor(op_type::Symbol)
-    radix = parse(Int, String(op_type)[4:end])
-    return radix
+@inline function get_radix_divisor(op_type::Symbol)
+    return parse(Int, String(op_type)[4:end])
 end
 
-
 function get_function_reference(radix_family, base_function_name::Symbol)
-    func = getfield(radix_family, base_function_name)
-    if !isdefined(radix_family, base_function_name)
+    isdefined(radix_family, base_function_name) || 
         error("Function $base_function_name not found in module $(radix_family)")
-    end
-    return func
+    return getfield(radix_family, base_function_name)
 end
 
 function return_sorted_prime_powers(n::Int)
-    primes = [2,3,5,7] # Primes I have families of
-    prime_powers = []
-
-    for prime in primes
+    primes = (2, 3, 5, 7)  # Use tuple for immutability
+    prime_powers = Int[]
+    
+    @inbounds for prime in primes
         pow = prime
         while pow <= n
             push!(prime_powers, pow)
-            if pow > typemax(Int) ÷ prime #stack overflow protection
-                break
-            end
+            pow > typemax(Int) ÷ prime && break
             pow *= prime
         end
     end
-
-    # Insertion sort (descending order)
+    
     sort!(prime_powers, rev=true)
     return prime_powers
 end
 
-#When p ≈ m fewer matrices are recomputed => better runtime.
-# Special strided FFT kernels with lower radix rank for special computation of n
-# => mixed-radix-(m,p) !!!
-function find_closest_factors(n::Int, prime_powers_preference=true)
-    if isprime(n)
-        return 1, n
-    end
+function find_closest_factors(n::Int, prime_powers_preference::Bool=true)
+    isprime(n) && return (1, n)
+    
     if prime_powers_preference
         prime_powers = return_sorted_prime_powers(n)
-
-        for p in prime_powers
-            if n % p == 0
-                return p, div(n,p)
-            end
+        
+        @inbounds for p in prime_powers
+            n % p == 0 && return (p, n ÷ p)
         end
     end
-    p = isqrt(n) # Start with p as the floor of sqrt(n)
-
-    while n % p != 0 # Adjust p until it divides n evenly
+    
+    # Fallback to square root method
+    p = isqrt(n)
+    @inbounds while p > 1
+        n % p == 0 && return (p, n ÷ p)
         p -= 1
-        if p == 1
-            error("Unable to find non-prime factors for $n")
-        end
     end
-    return p, div(n, p)
+    
+    error("Unable to find non-prime factors for $n")
 end

@@ -41,7 +41,7 @@ No world age issues, no invokelatest, just pure compiled performance.
     substituted_kernel = Radix_Execute.substitute_constants_in_expr(kernel_expr, constants_dict)
     
     return quote
-        @inline @fastmath @inbounds begin
+        @fastmath @inbounds begin
             $substituted_kernel
         end
         nothing
@@ -71,7 +71,7 @@ end
 
 # Generate radix FFT function with compile-time optimizations
 function generate_radix_fft_function(n::Int, ::Type{T}, flag::FLAG)::Expr where {T<:AbstractFloat}
-    @assert is_power_of(n, 2)
+    @assert is_power_of(n, 2) "n must be a power of 2"
     
     if flag >= ENCHANT
         plans = Radix_Plan.create_all_radix_plans(n, subpowers_of_two(n), T)
@@ -97,7 +97,7 @@ end
 function real_ifft_kernel!(y::AbstractVector{T}, x_work::AbstractVector{Complex{T}}, d::Int) where T
     temp = similar(x_work, d)
     fft_kernel_direct!(temp, x_work, length(x_work))
-    for i in 1:d
+    @inbounds for i in 1:d
         y[i] = real(temp[i])
     end
 end

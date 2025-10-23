@@ -149,8 +149,6 @@ function makefftradix(n::Int, suffixes::SuffixFlags, D::AbstractArray{String}, p
     n_groups = op.n_groups
     input_spacing = SIZE ÷ radix  # Spacing between input elements in each butterfly
     
-    @show p, stride, radix, input_spacing, n_groups
-    
     prev_output = output
     unsafe_load_mode = mode == :unsafe_load
     if unsafe_load_mode
@@ -184,8 +182,6 @@ function makefftradix(n::Int, suffixes::SuffixFlags, D::AbstractArray{String}, p
         base = (p ÷ stride) * (stride * radix) + (p % stride)
         y = ["$output[$(base + 1 + i*stride)]" for i in 0:radix-1]
     end
-    
-    @show x, y
     
     d = D == String[] ? nothing : D
     

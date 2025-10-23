@@ -1,4 +1,3 @@
-
 module Radix_Execute
 
 using Core.Compiler: Core, return_type
@@ -9,33 +8,28 @@ using SIMD
 
 include("helper_tools.jl")
 
-# Generate a complete monolithic FFT function or function group for decompositions with all kernels inlined
+# Generate a complete monolithic FFT function with all kernels inlined
 function GenerateMatrixExpr!(plan::RadixPlan, show_function::Bool=false)::Expr
     T = typeof(plan).parameters[1]
 
-    # 1) Gather kernels
+    # Gather all kernel expressions
     plan_data = (n=plan.n, operations=plan.operations)
     kernel_exprs = RadixGenerator.create_kernel_dictionary(plan_data, T)
 
     show_function && println("Available kernels: ", collect(keys(kernel_exprs)))
 
-    # 2) Collect constants once
+    # Collect constants once at the top
     ops = Expr[]
     constants_dict = extract_constants_dict(kernel_exprs)
-    for (const_name, const_value) in constants_dict
+    sizehint!(ops, length(constants_dict) + length(plan.operations) + 5)
+    
+    @inbounds for (const_name, const_value) in constants_dict
         push!(ops, :($(Symbol(const_name)) = $const_value))
     end
 
-
-    for (stage_idx, op) in enumerate(plan.operations)
-
-        if !op.eo
-            current_input  = :x
-            current_output = :y
-        else
-            current_input  = :y
-            current_output = :x
-        end
+    @inbounds for (stage_idx, op) in enumerate(plan.operations)
+        current_input  = op.eo ? :y : :x
+        current_output = op.eo ? :x : :y
 
         is_final_stage = (stage_idx == length(plan.operations))
         radix  = get_radix_divisor(op.op_type)
@@ -50,38 +44,30 @@ function GenerateMatrixExpr!(plan::RadixPlan, show_function::Bool=false)::Expr
             key = "fft$(radix)_shell!"
             show_function && println("  kernel: $key")
             haskey(kernel_exprs, key) || error("Missing kernel: $key")
-            body = kernel_exprs[key]
-            push!(ops, body)
+            push!(ops, kernel_exprs[key])
+            
         elseif !is_final_stage 
             n_groups_per_radix = SIZE ÷ radix
             
             for p in 0:(n_groups_per_radix-1)
-                # Each kernel has unique p and hardcoded indices
                 key = "fft$(radix)_$(stride)x$(n_g)_$(p)!"
-                
                 haskey(kernel_exprs, key) || error("Missing kernel: $key")
-                body = kernel_exprs[key]
-                #body = remove_constants_from_kernel(body)
-                #body = substitute_kernel_vars(body, current_output, current_input)
-                #show_function && println("Sub-Kernel Named $key with Body: $body")
-                show_function && println("Sub-Kernel Named $key with Body: ")
-                push!(ops, body)
+                show_function && println("  Sub-kernel: $key")
+                push!(ops, kernel_exprs[key])
             end
         else
-            # Terminal stage: generate loop-based kernel
+            # Terminal stage: loop-based execution
             key = "fft$(radix)_$(stride)x$(n_g)_0!"
             haskey(kernel_exprs, key) || error("Missing kernel: $key")
-            body = kernel_exprs[key]
             
-            #show_function && println("Terminal Kernel Named $key (looped $stride times) with Body: $body")
-            show_function && println("Terminal Kernel Named $key (looped $stride times) with Body: ")
+            show_function && println("  Terminal kernel: $key (looped $stride times)")
             
-            # Unconditionally set correct output based on stage parity
+            # Determine correct output based on stage parity
             current_output = (length(plan.operations) % 2 == 0) ? :x : :y
 
-            loop_body = substitute_strided_final_loop(body, current_output, current_input, stride, SIZE, radix)
+            loop_body = substitute_strided_final_loop(kernel_exprs[key], current_output, current_input, stride, SIZE, radix)
             
-            # Wrap in loop
+            # Wrap in vectorized loop
             loop_expr = quote
                 @inbounds @simd ivdep for idx in 1:$stride
                     $loop_body
@@ -90,21 +76,16 @@ function GenerateMatrixExpr!(plan::RadixPlan, show_function::Bool=false)::Expr
             
             push!(ops, loop_expr)
         end
-        # Stockham swap
-        #current_input, current_output = current_output, current_input
     end
 
-    # 4) Final body block
-    BLOCK = Expr(:block, ops...)
-    return BLOCK
-    #return isempty(ops) ? :(copyto!(y, x)) : 
+    return Expr(:block, ops...)
 end
 
 function generate_mat_execute_function!(plan::RadixPlan, show_function::Bool=false)::Expr
     T = typeof(plan).parameters[1]
     function_body = GenerateMatrixExpr!(plan, show_function)
     
-    show_function && println("Function body: \n $function_body")
+    show_function && println("Generated function body")
 
     func_expr = quote
         @inline function (y::AbstractVector{Complex{$T}}, x::AbstractVector{Complex{$T}})
@@ -115,7 +96,7 @@ function generate_mat_execute_function!(plan::RadixPlan, show_function::Bool=fal
         end
     end
 
-    show_function && println("Generated monolithic FFT function.\n$func_expr")
+    show_function && println("Generated monolithic FFT function")
     return func_expr
 end
 
@@ -133,28 +114,19 @@ function materialize_plan_function!(plan::RadixPlan, ::Type{T}) where {T}
         end
     end
     
-    # Clean display without line numbers
-    # clean_expr = Base.remove_linenums!(deepcopy(fexpr))
-    # @show clean_expr
-
     return eval(fexpr)
 end
 
-# Function to substitute constant symbols with literal values
+# Efficiently substitute constant symbols with literal values
 function substitute_constants_in_expr(expr, constants_dict::Dict{Symbol, T}) where T
     if isa(expr, Expr)
         # Recursively process all sub-expressions
-        new_args = [substitute_constants_in_expr(arg, constants_dict) for arg in expr.args]
-        return Expr(expr.head, new_args...)
+        return Expr(expr.head, [substitute_constants_in_expr(arg, constants_dict) for arg in expr.args]...)
     elseif isa(expr, Symbol)
         # Replace symbol with literal value if it's a constant
-        if haskey(constants_dict, expr)
-            return constants_dict[expr]
-        else
-            return expr  # Keep symbol as-is if not a constant
-        end
+        return get(constants_dict, expr, expr)
     else
-        return expr  # Return literals unchanged
+        return expr
     end
 end
 
@@ -162,7 +134,7 @@ end
 function extract_constants_dict(kernel_exprs::Dict{String, Expr})
     constants_dict = Dict{String, Any}()
     
-    for (name, expr) in kernel_exprs
+    @inbounds for (name, expr) in kernel_exprs
         extract_constants_recursive!(constants_dict, expr)
     end
     
@@ -173,114 +145,47 @@ function extract_constants_recursive!(constants::Dict{String, Any}, expr)
     if isa(expr, Expr)
         if expr.head == :(=) && length(expr.args) == 2
             lhs = expr.args[1]
-            rhs = expr.args[2]
             if isa(lhs, Symbol)
                 lhs_str = string(lhs)
-                if lhs_str == "INV_SQRT2" || 
-                   startswith(lhs_str, "COSPI_") || 
-                   startswith(lhs_str, "SINPI_")
-                    # Store only if not already present
+                # Check if it's a constant definition
+                if lhs_str == "INV_SQRT2" || startswith(lhs_str, "COSPI_") || startswith(lhs_str, "SINPI_")
                     if !haskey(constants, lhs_str)
-                        constants[lhs_str] = rhs
+                        constants[lhs_str] = expr.args[2]
                     end
-                end
-            end
-        elseif expr.head == :block
-            for arg in expr.args
-                if isa(arg, Expr)
-                    extract_constants_recursive!(constants, arg)
                 end
             end
         else
-            for arg in expr.args
+            # Recursively process all arguments
+            @inbounds for arg in expr.args
                 if isa(arg, Expr)
                     extract_constants_recursive!(constants, arg)
                 end
             end
         end
-    end
-end
-
-# Remove constants from individual kernels
-function remove_constants_from_kernel(expr::Expr)
-    return postwalk(expr) do ex
-        if isa(ex, Expr)
-            if ex.head == :(=) && length(ex.args) == 2
-                lhs = ex.args[1]
-                if isa(lhs, Symbol)
-                    lhs_str = string(lhs)
-                    if lhs_str == "INV_SQRT2" || 
-                       startswith(lhs_str, "COSPI_") || 
-                       startswith(lhs_str, "SINPI_")
-                        # Return nothing to signal removal
-                        return nothing
-                    end
-                end
-            elseif ex.head == :block
-                # Filter out nothing values
-                filtered_args = []
-                for arg in ex.args
-                    walked = postwalk(identity, arg)  # Process recursively
-                    if !isnothing(walked)
-                        # Check if it's a constant assignment
-                        if isa(walked, Expr) && walked.head == :(=) && length(walked.args) == 2
-                            lhs = walked.args[1]
-                            if isa(lhs, Symbol)
-                                lhs_str = string(lhs)
-                                if !(lhs_str == "INV_SQRT2" || 
-                                     startswith(lhs_str, "COSPI_") || 
-                                     startswith(lhs_str, "SINPI_"))
-                                    push!(filtered_args, walked)
-                                end
-                            else
-                                push!(filtered_args, walked)
-                            end
-                        else
-                            push!(filtered_args, walked)
-                        end
-                    end
-                end
-                return isempty(filtered_args) ? nothing : Expr(:block, filtered_args...)
-            end
-        end
-        return ex
     end
 end
 
 function substitute_strided_final_loop(kernel_expr::Expr, out_var, in_var, stride::Int, size::Int, radix::Int)
-    input_spacing = size ÷ radix
-    
-    # Normalize variable names to Symbols
     out_sym = out_var isa Symbol ? out_var : Symbol(out_var)
     in_sym = in_var isa Symbol ? in_var : Symbol(in_var)
     
-    # Recursive transformation
-    function transform(ex, is_lhs::Bool)
+    # Recursive transformation with tail-call optimization hint
+    @inline function transform(ex, is_lhs::Bool)
         if isa(ex, Expr)
             if ex.head == :ref && length(ex.args) == 2
-                arr = ex.args[1]
+                arr_sym = ex.args[1] isa Symbol ? ex.args[1] : Symbol(ex.args[1])
                 idx = ex.args[2]
                 
-                arr_sym = arr isa Symbol ? arr : Symbol(arr)
-                
                 # Transform array[k] → array[k + idx - 1]
-                # This works for both input and output since the template
-                # already has the correct strided pattern from makefftradix
                 if (arr_sym == out_sym || arr_sym == in_sym) && isa(idx, Int)
                     offset = idx - 1
                     return offset == 0 ? Expr(:ref, arr_sym, :idx) : Expr(:ref, arr_sym, :(idx + $offset))
                 end
                 
             elseif ex.head == :(=)
-                lhs = ex.args[1]
-                rhs = ex.args[2]
-                
-                new_lhs = transform(lhs, true)
-                new_rhs = transform(rhs, false)
-                return Expr(:(=), new_lhs, new_rhs)
+                return Expr(:(=), transform(ex.args[1], true), transform(ex.args[2], false))
             else
-                new_args = [transform(arg, is_lhs) for arg in ex.args]
-                return Expr(ex.head, new_args...)
+                return Expr(ex.head, [transform(arg, is_lhs) for arg in ex.args]...)
             end
         end
         return ex
@@ -289,78 +194,44 @@ function substitute_strided_final_loop(kernel_expr::Expr, out_var, in_var, strid
     return transform(kernel_expr, false)
 end
 
-# Standard variable substitution for non-final stages
-function substitute_kernel_vars(kernel_expr::Expr, out_var, in_var)
-    return postwalk(kernel_expr) do ex
-        if ex == :y
-            return out_var
-        elseif ex == :x
-            return in_var
-        elseif isa(ex, Expr) && ex.head == :ref
-            if length(ex.args) >= 2
-                if ex.args[1] == :y
-                    return Expr(:ref, out_var, ex.args[2:end]...)
-                elseif ex.args[1] == :x
-                    return Expr(:ref, in_var, ex.args[2:end]...)
-                end
-            end
-        end
-        return ex
-    end
-end
-
-# Simple expression tree walker
-function postwalk(f, expr)
-    if isa(expr, Expr)
-        new_args = []
-        for arg in expr.args
-            walked = postwalk(f, arg)
-            if !isnothing(walked)  # Skip nothing values
-                push!(new_args, walked)
-            end
-        end
-        return f(Expr(expr.head, new_args...))
-    else
-        return f(expr)
-    end
-end
-
-# Benchmarking functions
+# Benchmarking function with optimized execution
 function return_best_static_linear_expr(plans::Vector{RadixPlan{T}}, show_function::Bool)::Expr where T<:AbstractFloat
     @assert !isempty(plans)
     N = plans[1].n
 
-    # fixed inputs for fair timing
+    # Fixed inputs for fair timing
     x = rand(Complex{T}, N)
     y = similar(x)
 
     best_time = Inf
     best_body_expr::Union{Expr,Nothing} = nothing
     
-    for plan in plans
+    @inbounds for plan in plans
         try
             show_function && println("Benchmarking plan: ", plan.operations)
 
-            f = materialize_plan_function!(plan, T)  # install callable
+            f = materialize_plan_function!(plan, T)
             
-            show_function && println("Materialized function $(plan.operations)")
-            # warmup
+            show_function && println("Materialized function")
+            
+            # Warmup
             Base.invokelatest(f, y, x)
 
+            # Benchmark
             t = @belapsed Base.invokelatest($f, $y, $x)
             
-            show_function && println("Benchmarked time: $t of plan: $(plan.operations)")
+            show_function && println("Benchmarked time: $t")
 
             if t < best_time
                 best_time = t
-                best_body_expr = GenerateMatrixExpr!(plan, show_function)  # store BODY expr for compile-time splice
+                best_body_expr = GenerateMatrixExpr!(plan, show_function)
             end
         catch e
             @warn "Failed to benchmark plan $(plan.operations): $e"
         end
     end
     
-    show_function && println("Best time: $best_time of plan: $best_body_expr")
+    show_function && println("Best time: $best_time")
 
     best_body_expr === nothing && error("No valid plan found")
     return best_body_expr

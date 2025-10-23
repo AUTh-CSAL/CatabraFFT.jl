@@ -55,7 +55,6 @@ function bench_catabra(n::Int, catabra_time::Vector, catabra_mem::Vector, ctype=
 
     fftw_result = F * x
     catabra_result = C * x
-    #@show catabra_result
     rel_err = relative_error(catabra_result, fftw_result)
     @assert catabra_result ≈ fftw_result
 
@@ -160,7 +159,7 @@ end
 
 fftwplan = FFTW.EXHAUSTIVE
 save = false
-twoexp = 7
+twoexp = 8
 #for b in [2 3 5 7 10]
 for b in [2]
     xs = b .^ (1:Int64(floor(twoexp / log2(b))))

@@ -1,7 +1,3 @@
-#COMMENTS: IN ORDER TO HAVE NO HEAP USAGE THE PLANNER MUST CREATE THE TESTING MODULE AND NOT A POSSIBLE DYNAMIC MODULE TO BE TESTING UPON POTENTIAL PLANS!!!!
-# FOR STATIC ARRAYS OR NOT
-####
-
 module RadixGenerator
 
 include("helper_tools.jl")
@@ -16,22 +12,24 @@ using Libdl
 export create_kernel_dictionary, extract_plan_data
 
 # Intel CPU detection and IVM support
-function is_intel_cpu()
+const USE_IVM = let
     try
         if Sys.ARCH === :x86_64 || Sys.ARCH === :i686
             cpuinfo = read(`lscpu`, String)
-            return occursin("Intel", cpuinfo) || occursin("GenuineIntel", cpuinfo)
+            occursin("Intel", cpuinfo) || occursin("GenuineIntel", cpuinfo)
+        else
+            false
         end
-    catch; end
-    return false
+    catch
+        false
+    end
 end
 
-const USE_IVM = is_intel_cpu()
 if USE_IVM
     try
         using IntelVectorMath
         IVM = IntelVectorMath
-        @info "IntelVectorMath.jl enabled for accelerated D matrix generation"
+        @info "IntelVectorMath.jl enabled for accelerated twiddle factor generation"
     catch
         @warn "IntelVectorMath.jl not available, using Base.cispi"
     end
@@ -39,11 +37,24 @@ end
 
 @inline function fast_cispi(phases::Vector{T}) where T <: AbstractFloat
     if USE_IVM && T == Float64
-        return IVM.cis.(phases .* T(π))
+        # IntelVectorMath.cis requires properly signed zeros
+        # Multiply first to get phases in radians, then ensure no -0.0
+        radian_phases = phases .* T(π)
+        @inbounds for i in eachindex(radian_phases)
+            if radian_phases[i] == -zero(T)
+                radian_phases[i] = zero(T)
+            end
+        end
+        return IVM.cis.(radian_phases)
     elseif USE_IVM && T == Float32
-        phases_64 = Float64.(phases)
-        result_64 = IVM.cis.(phases_64 .* π)
-        return ComplexF32.(result_64)
+        # Convert to Float64, handle -0.0, then convert back
+        radian_phases = Float64.(phases) .* π
+        @inbounds for i in eachindex(radian_phases)
+            if radian_phases[i] == -zero(Float64)
+                radian_phases[i] = zero(Float64)
+            end
+        end
+        return ComplexF32.(IVM.cis.(radian_phases))
     else
         return cispi.(phases)
     end
@@ -59,7 +70,7 @@ function create_kernel_dictionary(plan_data::NamedTuple, ::Type{T})::Dict{String
     
     kernel_codes = generate_all_kernel_expressions(plan_data, T; suffix_combinations=custom_combinations)
     
-    for (name, code) in kernel_codes
+    @inbounds for (name, code) in kernel_codes
         kernels[name] = Expr(:block, code)
     end
     
@@ -70,18 +81,21 @@ function generate_local_constants_dict(n::Int, ::Type{T}) where T <: AbstractFlo
     @assert ispow2(n) "n must be a power of 2"
     constants_dict = Dict{Symbol, T}()
     
+    # Pre-allocate set with estimated size
     fractions = Set{Tuple{Int,Int}}()
+    sizehint!(fractions, n >> 1)
     
-    for k in 0:(n÷2-1)
-        if k == 0 continue end
+    # Generate base fractions
+    @inbounds for k in 1:(n÷2-1)
         gcd_val = gcd(k, n÷2)
         num = k ÷ gcd_val
         den = (n÷2) ÷ gcd_val
         push!(fractions, (num, den))
     end
     
+    # Generate additional fractions for radix-8 patterns
     current_n = n
-    while current_n >= 16
+    @inbounds while current_n >= 16
         n2 = current_n >> 1
         n4 = current_n >> 2
         s = current_n >> 3
@@ -97,7 +111,9 @@ function generate_local_constants_dict(n::Int, ::Type{T}) where T <: AbstractFlo
         current_n >>= 1
     end
     
-    for (num, den) in fractions
+    # Pre-compute all trig constants
+    sizehint!(constants_dict, length(fractions) * 2 + 1)
+    @inbounds for (num, den) in fractions
         angle_cos = T(cospi(num/den))
         angle_sin = T(sinpi(num/den))
         constants_dict[Symbol("COSPI_$(num)_$(den)")] = angle_cos
@@ -105,7 +121,7 @@ function generate_local_constants_dict(n::Int, ::Type{T}) where T <: AbstractFlo
     end
     
     if n >= 8
-        constants_dict[:INV_SQRT2] = T(1/sqrt(2))
+        constants_dict[:INV_SQRT2] = T(1/√2)
     end
     
     return constants_dict
@@ -122,7 +138,7 @@ function generate_all_kernel_expressions(plan_data::NamedTuple, ::Type{T};
         kernels[name] = expr
         
     elseif has_flag(suffix_combinations, MAT)
-        for (stage_idx, op) in enumerate(plan_data.operations)
+        @inbounds for (stage_idx, op) in enumerate(plan_data.operations)
             radix = get_radix_divisor(op.op_type)
             is_final = (stage_idx == length(plan_data.operations))
             
@@ -133,15 +149,12 @@ function generate_all_kernel_expressions(plan_data::NamedTuple, ::Type{T};
                 next_op = plan_data.operations[stage_idx + 1]
                 
                 for p in 0:(n_kernels_needed-1)
-                    # CORRECTED: Calculate output position base address
                     base = (p ÷ op.stride) * (op.stride * radix) + (p % op.stride)
-                    # Which group in the next stage does this output belong to?
                     output_group = base ÷ next_op.stride
-                    # Get the D matrix column (1-indexed)
                     d_column_idx = (output_group % next_op.n_groups) + 1
                     
                     D = generate_D_kernel(d_column_idx, radix, op.stride, next_op.stride, next_op.n_groups, T)
-                    @show name, expr = generate_kernel_expression(radix, op, suffix_combinations, p, D, false, T)
+                    name, expr = generate_kernel_expression(radix, op, suffix_combinations, p, D, false, T)
                     kernels[name] = expr
                 end
             else
@@ -157,7 +170,7 @@ function generate_all_kernel_expressions(plan_data::NamedTuple, ::Type{T};
     return kernels
 end
 
-function generate_kernel_expression(radix::Int, op, suffixes::SuffixFlags, p::Int, D, is_last::Bool, ::Type{T}) where T <: AbstractFloat
+@inline function generate_kernel_expression(radix::Int, op, suffixes::SuffixFlags, p::Int, D, is_last::Bool, ::Type{T}) where T <: AbstractFloat
     if op.eo && is_last
         suffixes = add_flag(suffixes, Y)
     end
@@ -204,13 +217,16 @@ end
     d_matrix = Matrix{Complex{T}}(undef, radix, n_groups)
     
     if USE_IVM && radix * n_groups > 16
-        phases = zeros(T, radix * n_groups)
-        idx = 1
+        phases = Vector{T}(undef, radix * n_groups)
         phase_factor = T(-2 / N)
         
-        for j in 0:(n_groups-1)
+        idx = 1
+        @inbounds for j in 0:(n_groups-1)
             for k in 0:(radix-1)
-                phases[idx] = phase_factor * k * current_stride * j
+                phase_val = phase_factor * k * current_stride * j
+                # *** CRITICAL FIX: Avoid -0.0 which causes IntelVectorMath.cis to fail ***
+                # When k=0 or j=0, phase_val becomes -0.0, which must be converted to +0.0
+                phases[idx] = iszero(phase_val) ? zero(T) : phase_val
                 idx += 1
             end
         end
@@ -220,84 +236,94 @@ end
     else
         phase = T(-2 / N)
         @inbounds for j in 0:(n_groups-1)
-            @inbounds for k in 0:(radix-1)
+            for k in 0:(radix-1)
                 d_matrix[k+1, j+1] = cispi(phase * k * current_stride * j)
             end
         end
     end
     
-    @show d_matrix
-
-    element_strings = String[]
-    @inbounds for elem in d_matrix
-        expr = get_constant_expression(elem, N)
-        clean_expr = replace(string(expr), r"Expr\(:parameters,.*?\)" => "")
-        push!(element_strings, clean_expr)
+    # Convert to string expressions
+    element_strings = Vector{String}(undef, length(d_matrix))
+    @inbounds for i in eachindex(d_matrix)
+        element_strings[i] = get_constant_expression(d_matrix[i], N)
     end
     
-    @show element_strings
-
     return element_strings
 end
 
 function get_constant_expression(w::Complex{T}, n::Integer)::String where T <: AbstractFloat
     real_part = real(w)
     imag_part = imag(w)
+    tol = eps(T) * 20
     
-    isclose(a, b) = (abs(real(a) - real(b)) < eps(T) * 20) && (abs(imag(a) - imag(b)) < eps(T) * 20)
+    @inline isclose(a, b) = abs(a - b) < tol
     
-    common_cases = [
-        (1.0, 0.0) => "1",
-        (-1.0, 0.0) => "-1",
-        (0.0, 1.0) => "im", 
-        (0.0, -1.0) => "-im",
-        (1/√2, 1/√2) => "INV_SQRT2_Q1",
-        (1/√2, -1/√2) => "INV_SQRT2_Q4",
-        (-1/√2, 1/√2) => "-INV_SQRT2_Q4", 
-        (-1/√2, -1/√2) => "-INV_SQRT2_Q1"
-    ]
-    
-    for ((re, im), expr) in common_cases
-        if isclose(real_part, re) && isclose(imag_part, im)
-            return expr
-        end
+    # Fast path: check simple constants first
+    if isclose(real_part, 1.0) && isclose(imag_part, 0.0)
+        return "1"
+    elseif isclose(real_part, -1.0) && isclose(imag_part, 0.0)
+        return "-1"
+    elseif isclose(real_part, 0.0) && isclose(imag_part, 1.0)
+        return "im"
+    elseif isclose(real_part, 0.0) && isclose(imag_part, -1.0)
+        return "-im"
     end
     
-    for k in 0:(n÷2-1)
-        if k == 0 continue end
-        
-        gcd_val = gcd(k, n÷2)
+    # Check sqrt(2) cases
+    inv_sqrt2 = T(1/√2)
+    if isclose(real_part, inv_sqrt2) && isclose(imag_part, inv_sqrt2)
+        return "INV_SQRT2_Q1"
+    elseif isclose(real_part, inv_sqrt2) && isclose(imag_part, -inv_sqrt2)
+        return "INV_SQRT2_Q4"
+    elseif isclose(real_part, -inv_sqrt2) && isclose(imag_part, inv_sqrt2)
+        return "-INV_SQRT2_Q4"
+    elseif isclose(real_part, -inv_sqrt2) && isclose(imag_part, -inv_sqrt2)
+        return "-INV_SQRT2_Q1"
+    end
+    
+    # Check twiddle factors
+    n_half = n ÷ 2
+    @inbounds for k in 1:(n_half-1)
+        gcd_val = gcd(k, n_half)
         num = k ÷ gcd_val  
-        den = (n÷2) ÷ gcd_val
+        den = n_half ÷ gcd_val
         
-        w_basic = cispi(-num/den)
+        w_basic = cispi(T(-num/den))
+        re_basic = real(w_basic)
+        im_basic = imag(w_basic)
         
-        if isclose(w, w_basic)
+        # Check all phase/sign combinations
+        if isclose(real_part, re_basic) && isclose(imag_part, im_basic)
             return "CISPI_$(num)_$(den)_Q4"
-        elseif isclose(w, -w_basic)
+        elseif isclose(real_part, -re_basic) && isclose(imag_part, -im_basic)
             return "-CISPI_$(num)_$(den)_Q4"
-        elseif isclose(w, im * w_basic)
+        elseif isclose(real_part, -im_basic) && isclose(imag_part, re_basic)
             return "im*CISPI_$(num)_$(den)_Q4"
-        elseif isclose(w, -im * w_basic)
+        elseif isclose(real_part, im_basic) && isclose(imag_part, -re_basic)
             return "-im*CISPI_$(num)_$(den)_Q4"
         end
-            
-        w_pos = cispi(num/den)
-        if isclose(w, w_pos)
+        
+        w_pos = cispi(T(num/den))
+        re_pos = real(w_pos)
+        im_pos = imag(w_pos)
+        
+        if isclose(real_part, re_pos) && isclose(imag_part, im_pos)
             return "CISPI_$(num)_$(den)_Q1"
-        elseif isclose(w, -w_pos)
-            return "-CISPI_$(num)_$(den)_Q1" 
-        elseif isclose(w, im * w_pos)
+        elseif isclose(real_part, -re_pos) && isclose(imag_part, -im_pos)
+            return "-CISPI_$(num)_$(den)_Q1"
+        elseif isclose(real_part, -im_pos) && isclose(imag_part, re_pos)
             return "im*CISPI_$(num)_$(den)_Q1"
-        elseif isclose(w, -im * w_pos)
+        elseif isclose(real_part, im_pos) && isclose(imag_part, -re_pos)
             return "-im*CISPI_$(num)_$(den)_Q1"
         end
     end
     
-    return "($(round(real_part, digits=16))$(imag_part ≥ 0 ? "+" : "")$(abs(round(imag_part, digits=16)))*im)"
+    # Fallback to literal value
+    sign = imag_part >= 0 ? "+" : ""
+    return "($(round(real_part, digits=16))$sign$(round(imag_part, digits=16))*im)"
 end
 
-function extract_plan_data(plan::T) where T
+@inline function extract_plan_data(plan::T) where T
     if !(:n in fieldnames(T)) || !(:operations in fieldnames(T))
         error("Invalid plan type: missing required fields")
     end
@@ -310,3 +336,8 @@ function get_twiddle_expression(collect::Vector{Int}, n::Int)::Vector{String}
 end
 
 end
+
+# COMMENTS: IN ORDER TO HAVE NO HEAP USAGE THE PLANNER MUST CREATE THE TESTING MODULE AND NOT A POSSIBLE DYNAMIC MODULE TO BE TESTING UPON POTENTIAL PLANS!!!!
+# FOR STATIC ARRAYS OR NOT
+
+
