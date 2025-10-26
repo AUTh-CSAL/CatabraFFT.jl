@@ -45,7 +45,7 @@ end
                 radian_phases[i] = zero(T)
             end
         end
-        return IVM.cis.(radian_phases)
+        return IVM.cis(radian_phases)
     elseif USE_IVM && T == Float32
         # Convert to Float64, handle -0.0, then convert back
         radian_phases = Float64.(phases) .* π
@@ -54,7 +54,7 @@ end
                 radian_phases[i] = zero(Float64)
             end
         end
-        return ComplexF32.(IVM.cis.(radian_phases))
+        return ComplexF32.(IVM.cis(radian_phases))
     else
         return cispi.(phases)
     end

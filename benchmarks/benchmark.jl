@@ -159,7 +159,7 @@ end
 
 fftwplan = FFTW.EXHAUSTIVE
 save = false
-twoexp = 8
+twoexp = 10
 #for b in [2 3 5 7 10]
 for b in [2]
     xs = b .^ (1:Int64(floor(twoexp / log2(b))))
