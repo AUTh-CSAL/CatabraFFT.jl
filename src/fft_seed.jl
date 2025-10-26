@@ -10,34 +10,17 @@ load_real_imag_gen(["x1", "x2"], mode=:default)
 load_real_imag_gen(["x1", "x2"], mode=:unsafe_load, ptr_name="data_ptr")
 load_real_imag_gen(["x1", "x2"], mode=:vload_soa, vec_width=8)
 """
+# Pointer-based scalar loads (e.g. xmm SSE4 registers)
+# For small kernels utilizing Instruction-Level Parallelism (ILP)
+# Modern CPUs can execute multiple independent scalar operations simultaneously:
+# Can execute in parallel on different execution ports
+# If your CPU likely has 2-3 ADD units, these execute in parallel despite being "scalar".
+# No SIMD Setup Overhead! Shuffling data into SIMD layout, permuting for butterfly patterns and extracting results
+# ...can be MORE expensive than simple scalar ops!
 load_real_imag_gen = (t; mode, T, ptr_name="px") -> begin
     vec_width = 2sizeof(T)  # Width in bytes for real+imag pair
     
-    if mode == :unsafe_load
-        # Pointer-based scalar loads (e.g. xmm SSE4 registers)
-        # For small kernels utilizing Instruction-Level Parallelism (ILP)
-        # Modern CPUs can execute multiple independent scalar operations simultaneously:
-        # Can execute in parallel on different execution ports
-        # If your CPU likely has 2-3 ADD units, these execute in parallel despite being "scalar".
-        # No SIMD Setup Overhead! Shuffling data into SIMD layout, permuting for butterfly patterns and extracting results
-        # ...can be MORE expensive than simple scalar ops!
-        # -> unsafe_store!(py, #, i) uses ymm register however...
-        join([
-            let
-                m = match(r"(\d+)\D*$", s)
-                num = parse(Int, m.captures[1])
-                var = startswith(s, "x") ? "x" :
-                      startswith(s, "y") ? "y" :
-                      startswith(s, "D") ? "d" : error("Unknown input: $s")
-                prefix = i == 1 ? "" : " "
-                idx_r = 2*num - 1
-                idx_i = 2*num
-                "$(prefix)$(var)$(num)_r, $(prefix)$(var)$(num)_i = unsafe_load($ptr_name, $idx_r), unsafe_load($ptr_name, $idx_i)"
-            end
-            for (i, s) in enumerate(t)
-        ], "; ")
-        
-    elseif mode == :vgather
+    if mode == :vgather
         # Smart detection: use vload for contiguous, vgather for strided
         avx2_bits = 256
         complex_size_bits = 2 * sizeof(T) * 8
@@ -114,7 +97,7 @@ load_real_imag_gen = (t; mode, T, ptr_name="px") -> begin
             
             join(code_parts, "\n    ")
         end
-    else
+    else # mode = :default
         # Default: original behavior
         join([
             let
@@ -150,40 +133,20 @@ function makefftradix(n::Int, suffixes::SuffixFlags, D::AbstractArray{String}, p
     input_spacing = SIZE ÷ radix  # Spacing between input elements in each butterfly
     
     prev_output = output
-    unsafe_load_mode = mode == :unsafe_load
-    if unsafe_load_mode
-        output *= "_floats"
-    end
     
     # INPUT indexing: Always strided by input_spacing
-    # Formula: p + 1 + (i-1)*input_spacing for i = 1 to radix
-    if unsafe_load_mode
-        x = ["$(input)[$(2*(p + 1 + (i-1)*input_spacing) - 1 + j)]" for i in 1:radix for j in 0:1]
-    else
-        x = ["$(input)$(p + 1 + (i-1)*input_spacing)" for i in 1:radix]
-    end
+    x = ["$(input)$(p + 1 + (i-1)*input_spacing)" for i in 1:radix]
     
     # OUTPUT indexing: Depends on whether this is the final stage
-    if unsafe_load_mode
-        if has_vec
-            # Final stage: strided output
-            base = (p ÷ stride) * (stride * radix) + (p % stride)
-            y = ["$(output)[$(2*(base + 1 + i*stride) - 1 + j)]" for i in 0:radix-1 for j in 0:1]
-        else
-            # Non-final stage: strided by current stride
-            base = (p ÷ stride) * (stride * radix) + (p % stride)
-            y = ["$(output)[$(2*(base + 1 + i*stride) - 1 + j)]" for i in 0:radix-1 for j in 0:1]
-        end
-    else
-        # OUTPUT INDEXING FORMULA:
-        base = (p ÷ stride) * (stride * radix) + (p % stride)
-        y = ["$output[$(base + 1 + i*stride)]" for i in 0:radix-1]
-    end
+    # OUTPUT INDEXING FORMULA:
+    base = (p ÷ stride) * (stride * radix) + (p % stride)
+    y = ["$output[$(base + 1 + i*stride)]" for i in 0:radix-1]
     
     d = D == String[] ? nothing : D
     
     px = mode == :vgather ? "p$(input) = reinterpret($T, $(input));" : ""
-    py = unsafe_load_mode ? "$(output) = reinterpret($T, $(prev_output));" : ""
+    #py = unsafe_load_mode ? "$(output) = reinterpret($T, $(prev_output));" : ""
+    py = ""
     
     kernel_code = recfft2(y, x, d, nothing, true, T, 1, mode, py)
     kernel_code = "$px\n$kernel_code"
@@ -193,6 +156,7 @@ function makefftradix(n::Int, suffixes::SuffixFlags, D::AbstractArray{String}, p
     else
         try
             parsed_expr = Meta.parse("begin\n$kernel_code\nend")
+            parsed_expr
             return parsed_expr
         catch e
             @warn "Failed to parse kernel code: $e"
@@ -528,30 +492,17 @@ function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1, mode=:default, py="") 
     s = if !isnothing(d)
           if isnothing(w)
             if root
-              if mode == :unsafe_load
-                load_real_imag_gen(x; mode=mode, T=T) * "\n" * 
-                "tmp0_r, tmp0_i = $(x[1])_r - $(x[2])_r, $(x[1])_i - $(x[2])_i" * "\n" * "$py" * "\n" * """
-                $(y[1]), $(y[2]), $(y[3]), $(y[4]) = $(x[1])_r + $(x[2])_r, $(x[1])_i + $(x[2])_i, $(sat_expr("tmp0", "$(d[1])"))
-                """
-              else
                 load_real_imag_gen(x; mode=mode, T=T) * "\n" * 
                 "tmp0_r, tmp0_i = $(x[1])_r - $(x[2])_r, $(x[1])_i - $(x[2])_i" * "\n" * "$py" * "\n" * """
                 $(y[1]), $(y[2]) = Complex{$T}($(x[1])_r + $(x[2])_r, $(x[1])_i + $(x[2])_i), Complex{$T}($(sat_expr("tmp0", "$(d[1])")))
                 """
-              end
             end
           end
         else
           if root
-            if mode == :unsafe_load
-            load_real_imag_gen(x; mode=mode, T=T) * "\n" * "$py" * "\n" * """
-            $(y[1]), $(y[2]), $(y[3]), $(y[4]) = $(x[1])_r + $(x[2])_r, $(x[1])_i + $(x[2])_i, $(x[1])_r - $(x[2])_r, $(x[1])_i - $(x[2])_i
-            """ 
-            else
             load_real_imag_gen(x; mode=mode, T=T) * "\n" * """
             $(y[1]), $(y[2]) = Complex{$T}($(x[1])_r + $(x[2])_r, $(x[1])_i + $(x[2])_i), Complex{$T}($(x[1])_r - $(x[2])_r, $(x[1])_i - $(x[2])_i)
             """ 
-            end 
           else
             if isnothing(w)
             """
@@ -601,15 +552,6 @@ function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1, mode=:default, py="") 
     if !isnothing(d)
       if isnothing(w)
         if root
-          if mode == :unsafe_load
-           s3p = "$py" * "\n" * "$(tmp_decls)" * "\n" *
-                 "$(y[1])" * foldl(*, vmap(i -> ", $(y[i])", 2:2n2)) *
-                 " = " *
-                 "$(t[1])_r + $(t[1+n2])_r, $(t[1])_i + $(t[1+n2])_i" * foldl(*, vmap(i -> ", $(sat_expr("tmp$(i-2)", "$(d[i-1])"))", 2:n2)) * "\n"
-           s3m = "$(y[2n2+1])" * foldl(*, vmap(i -> ", $(y[i+2n2])", 2:2n2)) *
-                 " = " *
-                 "$(sat_expr("-", "$(t[1])", "$(t[1+n2])", "$(d[n2])")))" * foldl(*, vmap(i -> ", $(sat_expr("tmp$(i-3+n2)", "$(d[i+n2-1])"))", 2:n2)) * "\n"
-          else
            s3p = "$py" * "\n" * "$(tmp_decls)" * "\n" *
                  "$(y[1])" * foldl(*, vmap(i -> ", $(y[i])", 2:n2)) *
                  " = " *
@@ -617,27 +559,17 @@ function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1, mode=:default, py="") 
            s3m = "$(y[n2+1])" * foldl(*, vmap(i -> ", $(y[i+n2])", 2:n2)) *
                  " = " *
                  "Complex{$T}($(sat_expr("-", "$(t[1])", "$(t[1+n2])", "$(d[n2])")))" * foldl(*, vmap(i -> ", Complex{$T}($(sat_expr("tmp$(i-3+n2)", "$(d[i+n2-1])")))", 2:n2)) * "\n"
-          end
         end
       end
     else
       if isnothing(w)
         if root 
-          if mode == :unsafe_load
-          s3p = "$py" * "\n" * "$(y[1])" * foldl(*, vmap(i -> ",$(y[i])", 2:2n2)) *
-                " = " *
-                "$(t[1])_r + $(t[1+n2])_r, $(t[1])_i + $(t[1+n2])_i" * foldl(*, vmap(i -> ", $(t[i])_r + $(t[i+n2])_r, $(t[i])_i + $(t[i+n2])_i", 2:n2)) * "\n"
-          s3m = "$(y[2n2+1])" * foldl(*, vmap(i -> ",$(y[i+2n2])", 2:2n2)) *
-                " = " *
-                "$(t[1])_r - $(t[1+n2])_r, $(t[1])_i - $(t[1+n2])_i" * foldl(*, vmap(i -> ", $(t[i])_r - $(t[i+n2])_r, $(t[i])_i - $(t[i+n2])_i", 2:n2)) * "\n"
-          else
           s3p = "$py" * "\n" * "$(y[1])" * foldl(*, vmap(i -> ",$(y[i])", 2:n2)) *
                 " = " *
                 "Complex{$T}($(t[1])_r + $(t[1+n2])_r, $(t[1])_i + $(t[1+n2])_i)" * foldl(*, vmap(i -> ", Complex{$T}($(t[i])_r + $(t[i+n2])_r, $(t[i])_i + $(t[i+n2])_i)", 2:n2)) * "\n"
           s3m = "$(y[n2+1])" * foldl(*, vmap(i -> ",$(y[i+n2])", 2:n2)) *
                 " = " *
                 "Complex{$T}($(t[1])_r - $(t[1+n2])_r, $(t[1])_i - $(t[1+n2])_i)" * foldl(*, vmap(i -> ", Complex{$T}($(t[i])_r - $(t[i+n2])_r, $(t[i])_i - $(t[i+n2])_i)", 2:n2)) * "\n"
-          end
         else
           s3p = "$(y[1])_r, $(y[1])_i" * foldl(*, vmap(i -> ", $(y[i])_r, $(y[i])_i", 2:n2)) *
                 " = " *
@@ -1317,39 +1249,3 @@ function store_gen_simd(y_vars, src_vars; mode, T, ptr_name="py", SIMD_BITS=256)
         end
     end
 end
-
-# Usage example for makefftradix
-#=
-"""
-Update makefftradix to use SIMD version:
-
-function makefftradix(n::Int, suffixes::SuffixFlags, D::AbstractArray{String}, 
-                      p::Int, s::Int, SIZE::Int, ::Type{T}, SIMD_BITS=256) where T <: AbstractFloat
-    
-    # Determine input/output arrays
-    mode = :vgather
-    has_y = has_flag(suffixes, Y)
-    has_mat = has_flag(suffixes, MAT)
-    input = has_y ? "y" : "x"
-    output = "y"
-    groups = SIZE ÷ s
-    
-    # Setup pointer conversion
-    px = "px = pointer(reinterpret($T, $(input)));"
-    py = "py = pointer(reinterpret($T, $(output)));"
-    
-    # Generate kernel using SIMD version
-    kernel_code = recfft2_simd(y, x, d, nothing, true, T, 1, mode, py, SIMD_BITS)
-    kernel_code = px * "\\n" * kernel_code
-    
-    return Meta.parse("begin\\n\$kernel_code\\nend")
-end
-"""
-
-=#
-"""
-SIMD-Vectorized FFT Kernel Generator
-Explicit SIMD operations for complex arithmetic with optimal use of vector registers
-"""
-
-# Core SIMD saturated arithmetic for complex numbers stored as [r1,i1,r2,i2,...]
