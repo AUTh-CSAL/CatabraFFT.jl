@@ -176,9 +176,6 @@ function makefftradix(n::Int, suffixes::SuffixFlags, D::AbstractArray{String}, p
         end
     else
         # OUTPUT INDEXING FORMULA:
-        # base = (p ÷ stride) × (stride × radix) + (p % stride)
-        # output[i] = base + 1 + i × stride, for i = 0 to radix-1
-        
         base = (p ÷ stride) * (stride * radix) + (p % stride)
         y = ["$output[$(base + 1 + i*stride)]" for i in 0:radix-1]
     end
