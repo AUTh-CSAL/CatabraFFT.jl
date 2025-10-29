@@ -5,7 +5,7 @@ __precompile__(false)
 
 include("kernel.jl")
 
-using AbstractFFTs
+using AbstractFFTs, SIMD
 
 import Base: show, *, convert, unsafe_convert, size, strides, ndims, pointer
 import LinearAlgebra: mul!

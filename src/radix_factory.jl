@@ -5,7 +5,7 @@ include("radix_plan.jl")
 include("suffix.jl")
 include("fft_seed.jl")
 
-using LoopVectorization, SIMD
+using LoopVectorization
 using .Radix_Plan
 using Libdl
 
@@ -27,7 +27,7 @@ end
 
 if USE_IVM
     try
-        using IntelVectorMath
+        using IntelVectorMath   # IVM alias exported;
         IVM = IntelVectorMath
         @info "IntelVectorMath.jl enabled for accelerated twiddle factor generation"
     catch
@@ -154,7 +154,7 @@ function generate_all_kernel_expressions(plan_data::NamedTuple, ::Type{T};
                     d_column_idx = (output_group % next_op.n_groups) + 1
                     
                     D = generate_D_kernel(d_column_idx, radix, op.stride, next_op.stride, next_op.n_groups, T)
-                    name, expr = generate_kernel_expression(radix, op, suffix_combinations, p, D, false, T)
+                    name, expr = generate_kernel_expression(radix, op, suffix_combinations, p, D, false, T) # Generate appropriate sub-kernel by embedding D matrix layer on it at compile-time!
                     kernels[name] = expr
                 end
             else
@@ -221,7 +221,7 @@ end
         phase_factor = T(-2 / N)
         
         idx = 1
-        @inbounds for j in 0:(n_groups-1)
+        @inbounds @simd for j in 0:(n_groups-1)
             for k in 0:(radix-1)
                 phase_val = phase_factor * k * current_stride * j
                 # *** CRITICAL FIX: Avoid -0.0 which causes IntelVectorMath.cis to fail ***
@@ -235,7 +235,7 @@ end
         d_matrix[:] = results
     else
         phase = T(-2 / N)
-        @inbounds for j in 0:(n_groups-1)
+        @inbounds @simd for j in 0:(n_groups-1)
             for k in 0:(radix-1)
                 d_matrix[k+1, j+1] = cispi(phase * k * current_stride * j)
             end
@@ -330,9 +330,77 @@ end
     return (n=plan.n, operations=plan.operations)
 end
 
+#=
 function get_twiddle_expression(collect::Vector{Int}, n::Int)::Vector{String}
+    #if USE_IVM && n > 16
     wn = cispi.(-2/n * collect)
     return [get_constant_expression(w, n) for w in wn]
+end
+
+=#
+
+"""
+get_twiddle_expression(ks, n; T=Float32, accuracy=nothing)
+
+Compute twiddle factors for indices `ks` (vector of integers) for transform length `n`.
+Returns a Vector of tuples (wr, wi) where wr = cos(-2π*k/n), wi = sin(-2π*k/n),
+computed using IntelVectorMath.jl (IVM) mutating APIs for best throughput.
+
+Arguments
+- ks : Vector{<:Integer} — indices (supports zero-based ks like 0:(n/2-1))
+- n  : Int — FFT length (denominator of angle)
+- T  : Float32 or Float64 (default Float32) — element type for trig evaluation
+- accuracy : optional symbol to set VML accuracy, e.g. :HA (high), :LA (low), :EP (enhanced perf)
+
+Return
+- Vector{Tuple{T,T}} where each entry is (cosθ, sinθ) for θ = -2π * k / n
+"""
+function get_twiddle_expression(ks::AbstractVector{<:Integer}, n::Integer; T::Type = Float32, accuracy=nothing)
+    len = length(ks)
+    if len == 0
+        return Vector{Tuple{T,T}}()
+    end
+
+    # Prepare angle array (θ = -2π * k / n) as T
+    angles = Vector{T}(undef, len)
+    two_pi = T(2pi)
+    # ks may be zero-based (you used collect(0:n2-1)); preserve that semantics
+    @inbounds for i in 1:len
+        k = ks[i]
+        angles[i] = -two_pi * T(k) / T(n)
+    end
+
+    # Optionally control accuracy/mode (wrap IVM calls; recommended values: :HA, :LA, :EP)
+    # Use IVM.vml_set_accuracy if caller wants to tune speed vs accuracy.
+    # Map friendly symbols to IVM constants if provided
+    if !isnothing(accuracy)
+        # allowed symbols: :HA, :LA, :EP  (matches Intel VML accuracy modes)
+        try
+            if accuracy === :LA
+                IVM.vml_set_accuracy(IVM.VML_LA)
+            elseif accuracy === :EP
+                IVM.vml_set_accuracy(IVM.VML_EP)
+            elseif accuracy === :HA
+                IVM.vml_set_accuracy(IVM.VML_HA)
+            else
+                @warn "Unknown accuracy symbol; ignoring" accuracy
+            end
+        catch e
+            @warn "Could not set IVM accuracy: $e"
+        end
+    end
+
+    # Allocate destination buffers (mutating, no extra allocations other than these)
+    cosbuf = Vector{T}(undef, len)
+    sinbuf = Vector{T}(undef, len)
+
+    # Compute cos and sin via IntelVectorMath in-place functions (fast, threaded)
+    # The mutating (!) forms accept 1D strided arrays and are much faster than broadcasting.
+    # Example: IVM.cos!(cosbuf, angles); IVM.sin!(sinbuf, angles)
+    IVM.cos!(cosbuf, angles)
+    IVM.sin!(sinbuf, angles)
+
+    return [get_constant_expression(Complex{T}(cosbuf[i], sinbuf[i]), n) for i in 1:len]
 end
 
 end

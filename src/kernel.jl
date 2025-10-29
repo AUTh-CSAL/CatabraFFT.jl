@@ -1,4 +1,4 @@
-using AbstractFFTs, Primes 
+using AbstractFFTs, Primes
 
 include("radix_factory.jl")
 include("radix_plan.jl")

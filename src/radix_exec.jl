@@ -8,6 +8,12 @@ using SIMD
 
 include("helper_tools.jl")
 
+
+#TODO : Experiment with possible permutation of specific instructions across different layers. 
+# Possible cache friendly patterns to be utilized. Fully saturate a part of the next layer before the previous layer is done computing. 
+# ex. fft4xfft2. Isn't this just split-radix ???? Automate this for other pairs (8-4).
+# What about AVX vs VSML usage???
+
 # Generate a complete monolithic FFT function with all kernels inlined
 function GenerateMatrixExpr!(plan::RadixPlan, show_function::Bool=false)::Expr
     T = typeof(plan).parameters[1]
