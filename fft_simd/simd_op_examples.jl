@@ -3,7 +3,6 @@
 # ============================================================================
 
 include("simd_op_system.jl")
-#using .SIMDOpSystem  # Adjust if you make it a module
 
 # ============================================================================
 # Example 1: Manual DAG Construction for vfft4
@@ -172,6 +171,8 @@ function demonstrate_saturation()
         println("\n✓ Can saturate level 2 operations into YMM register")
         fused = saturate_butterfly(level2_ops, REG_YMM)
         println("  Fused into $(length(fused)) operation(s)")
+    else 
+        println("\n Failed to saturate butterfly operations")
     end
 end
 
@@ -390,6 +391,8 @@ function run_examples()
     println(code8)
 end
 
-# Uncomment to run:
-run_examples()
+#run_examples()
 
+#demonstrate_saturation()
+
+generate_optimized_vfft(4, Float32)

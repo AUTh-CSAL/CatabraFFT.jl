@@ -44,9 +44,9 @@ end
 Target register size for SIMD operations.
 """
 @enum RegisterSize begin
-    REG_XMM = 128    # 128-bit SSE/AVX registers (4 x Float32)
-    REG_YMM = 256    # 256-bit AVX/AVX2 registers (8 x Float32)
-    REG_ZMM = 512    # 512-bit AVX-512 registers (16 x Float32)
+    REG_XMM = 128    # 128-bit SSE4 registers (4 x Float32)
+    REG_YMM = 256    # 256-bit AVX2 registers (8 x Float32)
+    REG_ZMM = 512    # 512-bit AVX-512/AVX-10 registers (16 x Float32)
 end
 
 """
@@ -64,7 +64,7 @@ Represents a single SIMD operation in the computation DAG.
 - `layout::DataLayout`: Data layout in register
 - `metadata::Dict{Symbol,Any}`: Additional operation-specific data
     - :shuffle_pattern => Vector{Int}
-    - :twiddle_factors => Vector{ComplexF32/64}
+    - :twiddle_factors => Vector{ComplexF16/32/64}
     - :sign_mask => UInt32 bitmask
     - :memory_offset => Int
     - :is_contiguous => Bool
@@ -165,17 +165,20 @@ function can_saturate(ops::Vector{SIMDOp}, target_size::RegisterSize)
     
     # All must be same operation type
     if length(unique(op.op_type for op in ops)) > 1
+        println("Not all ops have the same operation type")
         return false
     end
     
     # All must have same level
     if length(unique(op.level for op in ops)) > 1
+        println("Not all ops have the same level")
         return false
     end
     
     # Check total size fits in target register
     total_floats = sum(op.working_size * 2 for op in ops)
     max_floats = Int(target_size) ÷ 32  # Assuming Float32
+    @show total_floats, max_floats
     
     return total_floats <= max_floats
 end
@@ -370,8 +373,9 @@ function generate_julia_code(op::SIMDOp, T::Type)
         return "$(op.output) = shufflevector($(op.inputs[1]), Val($pattern_0idx))"
         
     elseif op.op_type == OP_SIGNFLIP
-        mask = get(op.metadata, :sign_mask, 0x80000000)
+        sign_pattern = get(op.metadata, :sign_mask, 0x80000000)
         mask_vec = "Vec{$n_floats,UInt32}($(op.metadata[:sign_pattern]))"
+        # Possible slow-down due to immediate depedency between mask reinterpretation to uint and xors
         return """
         $(op.output)_uint = reinterpret(Vec{$n_floats,UInt32}, $(op.inputs[1]))
         $(op.output)_flipped = $(op.output)_uint ⊻ $mask_vec

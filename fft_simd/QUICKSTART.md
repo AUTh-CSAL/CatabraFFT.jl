@@ -7,8 +7,6 @@ The `SIMDOp` system lets you automatically generate optimal SIMD FFT kernels by:
 2. **Saturating** them into wide registers at the right level
 3. **Generating** optimized code with minimal shuffles/cycles
 
-## Key Concepts in 60 Seconds
-
 ### SIMDOp Struct
 ```julia
 struct SIMDOp
