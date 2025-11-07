@@ -660,6 +660,59 @@ end
 
 inc = inccounter()
 
+# Generate twiddle factor expressions for FFT
+# w_k = e^(-2πik/n) for k in ks array
+function get_twiddle_expression(ks, n; T=Float64, accuracy=nothing)
+    twiddles = String[]
+
+    for k in ks
+        # Normalize k to 0 <= k < n
+        k_norm = mod(k, n)
+
+        # Special cases for common twiddle values
+        if k_norm == 0
+            push!(twiddles, "1")
+        elseif k_norm == n ÷ 4 && n % 4 == 0
+            # e^(-iπ/2) = -i
+            push!(twiddles, "-im")
+        elseif k_norm == n ÷ 8 && n % 8 == 0
+            # e^(-iπ/4) = (1-i)/√2
+            push!(twiddles, "INV_SQRT2_Q4")
+        elseif k_norm == 3n ÷ 8 && n % 8 == 0
+            # e^(-3iπ/4) = -(1+i)/√2
+            push!(twiddles, "-INV_SQRT2_Q1")
+        else
+            # General case: CISPI format
+            # w_k = e^(-2πik/n) = cos(-2πk/n) + i*sin(-2πk/n)
+            # Simplify the fraction k/n
+            g = gcd(k_norm, n)
+            num = k_norm ÷ g
+            den = n ÷ g
+
+            # Determine quadrant based on angle -2πk/n
+            # Q1: 0 to π/2 (but negative angle, so 3π/2 to 2π)
+            # Q4: -π/2 to 0 (or 3π/2 to 2π)
+            angle_frac = k_norm / n  # fraction of full rotation
+
+            if angle_frac <= 0.25
+                # Quadrant 4: small negative angles
+                q = "Q4"
+            elseif angle_frac <= 0.5
+                # Quadrant 1 or 4 depending on sign convention
+                q = "Q1"
+            elseif angle_frac <= 0.75
+                q = "Q1"
+            else
+                q = "Q4"
+            end
+
+            push!(twiddles, "CISPI_$(num)_$(den)_$(q)")
+        end
+    end
+
+    return twiddles
+end
+
 # Scalar version of the recursive radix generator for n = 2^q sizes
 function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1, mode=:default, py="") where T <: AbstractFloat
   n = length(x)
@@ -1102,182 +1155,269 @@ A SIMD-aware code-generator replacement for your scalar recfft2 codegen.
 # This way we produce cross-platform cross-type cross-size saturated vectorized ops...
 function recfft2_simd(y, x, d, w, root, ::Type{T}, tmp_base=1, mode=:vgather, py="", complexes_per_vec=2) where T <: AbstractFloat
     n = length(x)
-    
-    @show y, x, d, w, root
-    
+    floats_per_vec = 2 * complexes_per_vec
+
     if n == 1
         return ""
-        
-    elseif n == 2
-        # Base case: 2-point butterfly
-        if !isnothing(d)
-            if isnothing(w) && root
-                # Root FFT2 with D matrix - use scalar operations for now
-                return """
-                x1_r, x1_i = real($(x[1])), imag($(x[1]))
-                x2_r, x2_i = real($(x[2])), imag($(x[2]))
-                sum_r, sum_i = x1_r + x2_r, x1_i + x2_i
-                diff_r, diff_i = x1_r - x2_r, x1_i - x2_i
-                $(y[1]) = Complex{$T}(sum_r, sum_i)
-                #$(y[2]) = Complex{$T}($(sat_expr_simd_scalar("diff", d[1], T)))
-                """
-            end
-        else
-            if root
-                return """
-                x1_r, x1_i = real($(x[1])), imag($(x[1]))
-                x2_r, x2_i = real($(x[2])), imag($(x[2]))
-                $(y[1]) = Complex{$T}(x1_r + x2_r, x1_i + x2_i)
-                #$(y[2]) = Complex{$T}(x1_r - x2_r, x1_i - x2_i)
-                """
-            else
-                # Non-root 2-point
-                if isnothing(w)
-                    @show y
-                    @show y[1]
-                    return """
-                    $(y[1])_r, $(y[1])_i = $(x[1])_r + $(x[2])_r, $(x[1])_i + $(x[2])_i
-                    $(y[1])_r, $(y[1])_i = $(x[1])_r - $(x[2])_r, $(x[1])_i - $(x[2])_i
-                    """
-                else
-                    # With twiddle factors
-                    if w[1] == "1"
-                        #twiddle1 = "$(x[1])_r + $(x[2])_r, $(x[1])_i + $(x[2])_i"
-                    else
-                        #twiddle1 = sat_expr_simd_scalar("+", "$(x[1])", "$(x[2])", w[1], T)
-                    end
-                    #twiddle2 = sat_expr_simd_scalar("-", "$(x[1])", "$(x[2])", w[2], T)
-                    lhs = sat_expr_simd_vec("+", "$(x[1])", "$(x[2])", "$(w[1])", T, n)
 
-                    return  """
-                    $(y[1]) = $lhs
+    elseif n == 2
+        # BASE CASE: Mirror recfft2's n=2 logic with Vec operations
+        s = if !isnothing(d)
+            if isnothing(w)
+                if root
+                    load_code = load_gen_simd(x; mode=mode, T=T, ptr_name="px", SIMD_BITS=SIMD_BITS)
+                    """
+                    $load_code
+                    tmp0 = $(x[1]) - $(x[2])
+                    $py
+                    $(y[1]), $(y[2]) = $(x[1]) + $(x[2]), $(vec_mul_twiddle("tmp0", d[1], T, floats_per_vec))
                     """
                 end
             end
+        else
+            if root
+                load_code = load_gen_simd(x; mode=mode, T=T, ptr_name="px", SIMD_BITS=SIMD_BITS)
+                """
+                $load_code
+                $(y[1]), $(y[2]) = $(x[1]) + $(x[2]), $(x[1]) - $(x[2])
+                """
+            else
+                if isnothing(w)
+                    """
+                    $(y[1]), $(y[2]) = $(x[1]) + $(x[2]), $(x[1]) - $(x[2])
+                    """
+                else
+                    w[1] == "1" ?
+                        """
+                        $(y[1]), $(y[2]) = $(x[1]) + $(x[2]), $(vec_mul_twiddle("-", x[1], x[2], w[2], T, floats_per_vec))
+                        """ :
+                        """
+                        $(y[1]), $(y[2]) = $(vec_mul_twiddle("+", x[1], x[2], w[1], T, floats_per_vec)), $(vec_mul_twiddle("-", x[1], x[2], w[2], T, floats_per_vec))
+                        """
+                end
+            end
         end
-        
-    else
-        # Recursive decomposition
-        #t = ["t$i" for i in tmp_base:tmp_base + n - 1]
 
-        # compute how many vector temporaries (Vec slots) are needed per half
-        cpv = complexes_per_vec
+        return something(s, "")
+
+    else
+        # RECURSIVE CASE: Mirror recfft2's recursive structure EXACTLY
         n2 = n ÷ 2
-        vecs_per_half = ceil(Integer, n2 / cpv)   # how many Vec slots per half
-        
-        # total vector temporaries (first half + second half)
-        total_tvecs = 2 * vecs_per_half
-        
-        # create t as vector temporaries: total = total_tvecs, starting at tmp_base
-        t = ["t$(i)" for i in tmp_base:(tmp_base + total_tvecs - 1)]
-        @show t
-        new_tmp_base = tmp_base + total_tvecs
-        @show new_tmp_base
-        
-        # If you want the chunk ranges for other uses, build them like this:
-        chunks = [ ((k-1)*cpv + 1) : min(k*cpv, n2) for k in 1:vecs_per_half ]
-        @show chunks
-        
-        # Pass the first vecs_per_half vector temporaries to the 'even' recursion
-        s1 = recfft2_simd(t[1:vecs_per_half], x[1:2:n], nothing, nothing, false, T, new_tmp_base, mode, py, complexes_per_vec)
-        @show s1
-        
-        # Pass the next vecs_per_half vector temporaries to the 'odd' recursion
-        s2 = recfft2_simd(t[vecs_per_half+1:2*vecs_per_half], x[2:2:n], nothing,
-                  get_twiddle_expression(collect(0:n2-1), n; T=T, accuracy=nothing),
-                  false, T, new_tmp_base, mode, py, complexes_per_vec)
-        @show s2
-        
-        # Combine results with butterfly operations
-        # TODO Place symbolic saturator for wider perms here???
-        s3p, s3m = generate_butterfly_combination(y, t, d, w, n, n2, root, T, py)
-        @show s3p, s3m
+        t = ["tvec$i" for i in tmp_base:(tmp_base + n - 1)]
+        new_tmp_base = tmp_base + n
 
-        # Add load operations at the base recursion level
-        load_code = n == 4 ? load_gen_simd(x; mode=mode, T=T, ptr_name="px", SIMD_BITS=SIMD_BITS) * "\n" : ""
-        
-        return load_code * s1 * s2 * s3p * s3m
+        # Recursively handle sub-transforms (mirror recfft2 lines 708-709)
+        s1 = recfft2_simd(t[1:n2], x[1:2:n], nothing, nothing, false, T, new_tmp_base, mode, py, complexes_per_vec)
+        s2 = recfft2_simd(t[n2+1:n], x[2:2:n], nothing, get_twiddle_expression(collect(0:n2-1), n; T=T, accuracy=nothing), false, T, new_tmp_base, mode, py, complexes_per_vec)
+
+        # Generate tmp declarations for butterfly (mirror recfft2 lines 711-727)
+        # Create consecutive tmp variables: tmp0, tmp1, ... for sums, then tmp(n2-1), tmp(n2), ... for diffs
+        tmp_decls = if n > 2
+            parts = String[]
+            idx = 0
+            # First create sum temps (corresponding to x1_exprs in scalar)
+            for i in 2:n2
+                push!(parts, "tmp$(idx) = $(t[i]) + $(t[i+n2])")
+                idx += 1
+            end
+            # Then create diff temps (corresponding to x2_exprs in scalar)
+            for i in 2:n2
+                push!(parts, "tmp$(idx) = $(t[i]) - $(t[i+n2])")
+                idx += 1
+            end
+            join(parts, "\n") * "\n"
+        else
+            ""
+        end
+
+        # Final layer combining with D matrix or twiddles (mirror recfft2 lines 729-787)
+        s3p, s3m = "", ""
+
+        if !isnothing(d)
+            if isnothing(w)
+                if root
+                    s3p = "$py\n$tmp_decls" *
+                          "$(y[1])" * join([", $(y[i])" for i in 2:n2]) *
+                          " = " *
+                          "$(t[1]) + $(t[1+n2])" * join([", $(vec_mul_twiddle("tmp$(i-2)", d[i-1], T, floats_per_vec))" for i in 2:n2]) * "\n"
+                    s3m = "$(y[n2+1])" * join([", $(y[i+n2])" for i in 2:n2]) *
+                          " = " *
+                          "$(vec_mul_twiddle("-", t[1], "$(t[1+n2])", d[n2], T, floats_per_vec))" *
+                          join([", $(vec_mul_twiddle("tmp$(i-3+n2)", d[i+n2-1], T, floats_per_vec))" for i in 2:n2]) * "\n"
+                end
+            end
+        else
+            if isnothing(w)
+                if root
+                    s3p = "$py\n" *
+                          "$(y[1])" * join([", $(y[i])" for i in 2:n2]) *
+                          " = " *
+                          "$(t[1]) + $(t[1+n2])" * join([", $(t[i]) + $(t[i+n2])" for i in 2:n2]) * "\n"
+                    s3m = "$(y[n2+1])" * join([", $(y[i+n2])" for i in 2:n2]) *
+                          " = " *
+                          "$(t[1]) - $(t[1+n2])" * join([", $(t[i]) - $(t[i+n2])" for i in 2:n2]) * "\n"
+                else
+                    s3p = "$(y[1])" * join([", $(y[i])" for i in 2:n2]) *
+                          " = " *
+                          "$(t[1]) + $(t[1+n2])" * join([", $(t[i]) + $(t[i+n2])" for i in 2:n2]) * "\n"
+                    s3m = "$(y[n2+1])" * join([", $(y[i+n2])" for i in 2:n2]) *
+                          " = " *
+                          "$(t[1]) - $(t[1+n2])" * join([", $(t[i]) - $(t[i+n2])" for i in 2:n2]) * "\n"
+                end
+            else
+                # With twiddles (mirror recfft2 lines 759-787)
+                s3p = "$tmp_decls" *
+                      "$(y[1])" * join([", $(y[i])" for i in 2:n2]) *
+                      " = " *
+                      (w[1] == "1" ? "$(t[1]) + $(t[1+n2])" : "$(vec_mul_twiddle("tmp_$(t[1])", w[1], T, floats_per_vec))") *
+                      join([", $(vec_mul_twiddle("tmp$(i-2)", w[i], T, floats_per_vec))" for i in 2:n2]) * "\n"
+                s3m = "$(y[n2+1])" * join([", $(y[i+n2])" for i in 2:n2]) *
+                      " = " *
+                      "$(vec_mul_twiddle("-", t[1], "$(t[1+n2])", w[n2+1], T, floats_per_vec))" *
+                      join([", $(vec_mul_twiddle("tmp$(i-3+n2)", w[n2+i], T, floats_per_vec))" for i in 2:n2]) * "\n"
+            end
+        end
+
+        return s1 * s2 * s3p * s3m
     end
 end
 
-# Helper to generate butterfly combination code
-function generate_butterfly_combination(y, t, d, w, n, n2, root, ::Type{T}, py) where T
-    # Generate temporary variables for sum/diff
-    @show y, t, d, w, n, n2
-    tmp_decls = if n > 2
-        parts = String[]
-        for i in 2:n2
-            push!(parts, "tmp$(i-2)_r, tmp$(i-2)_i = $(t[i])_r + $(t[i+n2])_r, $(t[i])_i + $(t[i+n2])_i")
-            push!(parts, "tmp$(i-2+n2)_r, tmp$(i-2+n2)_i = $(t[i])_r - $(t[i+n2])_r, $(t[i])_i - $(t[i+n2])_i")
-        end
-        join(parts, "\n") * "\n"
-    else
-        ""
+# SIMD code generation helpers for complex twiddle multiplication
+# These generate actual SIMD.jl expressions that will be inlined
+
+# Multiply Vec by -i: (a+bi)*(-i) = b - ai
+# Implementation: swap real/imag pairs and negate the (now) real parts
+function vec_mul_neg_i_code(vec_name::String, floats_per_vec::Int)
+    # Generate shuffle indices to swap r,i pairs: [r1,i1,r2,i2,...] -> [i1,r1,i2,r2,...]
+    # For 1-based indexing: [1,2,3,4,...] we want [2,1,4,3,...]
+    # After subtracting 1 for 0-based: [1,0,3,2,...]
+    swap_indices = Int[]
+    for i in 1:2:floats_per_vec
+        push!(swap_indices, i+1)  # imag component (1-based)
+        push!(swap_indices, i)    # real component (1-based)
     end
-    
-    # Generate output assignments
-    if !isnothing(d)
-        # With D matrix
-        s3p = root ? "$py\n$tmp_decls$(y[1]) = Complex{$T}($(t[1])_r + $(t[1+n2])_r, $(t[1])_i + $(t[1+n2])_i)\n" : ""
-        for i in 2:n2
-            s3p *= "$(y[i]) = Complex{$T}($(sat_expr_simd_scalar("tmp$(i-2)", d[i-1], T)))\n"
-        end
-        
-        s3m = "$(y[n2+1]) = Complex{$T}($(sat_expr_simd_scalar("-", "$(t[1])", "$(t[1+n2])", d[n2], T)))\n"
-        for i in 2:n2
-            s3m *= "$(y[i+n2]) = Complex{$T}($(sat_expr_simd_scalar("tmp$(i-3+n2)", d[i+n2-1], T)))\n"
-        end
-        
-    elseif !isnothing(w)
-        # With twiddle factors
-        s3p = "$tmp_decls"
-        
-        # For first element: directly compute (t[1] + t[1+n2]) * w[1]
-        if w[1] == "1"
-            s3p *= "$(y[1])_r, $(y[1])_i = $(t[1])_r + $(t[1+n2])_r, $(t[1])_i + $(t[1+n2])_i\n"
-        else
-            s3p *= "$(y[1])_r, $(y[1])_i = $(sat_expr_simd_scalar("+", "$(t[1])", "$(t[1+n2])", w[1], T))\n"
-        end
-        
-        # For remaining elements: use precomputed tmp values
-        for i in 2:n2
-            s3p *= "$(y[i])_r, $(y[i])_i = $(sat_expr_simd_scalar("tmp$(i-2)", w[i], T))\n"
-        end
-        
-        # Minus part: (t[1] - t[1+n2]) * w[n2+1]
-        s3m = "$(y[n2+1])_r, $(y[n2+1])_i = $(sat_expr_simd_scalar("-", "$(t[1])", "$(t[1+n2])", w[n2+1], T))\n"
-        for i in 2:n2
-            s3m *= "$(y[i+n2])_r, $(y[i+n2])_i = $(sat_expr_simd_scalar("tmp$(i-3+n2)", w[n2+i], T))\n"
-        end
-        
-    else
-        # Simple butterfly
-        if root
-            s3p = "$py\n"
-            for i in 1:n2
-                s3p *= "$(y[i]) = Complex{$T}($(t[i])_r + $(t[i+n2])_r, $(t[i])_i + $(t[i+n2])_i)\n"
-            end
-            s3m = ""
-            for i in 1:n2
-                s3m *= "$(y[n2+i]) = Complex{$T}($(t[i])_r - $(t[i+n2])_r, $(t[i])_i - $(t[i+n2])_i)\n"
-            end
-        else
-            s3p = ""
-            for i in 1:n2
-                s3p *= "$(y[i])_r, $(y[i])_i = $(t[i])_r + $(t[i+n2])_r, $(t[i])_i + $(t[i+n2])_i\n"
-            end
-            s3m = ""
-            for i in 1:n2
-                s3m *= "$(y[n2+i])_r, $(y[n2+i])_i = $(t[i])_r - $(t[i+n2])_r, $(t[i])_i - $(t[i+n2])_i\n"
-            end
-        end
-    end
-    
-    return s3p, s3m
+    # Generate sign mask to negate real parts (now at even indices after swap)
+    sign_mask = join(["0x$(i % 2 == 1 ? "00000000" : "80000000")" for i in 1:floats_per_vec], ", ")
+
+    return "shufflevector(signflip($vec_name, Vec{$floats_per_vec,UInt32}(($sign_mask))), Val(($(join(swap_indices .- 1, ", ")))))"
 end
 
-### MODEL RADIX. VERY SMART
+# Multiply Vec by (1-i)/√2 (INV_SQRT2_Q4)
+function vec_mul_inv_sqrt2_q4_code(vec_name::String, ::Type{T}, floats_per_vec::Int) where T
+    # (r+ii) * (1-i)/√2 = (r+i)/√2 + i(i-r)/√2 = ((r+i), (i-r))/√2
+    num_complex = floats_per_vec ÷ 2
+    # Extract real and imag parts
+    r_indices = [2i-1 for i in 1:num_complex]
+    i_indices = [2i for i in 1:num_complex]
 
+    # Interleave for final result: r1, i1, r2, i2, ...
+    interleave_indices = Int[]
+    for i in 0:num_complex-1
+        push!(interleave_indices, i)            # from v_sum
+        push!(interleave_indices, i + num_complex)  # from v_diff
+    end
+
+    """(let
+        v = $vec_name
+        v_r = shufflevector(v, Val(($(join(r_indices .- 1, ", ")))))
+        v_i = shufflevector(v, Val(($(join(i_indices .- 1, ", ")))))
+        v_sum = v_r + v_i
+        v_diff = v_i - v_r
+        shufflevector(v_sum, v_diff, Val(($(join(interleave_indices, ", "))))) * Vec{$floats_per_vec,$T}(($(join(["INV_SQRT2" for _ in 1:floats_per_vec], ", "))))
+    end)"""
+end
+
+# Multiply Vec by -(1+i)/√2 (NEG_INV_SQRT2_Q1)
+function vec_mul_neg_inv_sqrt2_q1_code(vec_name::String, ::Type{T}, floats_per_vec::Int) where T
+    num_complex = floats_per_vec ÷ 2
+    r_indices = [2i-1 for i in 1:num_complex]
+    i_indices = [2i for i in 1:num_complex]
+
+    # Interleave for final result: r1, i1, r2, i2, ...
+    interleave_indices = Int[]
+    for i in 0:num_complex-1
+        push!(interleave_indices, i)            # from v_diff
+        push!(interleave_indices, i + num_complex)  # from -v_sum
+    end
+
+    """(let
+        v = $vec_name
+        v_r = shufflevector(v, Val(($(join(r_indices .- 1, ", ")))))
+        v_i = shufflevector(v, Val(($(join(i_indices .- 1, ", ")))))
+        v_sum = v_r + v_i
+        v_diff = v_i - v_r
+        shufflevector(v_diff, -v_sum, Val(($(join(interleave_indices, ", "))))) * Vec{$floats_per_vec,$T}(($(join(["INV_SQRT2" for _ in 1:floats_per_vec], ", "))))
+    end)"""
+end
+
+# Multiply Vec by general CISPI twiddle: cos(π*n/d) ± i*sin(π*n/d)
+function vec_mul_cispi_code(vec_name::String, cos_const::String, sin_const::String, q1::Bool, ::Type{T}, floats_per_vec::Int) where T
+    num_complex = floats_per_vec ÷ 2
+    r_indices = [2i-1 for i in 1:num_complex]
+    i_indices = [2i for i in 1:num_complex]
+
+    # Interleave for final result: r1, i1, r2, i2, ...
+    interleave_indices = Int[]
+    for i in 0:num_complex-1
+        push!(interleave_indices, i)            # from out_r
+        push!(interleave_indices, i + num_complex)  # from out_i
+    end
+
+    # Complex multiply: (r+ii)*(c+si) = (rc-si) + i(ri+sc)  if q1
+    #                   (r+ii)*(c-si) = (rc+si) + i(ri-sc)  if !q1
+    if q1
+        """(let
+            v = $vec_name
+            v_r = shufflevector(v, Val(($(join(r_indices .- 1, ", ")))))
+            v_i = shufflevector(v, Val(($(join(i_indices .- 1, ", ")))))
+            c = $cos_const
+            s = $sin_const
+            out_r = v_r * c - v_i * s
+            out_i = v_r * s + v_i * c
+            shufflevector(out_r, out_i, Val(($(join(interleave_indices, ", ")))))
+        end)"""
+    else
+        """(let
+            v = $vec_name
+            v_r = shufflevector(v, Val(($(join(r_indices .- 1, ", ")))))
+            v_i = shufflevector(v, Val(($(join(i_indices .- 1, ", ")))))
+            c = $cos_const
+            s = $sin_const
+            out_r = v_r * c + v_i * s
+            out_i = v_r * (-s) + v_i * c
+            shufflevector(out_r, out_i, Val(($(join(interleave_indices, ", ")))))
+        end)"""
+    end
+end
+
+# Update vec_mul_twiddle to call code generators
+function vec_mul_twiddle(vec_name::String, twiddle::String, ::Type{T}, floats_per_vec::Int) where T
+    if twiddle == "1"
+        return vec_name
+    elseif twiddle == "-im"
+        return vec_mul_neg_i_code(vec_name, floats_per_vec)
+    elseif twiddle == "INV_SQRT2_Q4"
+        return vec_mul_inv_sqrt2_q4_code(vec_name, T, floats_per_vec)
+    elseif twiddle == "-INV_SQRT2_Q1"
+        return vec_mul_neg_inv_sqrt2_q1_code(vec_name, T, floats_per_vec)
+    else
+        # General CISPI twiddle
+        parsed = parse_cispi(twiddle)
+        c = "COSPI_$(parsed.num)_$(parsed.den)"
+        s = "SINPI_$(parsed.num)_$(parsed.den)"
+        return vec_mul_cispi_code(vec_name, c, s, parsed.q1, T, floats_per_vec)
+    end
+end
+
+# Butterfly version: apply twiddle to (vec1 op vec2)
+function vec_mul_twiddle(op::String, vec1::String, vec2::String, twiddle::String, ::Type{T}, floats_per_vec::Int) where T
+    if twiddle == "1"
+        return "$vec1 $op $vec2"
+    else
+        # Apply twiddle to the result of the butterfly operation
+        return vec_mul_twiddle("($vec1 $op $vec2)", twiddle, T, floats_per_vec)
+    end
+end
 
 # Vectorized XOR operation to flip sign at chosen vector elements
 @inline function signflip(v::Vec{N,T}, mask::Vec{N,UInt32}) where {N, T<:AbstractFloat}
@@ -1287,29 +1427,163 @@ end
     return reinterpret(Vec{N,T}, v_flipped)
 end
 
-@inline function vfft4_xor(x::Vector{T}, y::Vector{T}) where T <: AbstractFloat
+@inline function vfft8(x::Vector{Float32}, y::Vector{Float32}) 
     @inbounds @fastmath begin
+        INV_SQRT2 = 0.7071067811865476f0
+        
+        # Load all 16 floats in just 2 aligned loads!
         LANE = VecRange{8}(0)
-        v = x[LANE + 1]
+        ymm_low = x[LANE + 1]   # x[1:8]   = [x1_r, x1_i, x2_r, x2_i, x3_r, x3_i, x4_r, x4_i]
+        ymm_high = x[LANE + 9]  # x[9:16]  = [x5_r, x5_i, x6_r, x6_i, x7_r, x7_i, x8_r, x8_i]
         
-        lo = shufflevector(v, Val((0, 1, 2, 3)))
-        hi = shufflevector(v, Val((4, 5, 6, 7)))
+        # Extract needed components with shuffles
+        # First radix-4: need [x1_r, x1_i, x3_r, x3_i] and [x5_r, x5_i, x7_r, x7_i]
+        v1_a = shufflevector(ymm_low, Val((0, 1, 4, 5)))   # [x1_r, x1_i, x3_r, x3_i]
+        v2_a = shufflevector(ymm_high, Val((0, 1, 4, 5)))  # [x5_r, x5_i, x7_r, x7_i]
         
-        add_vec = lo + hi
-        sub_vec = lo - hi
+        # Second radix-4: need [x2_r, x2_i, x4_r, x4_i] and [x6_r, x6_i, x8_r, x8_i]
+        v1_b = shufflevector(ymm_low, Val((2, 3, 6, 7)))   # [x2_r, x2_i, x4_r, x4_i]
+        v2_b = shufflevector(ymm_high, Val((2, 3, 6, 7)))  # [x6_r, x6_i, x8_r, x8_i]
         
-        # Apply twiddle with XOR sign flip (flip 4th element only)
-        sign_mask = Vec{4,UInt32}((0x00000000, 0x00000000, 0x00000000, 0x80000000))
-        sub_vec_shuffled = shufflevector(sub_vec, Val((0, 1, 3, 2)))
-        sub_vec = signflip(sub_vec_shuffled, sign_mask)
+        # ... rest of FFT computation (same as before) ...
+        # First radix-4
+        t9_11 = v1_a + v2_a
+        t10_12_raw = v1_a - v2_a
         
-        t12 = shufflevector(add_vec, sub_vec, Val((0, 1, 4, 5)))
-        t34 = shufflevector(add_vec, sub_vec, Val((2, 3, 6, 7)))
+        # Fix t12: [t10_r, t10_i, -t12_i, t12_r] -> [t10_r, t10_i, t12_r, t12_i]
+        sign_mask = Vec{4,UInt32}((0x00000000, 0x00000000, 0x80000000, 0x00000000))
+        t10_12 = shufflevector(signflip(t10_12_raw, sign_mask), Val((0, 1, 3, 2)))
         
-        y12 = t12 + t34
-        y34 = t12 - t34
+        h1_a = shufflevector(t9_11, t10_12, Val((0, 1, 4, 5)))
+        h2_a = shufflevector(t9_11, t10_12, Val((2, 3, 6, 7)))
         
-        OUT = shufflevector(y12, y34, Val((0, 1, 2, 3, 4, 5, 6, 7)))
-        y[LANE + 1] = OUT
+        t1_2 = h1_a + h2_a
+        t3_4 = h1_a - h2_a
+        ymm1 = shufflevector(t1_2, t3_4, Val((0,1,2,3,4,5,6,7)))
+        
+        # Second radix-4
+        t9_11_b = v1_b + v2_b
+        t10_12_raw_b = v1_b - v2_b
+        t10_12_b = shufflevector(signflip(t10_12_raw_b, sign_mask), Val((0, 1, 3, 2)))
+        
+        h1_b = shufflevector(t9_11_b, t10_12_b, Val((0, 1, 4, 5)))
+        h2_b = shufflevector(t9_11_b, t10_12_b, Val((2, 3, 6, 7)))
+        
+        t5 = h1_b + h2_b
+        tmp1_pre = h1_b - h2_b
+        
+        # Twiddle computation (simplified with FMA-style patterns)
+        tmp0 = shufflevector(t5, Val((2, 3, 2, 3)))
+        tmp0_swapped = shufflevector(tmp0, Val((1, 0, 1, 0)))
+        t6 = (tmp0 + tmp0_swapped * Vec{4,Float32}((1.0f0, -1.0f0, 0.0f0, 0.0f0))) * 
+             Vec{4,Float32}((INV_SQRT2, INV_SQRT2, 0.0f0, 0.0f0))
+        
+        t7_raw = shufflevector(tmp1_pre, Val((1, 0, 1, 0)))
+        sign_mask_t7 = Vec{4,UInt32}((0x00000000, 0x80000000, 0x00000000, 0x00000000))
+        t7 = signflip(t7_raw, sign_mask_t7)
+        
+        tmp1 = shufflevector(tmp1_pre, Val((2, 3, 2, 3)))
+        tmp1_swapped = shufflevector(tmp1, Val((1, 0, 1, 0)))
+        tmp1_sum = tmp1 + tmp1_swapped
+        tmp1_diff = tmp1_swapped - tmp1
+        t8_pre = shufflevector(tmp1_diff, tmp1_sum, Val((0, 5, 0, 0)))
+        sign_mask_t8 = Vec{4,UInt32}((0x00000000, 0x80000000, 0x00000000, 0x00000000))
+        t8 = signflip(t8_pre, sign_mask_t8) * Vec{4,Float32}((INV_SQRT2, INV_SQRT2, 0.0f0, 0.0f0))
+        
+        t5_6 = shufflevector(t5, t6, Val((0,1,4,5)))
+        t7_8 = shufflevector(t7, t8, Val((0,1,4,5)))
+        ymm2 = shufflevector(t5_6, t7_8, Val((0,1,2,3,4,5,6,7)))
+        
+        # Final butterfly
+        y1_4 = ymm1 + ymm2
+        y5_8 = ymm1 - ymm2
+        
+        vstore(y1_4, y, 1)
+        vstore(y5_8, y, 9)
+    end
+end
+
+@inline function vfft8_fastest(x::Vector{Float32}, y::Vector{Float32}) 
+    @inbounds @fastmath begin
+        INV_SQRT2 = 0.7071067811865476f0
+        
+        # ========== ULTRA-FAST LOAD: Only 2 instructions! ==========
+        LANE = VecRange{8}(0)
+        ymm_all = x[LANE + 1]  # Load all 16 floats in ONE vector!
+        
+        # Split into two 128-bit halves
+        xmm_low = shufflevector(ymm_all, Val((0, 1, 2, 3)))   # x[1:4]
+        xmm_high = shufflevector(ymm_all, Val((4, 5, 6, 7)))  # x[5:8]
+        
+        # Load second half
+        ymm_all2 = x[LANE + 9]
+        xmm_low2 = shufflevector(ymm_all2, Val((0, 1, 2, 3)))   # x[9:12]
+        xmm_high2 = shufflevector(ymm_all2, Val((4, 5, 6, 7)))  # x[13:16]
+        
+        # Now continue with the same butterfly structure as before
+        # (using xmm_low, xmm_high, xmm_low2, xmm_high2 as xmm0, xmm1, xmm2, xmm3)
+        
+        # ========== FIRST RADIX-4 ==========
+        v1_a = shufflevector(xmm_low, xmm_high, Val((0, 1, 4, 5)))
+        v2_a = shufflevector(xmm_low2, xmm_high2, Val((0, 1, 4, 5)))
+        
+        t9_11_a = v1_a + v2_a
+        diff_a = v1_a - v2_a
+        diff_a_swapped = shufflevector(diff_a, Val((0, 1, 3, 2)))
+        sign_mask_t12 = Vec{4,UInt32}((0x00000000, 0x00000000, 0x00000000, 0x80000000))
+        t10_12_a = signflip(diff_a_swapped, sign_mask_t12)
+        
+        h1_a = shufflevector(t9_11_a, t10_12_a, Val((0, 1, 4, 5)))
+        h2_a = shufflevector(t9_11_a, t10_12_a, Val((2, 3, 6, 7)))
+        
+        t1_2 = h1_a + h2_a
+        t3_4 = h1_a - h2_a
+        
+        # ========== SECOND RADIX-4 ==========
+        v1_b = shufflevector(xmm_low, xmm_high, Val((2, 3, 6, 7)))
+        v2_b = shufflevector(xmm_low2, xmm_high2, Val((2, 3, 6, 7)))
+        
+        t9_11_b = v1_b + v2_b
+        diff_b = v1_b - v2_b
+        diff_b_swapped = shufflevector(diff_b, Val((0, 1, 3, 2)))
+        t10_12_b = signflip(diff_b_swapped, sign_mask_t12)
+        
+        h1_b = shufflevector(t9_11_b, t10_12_b, Val((0, 1, 4, 5)))
+        h2_b = shufflevector(t9_11_b, t10_12_b, Val((2, 3, 6, 7)))
+        
+        t5_tmp0 = h1_b + h2_b
+        diff_t9t11_tmp1 = h1_b - h2_b
+        
+        # ========== TWIDDLES ==========
+        tmp0 = shufflevector(t5_tmp0, t5_tmp0, Val((2, 3, 2, 3)))
+        tmp0_rotated = shufflevector(tmp0, Val((1, 0, 1, 0)))
+        sign_mask_rot = Vec{4,UInt32}((0x00000000, 0x80000000, 0x00000000, 0x00000000))
+        tmp0_rotated_signed = signflip(tmp0_rotated, sign_mask_rot)
+        t6_unscaled = tmp0 + tmp0_rotated_signed
+        t6 = t6_unscaled * Vec{4,Float32}((INV_SQRT2, INV_SQRT2, 0.0f0, 0.0f0))
+        
+        t7_raw = shufflevector(diff_t9t11_tmp1, Val((1, 0, 1, 0)))
+        t7 = signflip(t7_raw, sign_mask_rot)
+        
+        tmp1 = shufflevector(diff_t9t11_tmp1, diff_t9t11_tmp1, Val((2, 3, 2, 3)))
+        tmp1_swapped = shufflevector(tmp1, Val((1, 0, 1, 0)))
+        tmp1_sum = tmp1 + tmp1_swapped
+        tmp1_diff = tmp1_swapped - tmp1
+        t8_unsigned = shufflevector(tmp1_diff, tmp1_sum, Val((0, 5, 0, 0)))
+        t8_signed = signflip(t8_unsigned, sign_mask_rot)
+        t8 = t8_signed * Vec{4,Float32}((INV_SQRT2, INV_SQRT2, 0.0f0, 0.0f0))
+        
+        t5_6 = shufflevector(t5_tmp0, t6, Val((0, 1, 4, 5)))
+        t7_8 = shufflevector(t7, t8, Val((0, 1, 4, 5)))
+        
+        # ========== FINAL BUTTERFLY ==========
+        ymm1 = shufflevector(t1_2, t3_4, Val((0, 1, 2, 3, 4, 5, 6, 7)))
+        ymm2 = shufflevector(t5_6, t7_8, Val((0, 1, 2, 3, 4, 5, 6, 7)))
+        
+        y1_8_top = ymm1 + ymm2
+        y1_8_bot = ymm1 - ymm2
+        
+        vstore(y1_8_top, y, 1)
+        vstore(y1_8_bot, y, 9)
     end
 end
