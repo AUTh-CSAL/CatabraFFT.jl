@@ -20,15 +20,16 @@ end
 """
 Generated function that produces optimized FFT kernel at compile time.
 No world age issues, no invokelatest, just pure compiled performance.
+Kernels expect Vector{T} where complex numbers are stored as [real1, imag1, real2, imag2, ...]
 """
-@generated function execute_fft!(spell::Spell{T,N,DECOMP,FLAG_VAL}, 
-                                 y::AbstractVector{Complex{T}}, 
-                                 x::AbstractVector{Complex{T}}) where {T,N,DECOMP,FLAG_VAL}
+@generated function execute_fft_impl!(spell::Spell{T,N,DECOMP,FLAG_VAL},
+                                      py::AbstractVector{T},
+                                      x::AbstractVector{T}) where {T,N,DECOMP,FLAG_VAL}
     # Generate constants dictionary at compile time
     constants_dict = RadixGenerator.generate_local_constants_dict(N, T)
-    
+
     spell_type = Spell{T,N,DECOMP,FLAG_VAL}
-    
+
     if haskey(COMPILED_FFT_EXPRS, spell_type)
         kernel_expr = COMPILED_FFT_EXPRS[spell_type]
     else
@@ -36,16 +37,30 @@ No world age issues, no invokelatest, just pure compiled performance.
         kernel_expr = GenerateKernelExpr(N, T, FLAG(FLAG_VAL))
         COMPILED_FFT_EXPRS[spell_type] = kernel_expr
     end
-    
+
     # Substitute constants with literal values
     substituted_kernel = Radix_Execute.substitute_constants_in_expr(kernel_expr, constants_dict)
-    
+
     return quote
+        # Define y as alias to py for compatibility with kernel code
+        y = py
         @fastmath @inbounds begin
             $substituted_kernel
         end
         nothing
     end
+end
+
+# Wrapper that handles reinterpretation
+@inline function execute_fft!(spell::Spell{T,N,DECOMP,FLAG_VAL},
+                              y::AbstractVector{Complex{T}},
+                              x::AbstractVector{Complex{T}}) where {T,N,DECOMP,FLAG_VAL}
+    # Reinterpret Complex{T} arrays as T arrays for kernel access
+    # Complex numbers are stored as consecutive pairs: [real1, imag1, real2, imag2, ...]
+    x_real = reinterpret(T, x)
+    y_real = reinterpret(T, y)
+    execute_fft_impl!(spell, y_real, x_real)
+    return nothing
 end
 
 # Generate optimized FFT function at compile time
@@ -72,13 +87,14 @@ end
 # Generate radix FFT function with compile-time optimizations
 function generate_radix_fft_function(n::Int, ::Type{T}, flag::FLAG)::Expr where {T<:AbstractFloat}
     @assert is_power_of(n, 2) "n must be a power of 2"
-    
+
     if flag >= ENCHANT
         plans = Radix_Plan.create_all_radix_plans(n, subpowers_of_two(n), T)
         return Radix_Execute.return_best_static_linear_expr(plans, true)
     else
         plan = Radix_Plan.create_std_radix_plan(n, [8,4,2], T)
-        return Radix_Execute.generate_mat_execute_function!(plan, false)
+        # Return just the kernel body, not a full function definition
+        return Radix_Execute.GenerateMatrixExpr!(plan, false)
     end
 end
 

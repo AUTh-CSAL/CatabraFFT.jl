@@ -60,6 +60,52 @@ end
     end
 end
 
+@inline function fast_cossinpi(phases::Vector{T}, ::Type{T}) where T <: AbstractFloat
+    n = length(phases)
+    cos_vals = Vector{T}(undef, n)
+    sin_vals = Vector{T}(undef, n)
+
+    if USE_IVM && T == Float64
+        # Convert phases to radians: phase * π
+        radian_phases = phases .* T(π)
+        @inbounds for i in eachindex(radian_phases)
+            if radian_phases[i] == -zero(T)
+                radian_phases[i] = zero(T)
+            end
+        end
+
+        # Use IVM for vectorized computation
+        IVM.sincos!(sin_vals, cos_vals, radian_phases)
+
+    elseif USE_IVM && T == Float32
+        # Convert to Float64 for IVM, then convert back
+        radian_phases = Float64.(phases) .* π
+        @inbounds for i in eachindex(radian_phases)
+            if radian_phases[i] == -zero(Float64)
+                radian_phases[i] = zero(Float64)
+            end
+        end
+
+        cos_vals_64 = Vector{Float64}(undef, n)
+        sin_vals_64 = Vector{Float64}(undef, n)
+        IVM.sincos!(sin_vals_64, cos_vals_64, radian_phases)
+
+        # Convert back to Float32
+        @inbounds for i in 1:n
+            cos_vals[i] = T(cos_vals_64[i])
+            sin_vals[i] = T(sin_vals_64[i])
+        end
+    else
+        # Scalar fallback
+        @inbounds for i in 1:n
+            cos_vals[i] = cospi(phases[i])
+            sin_vals[i] = sinpi(phases[i])
+        end
+    end
+
+    return cos_vals, sin_vals
+end
+
 function create_kernel_dictionary(plan_data::NamedTuple, ::Type{T})::Dict{String, Expr} where T <: AbstractFloat
     kernels = Dict{String, Expr}()
     
@@ -134,7 +180,7 @@ function generate_all_kernel_expressions(plan_data::NamedTuple, ::Type{T};
     if has_flag(suffix_combinations, NONE)
         op = plan_data.operations[1]
         radix = get_radix_divisor(op.op_type)
-        name, expr = generate_kernel_expression(radix, op, suffix_combinations, 0, String[], true, T)
+        name, expr = generate_kernel_expression(radix, op, suffix_combinations, 0, Vector{T}, true, T)
         kernels[name] = expr
         
     elseif has_flag(suffix_combinations, MAT)
@@ -154,13 +200,14 @@ function generate_all_kernel_expressions(plan_data::NamedTuple, ::Type{T};
                     d_column_idx = (output_group % next_op.n_groups) + 1
                     
                     D = generate_D_kernel(d_column_idx, radix, op.stride, next_op.stride, next_op.n_groups, T)
+                    @show D, typeof(D)
                     name, expr = generate_kernel_expression(radix, op, suffix_combinations, p, D, false, T) # Generate appropriate sub-kernel by embedding D matrix layer on it at compile-time!
                     kernels[name] = expr
                 end
             else
                 vec_suffix = add_flag(suffix_combinations, VEC)
                 for p in 0:(n_kernels_needed-1)
-                    name, expr = generate_kernel_expression(radix, op, vec_suffix, p, String[], true, T)
+                    name, expr = generate_kernel_expression(radix, op, vec_suffix, p, Vector{T}, true, T)
                     kernels[name] = expr
                 end
             end
@@ -170,7 +217,7 @@ function generate_all_kernel_expressions(plan_data::NamedTuple, ::Type{T};
     return kernels
 end
 
-@inline function generate_kernel_expression(radix::Int, op, suffixes::SuffixFlags, p::Int, D, is_last::Bool, ::Type{T}) where T <: AbstractFloat
+@inline function generate_kernel_expression(radix::Int, op, suffixes::SuffixFlags, p::Int, D::Union{Vector{T}, Type{<:AbstractVector}}, is_last::Bool, ::Type{T}) where T <: AbstractFloat
     if op.eo && is_last
         suffixes = add_flag(suffixes, Y)
     end
@@ -178,6 +225,7 @@ end
     name = generate_kernel_name(radix, suffixes, p, op)
     SIZE = op.n_groups * op.stride
     SIMD_BITS = 256
+    @show D, typeof(D)
     kernel_body = makefftradix(radix, suffixes, D, p, op, SIZE, T, SIMD_BITS)
     
     return name, kernel_body
@@ -202,53 +250,73 @@ function generate_kernel_name(radix::Int, suffix_flags::SuffixFlags, p::Int, op)
     end
 end
 
-function generate_D_kernel(p, radix::Int, current_stride::Int, next_stride::Int, n_groups::Int, ::Type{T}) where T <: AbstractFloat
-    if next_stride == 1 || n_groups == 1 || p == 1
-        return String[]
-    end
-    
+function generate_D_kernel(p, radix::Int, current_stride::Int, next_stride::Int, n_groups::Int, ::Type{T})::Union{Vector{T}, Type{<:AbstractVector}} where T <: AbstractFloat
+    (next_stride == 1 || n_groups == 1 || p == 1) && return Vector{T}[]
+
     D_flat = create_D_kernel(radix, current_stride, next_stride, n_groups, T)
-    D_matrix = reshape(D_flat, radix, n_groups)
-    return D_matrix[2:radix, p]
+    # D_flat is organized as: for each group j in [0, n_groups-1], all radix twiddles for that group
+    # Layout: [(k=0,j=0), (k=1,j=0), ..., (k=radix-1,j=0), (k=0,j=1), (k=1,j=1), ..., (k=radix-1,j=n_groups-1)]
+    # Extract column p (1-indexed), which corresponds to group j = p-1
+    result = Vector{T}()
+    sizehint!(result, 2*(radix-1))
+
+    j = p - 1  # Convert to 0-indexed group
+    @inbounds @simd for k in 1:(radix-1)  # Skip k=0 (identity), extract k=1 to radix-1
+        # Twiddle for (k, j) is at indices: 2*j*radix + 2*k + 1 (cos), 2*j*radix + 2*k + 2 (sin)
+        cos_idx = 2*j*radix + 2*k + 1
+        sin_idx = 2*j*radix + 2*k + 2
+        push!(result, D_flat[cos_idx])    # cos
+        push!(result, D_flat[sin_idx])    # sin
+    end
+
+    return result
 end
 
-@inline function create_D_kernel(radix::Int, current_stride::Int, next_stride::Int, n_groups::Int, ::Type{T}) where T <: AbstractFloat
+@inline function create_D_kernel(radix::Int, current_stride::Int, next_stride::Int, n_groups::Int, ::Type{T})::Vector{T} where T <: AbstractFloat
     N = next_stride * n_groups
-    d_matrix = Matrix{Complex{T}}(undef, radix, n_groups)
-    
-    if USE_IVM && radix * n_groups > 16
-        phases = Vector{T}(undef, radix * n_groups)
+    n_elements = radix * n_groups
+
+    # Output: [cos1, sin1, cos2, sin2, ...] interleaved
+    d_real = Vector{T}(undef, 2 * n_elements)
+
+    if USE_IVM && n_elements > 16
+        # Use IntelVectorMath for vectorized cos/sin computation
+        phases = Vector{T}(undef, n_elements)
         phase_factor = T(-2 / N)
-        
+
         idx = 1
         @inbounds @simd for j in 0:(n_groups-1)
             for k in 0:(radix-1)
                 phase_val = phase_factor * k * current_stride * j
-                # *** CRITICAL FIX: Avoid -0.0 which causes IntelVectorMath.cis to fail ***
-                # When k=0 or j=0, phase_val becomes -0.0, which must be converted to +0.0
+                # Avoid -0.0 which can cause issues
                 phases[idx] = iszero(phase_val) ? zero(T) : phase_val
                 idx += 1
             end
         end
-        
-        results = fast_cispi(phases)
-        d_matrix[:] = results
+
+        # Compute cos and sin using IVM
+        cos_vals, sin_vals = fast_cossinpi(phases, T)
+
+        # Interleave cos and sin
+        @inbounds for i in 1:n_elements
+            d_real[2*i - 1] = cos_vals[i]
+            d_real[2*i] = sin_vals[i]
+        end
     else
+        # Scalar fallback
         phase = T(-2 / N)
-        @inbounds @simd for j in 0:(n_groups-1)
+        idx = 1
+        @inbounds for j in 0:(n_groups-1)
             for k in 0:(radix-1)
-                d_matrix[k+1, j+1] = cispi(phase * k * current_stride * j)
+                angle = phase * k * current_stride * j
+                d_real[idx] = cospi(angle)
+                d_real[idx + 1] = sinpi(angle)
+                idx += 2
             end
         end
     end
-    
-    # Convert to string expressions
-    element_strings = Vector{String}(undef, length(d_matrix))
-    @inbounds for i in eachindex(d_matrix)
-        element_strings[i] = get_constant_expression(d_matrix[i], N)
-    end
-    
-    return element_strings
+
+    return d_real
 end
 
 function get_constant_expression(w::Complex{T}, n::Integer)::String where T <: AbstractFloat

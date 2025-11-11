@@ -72,14 +72,16 @@ function GenerateMatrixExpr!(plan::RadixPlan, show_function::Bool=false)::Expr
             current_output = (length(plan.operations) % 2 == 0) ? :x : :y
 
             loop_body = substitute_strided_final_loop(kernel_exprs[key], current_output, current_input, stride, SIZE, radix)
-            
+
+            show_function && @show loop_body
+
             # Wrap in vectorized loop
             loop_expr = quote
                 @inbounds @simd ivdep for idx in 1:$stride
                     $loop_body
                 end
             end
-            
+
             push!(ops, loop_expr)
         end
     end
@@ -90,11 +92,17 @@ end
 function generate_mat_execute_function!(plan::RadixPlan, show_function::Bool=false)::Expr
     T = typeof(plan).parameters[1]
     function_body = GenerateMatrixExpr!(plan, show_function)
-    
+
     show_function && println("Generated function body")
 
     func_expr = quote
-        @inline function (y::AbstractVector{Complex{$T}}, x::AbstractVector{Complex{$T}})
+        @inline function (y_out::AbstractVector{Complex{$T}}, x_complex::AbstractVector{Complex{$T}})
+            # Reinterpret Complex{T} arrays as T arrays for kernel access
+            # Complex numbers are stored as consecutive pairs: [real1, imag1, real2, imag2, ...]
+            x = reinterpret($T, x_complex)
+            y = reinterpret($T, y_out)
+            py = y  # Alias for compatibility with generated kernel code
+
             @fastmath @inbounds begin
                 $function_body
             end
@@ -110,16 +118,22 @@ function materialize_plan_function!(plan::RadixPlan, ::Type{T}) where {T}
     constants_dict = RadixGenerator.generate_local_constants_dict(plan.n, T)
     body = GenerateMatrixExpr!(plan, false)
     substituted_body = substitute_constants_in_expr(body, constants_dict)
-    
+
     fexpr = quote
-        @inline function (y::AbstractVector{Complex{$T}}, x::AbstractVector{Complex{$T}})
+        @inline function (y_out::AbstractVector{Complex{$T}}, x_complex::AbstractVector{Complex{$T}})
+            # Reinterpret Complex{T} arrays as T arrays for kernel access
+            # Complex numbers are stored as consecutive pairs: [real1, imag1, real2, imag2, ...]
+            x = reinterpret($T, x_complex)
+            y = reinterpret($T, y_out)
+            py = y  # Alias for compatibility with generated kernel code
+
             @fastmath @inbounds begin
                 $substituted_body
             end
             nothing
         end
     end
-    
+
     return eval(fexpr)
 end
 
@@ -174,20 +188,40 @@ end
 function substitute_strided_final_loop(kernel_expr::Expr, out_var, in_var, stride::Int, size::Int, radix::Int)
     out_sym = out_var isa Symbol ? out_var : Symbol(out_var)
     in_sym = in_var isa Symbol ? in_var : Symbol(in_var)
-    
-    # Recursive transformation with tail-call optimization hint
+
+    # Recursive transformation for Stockham algorithm final stage
+    # For radix-R butterfly at iteration i:
+    # - Inputs come from x at positions: i, i+stride, i+2*stride, ..., i+(R-1)*stride
+    # - Outputs go to y at positions: i, i+stride, i+2*stride, ..., i+(R-1)*stride
+    # With real/imag interleaving: position k = 2*k + [0 for real, 1 for imag]
     @inline function transform(ex, is_lhs::Bool)
         if isa(ex, Expr)
             if ex.head == :ref && length(ex.args) == 2
                 arr_sym = ex.args[1] isa Symbol ? ex.args[1] : Symbol(ex.args[1])
-                idx = ex.args[2]
-                
-                # Transform array[k] → array[k + idx - 1]
-                if (arr_sym == out_sym || arr_sym == in_sym) && isa(idx, Int)
-                    offset = idx - 1
-                    return offset == 0 ? Expr(:ref, arr_sym, :idx) : Expr(:ref, arr_sym, :(idx + $offset))
+                idx_val = ex.args[2]
+
+                # Transform array indices for strided Stockham pattern
+                if (arr_sym == out_sym || arr_sym == in_sym) && isa(idx_val, Int)
+                    # Determine which complex element this is (0-indexed)
+                    # Float indices come in pairs: [1,2] = complex 0, [3,4] = complex 1, etc.
+                    complex_num = (idx_val - 1) ÷ 2  # Which complex element (0, 1, 2, ...)
+                    is_imag = (idx_val - 1) % 2 == 1  # Is this the imaginary part?
+
+                    # Stockham final stage: element k of iteration idx goes to position (idx + k*stride)
+                    # In float indices: 2*(idx + k*stride) - 1 for real, 2*(idx + k*stride) for imag
+                    # Note: idx is 1-indexed loop variable (1 to stride)
+                    if complex_num == 0
+                        # First complex: position idx
+                        return is_imag ? Expr(:ref, arr_sym, :(2*idx)) : Expr(:ref, arr_sym, :(2*idx - 1))
+                    else
+                        # Other complex: position idx + k*stride
+                        offset = 2 * complex_num * stride
+                        return is_imag ?
+                            Expr(:ref, arr_sym, :(2*idx + $offset)) :
+                            Expr(:ref, arr_sym, :(2*idx + $(offset - 1)))
+                    end
                 end
-                
+
             elseif ex.head == :(=)
                 return Expr(:(=), transform(ex.args[1], true), transform(ex.args[2], false))
             else
@@ -196,7 +230,7 @@ function substitute_strided_final_loop(kernel_expr::Expr, out_var, in_var, strid
         end
         return ex
     end
-    
+
     return transform(kernel_expr, false)
 end
 
