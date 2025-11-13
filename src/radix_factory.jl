@@ -200,7 +200,6 @@ function generate_all_kernel_expressions(plan_data::NamedTuple, ::Type{T};
                     d_column_idx = (output_group % next_op.n_groups) + 1
                     
                     D = generate_D_kernel(d_column_idx, radix, op.stride, next_op.stride, next_op.n_groups, T)
-                    @show D, typeof(D)
                     name, expr = generate_kernel_expression(radix, op, suffix_combinations, p, D, false, T) # Generate appropriate sub-kernel by embedding D matrix layer on it at compile-time!
                     kernels[name] = expr
                 end
@@ -217,7 +216,7 @@ function generate_all_kernel_expressions(plan_data::NamedTuple, ::Type{T};
     return kernels
 end
 
-@inline function generate_kernel_expression(radix::Int, op, suffixes::SuffixFlags, p::Int, D::Union{Vector{T}, Type{<:AbstractVector}}, is_last::Bool, ::Type{T}) where T <: AbstractFloat
+@inline function generate_kernel_expression(radix::Int, op, suffixes::SuffixFlags, p::Int, D::Union{Vector{Union{String, Twiddle}}, Vector{T}, Type{<:AbstractVector}}, is_last::Bool, ::Type{T}) where T <: AbstractFloat
     if op.eo && is_last
         suffixes = add_flag(suffixes, Y)
     end
@@ -225,7 +224,6 @@ end
     name = generate_kernel_name(radix, suffixes, p, op)
     SIZE = op.n_groups * op.stride
     SIMD_BITS = 256
-    @show D, typeof(D)
     kernel_body = makefftradix(radix, suffixes, D, p, op, SIZE, T, SIMD_BITS)
     
     return name, kernel_body
@@ -250,23 +248,31 @@ function generate_kernel_name(radix::Int, suffix_flags::SuffixFlags, p::Int, op)
     end
 end
 
-function generate_D_kernel(p, radix::Int, current_stride::Int, next_stride::Int, n_groups::Int, ::Type{T})::Union{Vector{T}, Type{<:AbstractVector}} where T <: AbstractFloat
-    (next_stride == 1 || n_groups == 1 || p == 1) && return Vector{T}[]
+function generate_D_kernel(p, radix::Int, current_stride::Int, next_stride::Int, n_groups::Int, ::Type{T}) where T <: AbstractFloat
+    (next_stride == 1 || n_groups == 1 || p == 1) && return Union{String, Twiddle}[]
 
+    N = next_stride * n_groups
     D_flat = create_D_kernel(radix, current_stride, next_stride, n_groups, T)
+
     # D_flat is organized as: for each group j in [0, n_groups-1], all radix twiddles for that group
     # Layout: [(k=0,j=0), (k=1,j=0), ..., (k=radix-1,j=0), (k=0,j=1), (k=1,j=1), ..., (k=radix-1,j=n_groups-1)]
     # Extract column p (1-indexed), which corresponds to group j = p-1
-    result = Vector{T}()
-    sizehint!(result, 2*(radix-1))
+    # Convert numerical twiddles to symbolic representations for compile-time optimization
+    result = Union{String, Twiddle}[]
+    sizehint!(result, radix-1)
 
     j = p - 1  # Convert to 0-indexed group
-    @inbounds @simd for k in 1:(radix-1)  # Skip k=0 (identity), extract k=1 to radix-1
+    @inbounds for k in 1:(radix-1)  # Skip k=0 (identity), extract k=1 to radix-1
         # Twiddle for (k, j) is at indices: 2*j*radix + 2*k + 1 (cos), 2*j*radix + 2*k + 2 (sin)
         cos_idx = 2*j*radix + 2*k + 1
         sin_idx = 2*j*radix + 2*k + 2
-        push!(result, D_flat[cos_idx])    # cos
-        push!(result, D_flat[sin_idx])    # sin
+
+        # Reconstruct complex twiddle factor from cos/sin
+        w = Complex{T}(D_flat[cos_idx], D_flat[sin_idx])
+
+        # Convert to symbolic representation (String or Twiddle tuple)
+        symbolic_w = get_constant_expression(w, N)
+        push!(result, symbolic_w)
     end
 
     return result
@@ -319,13 +325,13 @@ end
     return d_real
 end
 
-function get_constant_expression(w::Complex{T}, n::Integer)::String where T <: AbstractFloat
+function get_constant_expression(w::Complex{T}, n::Integer) where T <: AbstractFloat
     real_part = real(w)
     imag_part = imag(w)
     tol = eps(T) * 20
-    
+
     @inline isclose(a, b) = abs(a - b) < tol
-    
+
     # Fast path: check simple constants first
     if isclose(real_part, 1.0) && isclose(imag_part, 0.0)
         return "1"
@@ -336,7 +342,7 @@ function get_constant_expression(w::Complex{T}, n::Integer)::String where T <: A
     elseif isclose(real_part, 0.0) && isclose(imag_part, -1.0)
         return "-im"
     end
-    
+
     # Check sqrt(2) cases
     inv_sqrt2 = T(1/√2)
     if isclose(real_part, inv_sqrt2) && isclose(imag_part, inv_sqrt2)
@@ -348,44 +354,45 @@ function get_constant_expression(w::Complex{T}, n::Integer)::String where T <: A
     elseif isclose(real_part, -inv_sqrt2) && isclose(imag_part, -inv_sqrt2)
         return "-INV_SQRT2_Q1"
     end
-    
+
     # Check twiddle factors
     n_half = n ÷ 2
     @inbounds for k in 1:(n_half-1)
         gcd_val = gcd(k, n_half)
-        num = k ÷ gcd_val  
+        num = k ÷ gcd_val
         den = n_half ÷ gcd_val
-        
+
         w_basic = cispi(T(-num/den))
         re_basic = real(w_basic)
         im_basic = imag(w_basic)
-        
-        # Check all phase/sign combinations
+
+        # Check all phase/sign combinations for Q4 (negative angle)
         if isclose(real_part, re_basic) && isclose(imag_part, im_basic)
-            return "CISPI_$(num)_$(den)_Q4"
+            return (num, den, Q4)
         elseif isclose(real_part, -re_basic) && isclose(imag_part, -im_basic)
-            return "-CISPI_$(num)_$(den)_Q4"
+            return (num, den, NegQ4)
         elseif isclose(real_part, -im_basic) && isclose(imag_part, re_basic)
-            return "im*CISPI_$(num)_$(den)_Q4"
+            return (num, den, ImQ4)
         elseif isclose(real_part, im_basic) && isclose(imag_part, -re_basic)
-            return "-im*CISPI_$(num)_$(den)_Q4"
+            return (num, den, NegImQ4)
         end
-        
+
         w_pos = cispi(T(num/den))
         re_pos = real(w_pos)
         im_pos = imag(w_pos)
-        
+
+        # Check all phase/sign combinations for Q1 (positive angle)
         if isclose(real_part, re_pos) && isclose(imag_part, im_pos)
-            return "CISPI_$(num)_$(den)_Q1"
+            return (num, den, Q1)
         elseif isclose(real_part, -re_pos) && isclose(imag_part, -im_pos)
-            return "-CISPI_$(num)_$(den)_Q1"
+            return (num, den, NegQ1)
         elseif isclose(real_part, -im_pos) && isclose(imag_part, re_pos)
-            return "im*CISPI_$(num)_$(den)_Q1"
+            return (num, den, ImQ1)
         elseif isclose(real_part, im_pos) && isclose(imag_part, -re_pos)
-            return "-im*CISPI_$(num)_$(den)_Q1"
+            return (num, den, NegImQ1)
         end
     end
-    
+
     # Fallback to literal value
     sign = imag_part >= 0 ? "+" : ""
     return "($(round(real_part, digits=16))$sign$(round(imag_part, digits=16))*im)"

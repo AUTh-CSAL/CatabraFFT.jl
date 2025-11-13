@@ -4,6 +4,21 @@ using SIMD
 
 const SIMD_BITS = 256
 
+# Twiddle factor quadrant enum for efficient representation
+@enum TwiddleQuadrant::Int8 begin
+    Q1 = 1      # cispi(num/den): cos + i*sin
+    Q4 = 4      # cispi(-num/den): cos - i*sin
+    NegQ1 = -1  # -cispi(num/den): -cos - i*sin
+    NegQ4 = -4  # -cispi(-num/den): -cos + i*sin
+    ImQ1 = 11   # im*cispi(num/den): -sin + i*cos
+    ImQ4 = 14   # im*cispi(-num/den): sin + i*cos
+    NegImQ1 = -11  # -im*cispi(num/den): sin - i*cos
+    NegImQ4 = -14  # -im*cispi(-num/den): -sin - i*cos
+end
+
+# Twiddle factor as (numerator, denominator, quadrant)
+const Twiddle = Tuple{Int, Int, TwiddleQuadrant}
+
 """
 # Usage examples:
 load_real_imag_gen(["x1", "x2"], mode=:default)
@@ -206,8 +221,14 @@ function store_gen_simd(y_vars, src_vars; mode, T, ptr_name="py", SIMD_BITS=256)
     
 end
 
+# Overload for when D is a type (no actual D matrix)
+function makefftradix(n::Int, suffixes::SuffixFlags, ::Type{Vector{T}}, p::Int, op, SIZE::Int, ::Type{T}, SIMD_BITS) where T <: AbstractFloat
+    # Call with empty vector when no D matrix is needed
+    return makefftradix(n, suffixes, Union{String, Twiddle}[], p, op, SIZE, T, SIMD_BITS)
+end
+
 # Wrapper for any other kernel shell strategy planer
-function makefftradix(n::Int, suffixes::SuffixFlags, D::Vector{T}, p::Int, op, SIZE::Int, ::Type{T}, SIMD_BITS) where T <: AbstractFloat
+function makefftradix(n::Int, suffixes::SuffixFlags, D::Union{Vector{Union{String, Twiddle}}, Vector{T}}, p::Int, op, SIZE::Int, ::Type{T}, SIMD_BITS) where T <: AbstractFloat
     global inc = inccounter()
     
     # ALL ME
@@ -233,7 +254,7 @@ function makefftradix(n::Int, suffixes::SuffixFlags, D::Vector{T}, p::Int, op, S
     base = (p ÷ stride) * (stride * radix) + (p % stride)
     y = ["$output[$(base + 1 + i*stride)]" for i in 0:radix-1]
     
-    d = D == String[] ? nothing : D
+    d = isempty(D) ? nothing : D
     
     px = mode == :vgather ? "p$(input) = reinterpret($T, $(input));" : "" 
     #py = unsafe_load_mode ? "$(output) = reinterpret($T, $(prev_output));" : ""
@@ -330,15 +351,53 @@ function add_more_tmp_vars(x1, x2, wn, n)
     return ""
 end
 
-# Numeric version: multiply tmp by twiddle from d vector
-# d contains [cos1, sin1, cos2, sin2, ...] for twiddles k=1 to k=radix-1
-# Twiddle i (i=1 to radix-1) is at d[2*i-1] (cos) and d[2*i] (sin)
-function sat_expr_d(tmp, twiddle_idx::Int)
-    c_idx = 2*twiddle_idx - 1
-    s_idx = 2*twiddle_idx
-    # Complex multiplication: (a + bi) * (c + si) = (ac - bs) + (as + bc)i
-    return "muladd(d[$c_idx], $(tmp)_r, -d[$s_idx] * $(tmp)_i), " *
-           "muladd(d[$s_idx], $(tmp)_r, d[$c_idx] * $(tmp)_i)"
+# Symbolic version: multiply tmp by twiddle from d vector
+# d contains symbolic twiddle representations (String or Twiddle tuple)
+function sat_expr_d(tmp, twiddle)
+    return sat_expr(tmp, twiddle)
+end
+
+# Tuple-based sat_expr for (num, den, quadrant) format
+function sat_expr(tmp, w::Twiddle)
+    num, den, quadrant = w
+    c = "COSPI_$(num)_$(den)"
+    s = "SINPI_$(num)_$(den)"
+
+    if quadrant == Q1
+        # cispi(num/den): cos + i*sin
+        return "muladd($c, $(tmp)_r, -$s * $(tmp)_i), " *
+               "muladd($s, $(tmp)_r, $c * $(tmp)_i)"
+    elseif quadrant == Q4
+        # cispi(-num/den): cos - i*sin
+        return "muladd($c, $(tmp)_r, $s * $(tmp)_i), " *
+               "muladd(-$s, $(tmp)_r, $c * $(tmp)_i)"
+    elseif quadrant == NegQ1
+        # -cispi(num/den): -cos - i*sin
+        return "muladd(-$c, $(tmp)_r, $s * $(tmp)_i), " *
+               "muladd(-$s, $(tmp)_r, -$c * $(tmp)_i)"
+    elseif quadrant == NegQ4
+        # -cispi(-num/den): -cos + i*sin
+        return "muladd(-$c, $(tmp)_r, -$s * $(tmp)_i), " *
+               "muladd($s, $(tmp)_r, -$c * $(tmp)_i)"
+    elseif quadrant == ImQ1
+        # im*cispi(num/den): -sin + i*cos
+        return "muladd(-$s, $(tmp)_r, -$c * $(tmp)_i), " *
+               "muladd($c, $(tmp)_r, -$s * $(tmp)_i)"
+    elseif quadrant == ImQ4
+        # im*cispi(-num/den): sin + i*cos
+        return "muladd($s, $(tmp)_r, -$c * $(tmp)_i), " *
+               "muladd($c, $(tmp)_r, $s * $(tmp)_i)"
+    elseif quadrant == NegImQ1
+        # -im*cispi(num/den): sin - i*cos
+        return "muladd($s, $(tmp)_r, $c * $(tmp)_i), " *
+               "muladd(-$c, $(tmp)_r, $s * $(tmp)_i)"
+    elseif quadrant == NegImQ4
+        # -im*cispi(-num/den): -sin - i*cos
+        return "muladd(-$s, $(tmp)_r, $c * $(tmp)_i), " *
+               "muladd(-$c, $(tmp)_r, -$s * $(tmp)_i)"
+    else
+        error("Unknown quadrant: $quadrant")
+    end
 end
 
 function sat_expr(tmp, w)
@@ -400,14 +459,10 @@ function sat_expr(tmp, w)
     end
 end
 
-# Numeric version for three arguments: (x1 ± x2) * twiddle from d
-# d contains [cos1, sin1, cos2, sin2, ...] for twiddles k=1 to k=radix-1
-function sat_expr_d(sign, x1, x2, twiddle_idx::Int)
-    c_idx = 2*twiddle_idx - 1
-    s_idx = 2*twiddle_idx
-    # Complex multiplication: (a + bi) * (c + si) = (ac - bs) + (as + bc)i
-    return "muladd(d[$c_idx], $(x1)_r $sign $(x2)_r, -d[$s_idx] * ($(x1)_i $sign $(x2)_i)), " *
-           "muladd(d[$s_idx], $(x1)_r $sign $(x2)_r, d[$c_idx] * ($(x1)_i $sign $(x2)_i))"
+# Symbolic version for three arguments: (x1 ± x2) * twiddle from d
+# d contains symbolic twiddle representations (String or Twiddle tuple)
+function sat_expr_d(sign, x1, x2, twiddle)
+    return sat_expr(sign, x1, x2, twiddle)
 end
 
 #TODO: Stick to one scalar sat expr vocabulary
@@ -681,7 +736,7 @@ function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1, mode=:default, py="") 
                 load_real_imag_gen(x; mode=mode, T=T) * "\n" *
                 "tmp0_r, tmp0_i = $(x[1])_r - $(x[2])_r, $(x[1])_i - $(x[2])_i" * "\n" * "$py" * "\n" *
                 "y[1], y[2] = $(x[1])_r + $(x[2])_r, $(x[1])_i + $(x[2])_i\n" *
-                "y[3], y[4] = $(sat_expr_d("tmp0", 1, 2))"
+                "y[3], y[4] = $(sat_expr_d("tmp0", d[1]))"
             end
           end
         else
@@ -740,15 +795,15 @@ function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1, mode=:default, py="") 
            # Build LHS indices: py[1], py[2], py[3], py[4], ..., py[2*n2-1], py[2*n2]
            lhs_p = "py[1], py[2]" * foldl(*, vmap(i -> ", py[$(2*i-1)], py[$(2*i)]", 2:n2))
            # Build RHS values: real1, imag1, real2, imag2, ...
-           # d[i-1] is twiddle (i-1), which has cos at 2*(i-1)-1 = 2i-3, sin at 2*(i-1) = 2i-2
-           rhs_p = "$(t[1])_r + $(t[1+n2])_r, $(t[1])_i + $(t[1+n2])_i" * foldl(*, vmap(i -> ", $(sat_expr_d("tmp$(i-2)", 2*i-3, 2*i-2))", 2:n2))
+           # d[i-1] is twiddle at index i-1
+           rhs_p = "$(t[1])_r + $(t[1+n2])_r, $(t[1])_i + $(t[1+n2])_i" * foldl(*, vmap(i -> ", $(sat_expr_d("tmp$(i-2)", d[i-1]))", 2:n2))
            s3p = "$py" * "\n" * "$(tmp_decls)" * "\n" * lhs_p * " = " * rhs_p * "\n"
 
            # Second half: py[2*n2+1], py[2*n2+2], ..., py[2*n-1], py[2*n]
            lhs_m = "py[$(2*n2+1)], py[$(2*n2+2)]" * foldl(*, vmap(i -> ", py[$(2*(i+n2)-1)], py[$(2*(i+n2))]", 2:n2))
-           # d[n2] is twiddle n2 -> (2*n2-1, 2*n2)
-           # d[i+n2-1] is twiddle (i+n2-1) -> (2*(i+n2-1)-1, 2*(i+n2-1)) = (2i+2n2-3, 2i+2n2-2)
-           rhs_m = "$(sat_expr_d("-", "$(t[1])", "$(t[1+n2])", 2*n2-1, 2*n2))" * foldl(*, vmap(i -> ", $(sat_expr_d("tmp$(i-3+n2)", 2*i+2*n2-3, 2*i+2*n2-2))", 2:n2))
+           # d[n2] is twiddle at index n2
+           # d[i+n2-1] is twiddle at index i+n2-1
+           rhs_m = "$(sat_expr_d("-", "$(t[1])", "$(t[1+n2])", d[n2]))" * foldl(*, vmap(i -> ", $(sat_expr_d("tmp$(i-3+n2)", d[i+n2-1]))", 2:n2))
            s3m = lhs_m * " = " * rhs_m * "\n"
         end
       end
