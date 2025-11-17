@@ -72,6 +72,7 @@ function GenerateMatrixExpr!(plan::RadixPlan, show_function::Bool=false)::Expr
             # Determine correct output based on stage parity
             #current_output = (length(plan.operations) % 2 == 0) ? :x : :y
 
+            @show kernel_exprs[key]
             loop_body = substitute_strided_final_loop(kernel_exprs[key], current_output, current_input, stride, SIZE, radix)
 
             show_function && @show loop_body

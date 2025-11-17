@@ -32,7 +32,7 @@ load_real_imag_gen(["x1", "x2"], mode=:vload_soa, vec_width=8)
 # If your CPU likely has 2-3 ADD units, these execute in parallel despite being "scalar".
 # No SIMD Setup Overhead! Shuffling data into SIMD layout, permuting for butterfly patterns and extracting results
 # ...can be MORE expensive than simple scalar ops!
-load_real_imag_gen = (t; mode, T, ptr_name="x") -> begin
+load_real_imag_gen = (t; mode, T, input="x") -> begin
     vec_width = 2sizeof(T)  # Width in bytes for real+imag pair
     
     # mode = :default
@@ -46,7 +46,7 @@ load_real_imag_gen = (t; mode, T, ptr_name="x") -> begin
                   startswith(s, "D") ? "d" : error("Unknown input: $s")
             # Direct indexing: px[2*i-1] for real, px[2*i] for imag
             prefix = i == 1 ? "" : " "
-            "$(prefix)$(var)$(num)_r , $(prefix)$(var)$(num)_i = $(ptr_name)[$(2*num-1)], $(ptr_name)[$(2*num)]"
+            "$(prefix)$(var)$(num)_r , $(prefix)$(var)$(num)_i = $(input)[$(2*num-1)], $(input)[$(2*num)]"
         end
         for (i, s) in enumerate(t)
     ], "; ")
@@ -231,30 +231,38 @@ end
 function makefftradix(n::Int, suffixes::SuffixFlags, D::Union{Vector{Union{String, Twiddle}}, Vector{T}}, p::Int, op, SIZE::Int, ::Type{T}, SIMD_BITS) where T <: AbstractFloat
     global inc = inccounter()
     
-    # ALL ME
-    mode = :default
-    
-    has_y = has_flag(suffixes, Y)
-    #has_vec = has_flag(suffixes, VEC)  # VEC flag indicates final stage
+    mode = :default # ALL ME
 
-    input = op.eo ? "y" : "x"
-    output = !has_y && op.eo ? "x" : "y"
+    input, output = String(op.input_buffer), String(op.output_buffer)
     
     # Key parameters for Stockham algorithm
-    radix = n # converted from Complex{$T} to $T -> double the length
+    radix = n 
     stride = op.stride
-    n_groups = op.n_groups
     input_spacing = SIZE ÷ radix  # Spacing between input elements in each butterfly
     
-    # INPUT indexing: Always strided by input_spacing
-    x = mode == :default ? ["$(input)$(p + 1 + (i-1)*input_spacing)" for i in 1:radix] : ["v_all$(p + 1 + (i-1)*input_spacing)" for i in 1:radix] 
+    # INPUT indexing: Check if this is a final-stage template (has VEC flag)
+    # Final stage templates use consecutive indices; substitute_strided_final_loop transforms them
+    # Non-final stages use strided indices to read from different parts of input
+    is_final_template = has_flag(suffixes, VEC)
+
+    if mode == :default
+        if is_final_template
+            # Final stage template: consecutive indices for transformation
+            x = ["$(input)$(i)" for i in 1:radix]
+        else
+            # Non-final stage: strided indices to read correct input portions
+            x = ["$(input)$(p + 1 + (i-1)*input_spacing)" for i in 1:radix]
+        end
+    else
+        x = ["v_all$(p + 1 + (i-1)*input_spacing)" for i in 1:radix]
+    end
     #TODO Convert "x" input values to "v$i" / "v_all" respectible vector capacities as constructed by load_gen_simd lamda
-    
-    # OUTPUT indexing: Depends on whether this is the final stage
-    base = (p ÷ stride) * (stride * radix) + (p % stride)
+
+    # OUTPUT indexing: Multiply by 2 for T representation (2 floats per complex)
+    base = 2 * ((p ÷ stride) * (stride * radix) + (p % stride))
     # y needs 2*radix elements because recfft2 with root=true expects 2*n elements (real + imag)
-    y = ["$output[$(base + 1 + i*stride)]" for i in 0:2*radix-1]
-    @show x, y
+    # For T representation, we need consecutive indices (not strided by stride)
+    y = ["$output[$(base + 1 + i)]" for i in 0:2*radix-1]
     
     d = isempty(D) ? nothing : D
     
@@ -265,10 +273,8 @@ function makefftradix(n::Int, suffixes::SuffixFlags, D::Union{Vector{Union{Strin
     complexes_per_vec = SIMD_BITS ÷ complex_size_bits
 
     # MOST IMPORTANT LINE!!!
-    kernel_code = mode == :default ? recfft2(y, x, d, nothing, true, T, 1, mode, py) : recfft2_simd(y, x, d, nothing, true, T, 1, mode, py, complexes_per_vec) 
+    kernel_code = mode == :default ? recfft2(y, x, d, nothing, true, T, 1, mode, py, input) : recfft2_simd(y, x, d, nothing, true, T, 1, mode, py, complexes_per_vec) 
     kernel_code = "$px\n$kernel_code"
-    
-    #TODO Instead of returning Complex{$T} make all kernels, both scalar and vectorized return reinterpret(T, y) outputs. Let external kernels handle this
     
     if isempty(kernel_code)
         return quote end
@@ -286,14 +292,6 @@ function makefftradix(n::Int, suffixes::SuffixFlags, D::Union{Vector{Union{Strin
         end
     end
 end
-
-function parse_x(s::String)
-  pattern = r"\d+"
-  m = match(pattern, s)
-  return m !== nothing ? parse(Int, m.match) : nothing
-end
-
-parse_x(arr::AbstractArray{String}) = parse_x.(arr)
 
 # GROUP THEORY AUTOMORHISM FOR GF()
 #=
@@ -599,7 +597,7 @@ function get_twiddle_expression(ks, n; T=Float64, accuracy=nothing)
 end
 
 # Scalar version of the recursive radix generator for n = 2^q sizes
-function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1, mode=:default, py="") where T <: AbstractFloat
+function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1, mode=:default, py="", input_buffer="x") where T <: AbstractFloat
   n = length(x)
 
   if n == 1
@@ -608,7 +606,7 @@ function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1, mode=:default, py="") 
     s = if !isnothing(d)
           if isnothing(w)
             if root
-                load_real_imag_gen(x; mode=mode, T=T) * "\n" *
+                load_real_imag_gen(x; mode=mode, T=T, input=input_buffer) * "\n" *
                 "tmp0_r, tmp0_i = $(x[1])_r - $(x[2])_r, $(x[1])_i - $(x[2])_i" * "\n" * "$py" * "\n" *
                 "$(y[1]), $(y[2]) = $(x[1])_r + $(x[2])_r, $(x[1])_i + $(x[2])_i\n" *
                 "$(y[3]), $(y[4]) = $(sat_expr("tmp0", d[1]))"
@@ -616,7 +614,7 @@ function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1, mode=:default, py="") 
           end
         else
           if root
-            load_real_imag_gen(x; mode=mode, T=T) * "\n" *
+            load_real_imag_gen(x; mode=mode, T=T, input=input_buffer) * "\n" *
             "$(y[1]), $(y[2]), $(y[3]), $(y[4]) = $(x[1])_r + $(x[2])_r, $(x[1])_i + $(x[2])_i, $(x[1])_r - $(x[2])_r, $(x[1])_i - $(x[2])_i" 
           else
             if isnothing(w)
@@ -707,7 +705,7 @@ function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1, mode=:default, py="") 
     end
   end
   end
-  s = n == 4 ? load_real_imag_gen(x; mode=mode, T=T) * "\n" * s1 * s2 * s3p * s3m : s1 * s2 * s3p * s3m
+  s = n == 4 ? load_real_imag_gen(x; mode=mode, T=T, input=input_buffer) * "\n" * s1 * s2 * s3p * s3m : s1 * s2 * s3p * s3m
   return s
 end
 

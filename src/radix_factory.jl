@@ -226,12 +226,7 @@ function generate_all_kernel_expressions(plan_data::NamedTuple, ::Type{T};
                 vec_suffix = add_flag(suffix_combinations, VEC)
                 println("Creating final terminal VEC kernel: $op")
                 name, expr = generate_kernel_expression(radix, op, vec_suffix, 0, Vector{T}, true, T)
-                #=
-                for p in 0:(n_kernels_needed-1)
-                    name, expr = generate_kernel_expression(radix, op, vec_suffix, p, Vector{T}, true, T)
-                    kernels[name] = expr
-                end
-                =#
+                kernels[name] = expr
             end
         end
     end
