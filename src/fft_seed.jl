@@ -241,7 +241,7 @@ function makefftradix(n::Int, suffixes::SuffixFlags, D::Union{Vector{Union{Strin
     output = !has_y && op.eo ? "x" : "y"
     
     # Key parameters for Stockham algorithm
-    radix = n
+    radix = n # converted from Complex{$T} to $T -> double the length
     stride = op.stride
     n_groups = op.n_groups
     input_spacing = SIZE ÷ radix  # Spacing between input elements in each butterfly
@@ -252,12 +252,13 @@ function makefftradix(n::Int, suffixes::SuffixFlags, D::Union{Vector{Union{Strin
     
     # OUTPUT indexing: Depends on whether this is the final stage
     base = (p ÷ stride) * (stride * radix) + (p % stride)
-    y = ["$output[$(base + 1 + i*stride)]" for i in 0:radix-1]
+    # y needs 2*radix elements because recfft2 with root=true expects 2*n elements (real + imag)
+    y = ["$output[$(base + 1 + i*stride)]" for i in 0:2*radix-1]
+    @show x, y
     
     d = isempty(D) ? nothing : D
     
     px = mode == :vgather ? "p$(input) = reinterpret($T, $(input));" : "" 
-    #py = unsafe_load_mode ? "$(output) = reinterpret($T, $(prev_output));" : ""
     py = ""
 
     complex_size_bits = 2 * sizeof(T) * 8
@@ -301,47 +302,25 @@ function map_to_groups(numbers::AbstractArray{Int}, MODULO::Int)
 end
 =#
 
-#TODO SIMPIFY CISPI STRING AND NEW PARSER
-function parse_cispi(s::String)
-    # Enhanced regex pattern with optional sign and im* prefix
-    pattern = r"^([+-]?)(im\*)?CISPI_(\d+)_(\d+)_Q([14])$"
-    
-    m = match(pattern, s)
-    isnothing(m) && error("Invalid CISPI format: $s")
-
-    # Extract components with new prefix handling
-    num = parse(Int, m[3])
-    den = parse(Int, m[4])
-    is_q1 = m[5] == "1"
-
-    return (num=num, den=den, q1=is_q1)
-end
-
-parse_cispi(arr::AbstractArray{String}) = parse_cispi.(arr)
-
 function add_more_tmp_vars(x1, x2, wn, n)
     tmp_vars = String[]
     assignments = String[]
     idx = 0
 
     for i in 1:n
-      #if wn[i] ∉ ("1", "-im")
         real_plus = x1[2*i - 1]
         imag_plus = x1[2*i]
         push!(tmp_vars, "tmp$(idx)_r", "tmp$(idx)_i")
         push!(assignments, real_plus, imag_plus)
         idx += 1
-      #end
     end
 
     for i in 1:n
-      #if wn[i] ∉ ("1", "-im")
         real_minus = x2[2*i - 1]
         imag_minus = x2[2*i]
         push!(tmp_vars, "tmp$(idx)_r", "tmp$(idx)_i")
         push!(assignments, real_minus, imag_minus)
         idx += 1
-      #end
     end
 
     if !isempty(tmp_vars)
@@ -351,222 +330,130 @@ function add_more_tmp_vars(x1, x2, wn, n)
     return ""
 end
 
-# Symbolic version: multiply tmp by twiddle from d vector
-# d contains symbolic twiddle representations (String or Twiddle tuple)
-function sat_expr_d(tmp, twiddle)
-    return sat_expr(tmp, twiddle)
-end
-
 # Tuple-based sat_expr for (num, den, quadrant) format
-function sat_expr(tmp, w::Twiddle)
-    num, den, quadrant = w
-    c = "COSPI_$(num)_$(den)"
-    s = "SINPI_$(num)_$(den)"
-
-    if quadrant == Q1
-        # cispi(num/den): cos + i*sin
-        return "muladd($c, $(tmp)_r, -$s * $(tmp)_i), " *
-               "muladd($s, $(tmp)_r, $c * $(tmp)_i)"
-    elseif quadrant == Q4
-        # cispi(-num/den): cos - i*sin
-        return "muladd($c, $(tmp)_r, $s * $(tmp)_i), " *
-               "muladd(-$s, $(tmp)_r, $c * $(tmp)_i)"
-    elseif quadrant == NegQ1
-        # -cispi(num/den): -cos - i*sin
-        return "muladd(-$c, $(tmp)_r, $s * $(tmp)_i), " *
-               "muladd(-$s, $(tmp)_r, -$c * $(tmp)_i)"
-    elseif quadrant == NegQ4
-        # -cispi(-num/den): -cos + i*sin
-        return "muladd(-$c, $(tmp)_r, -$s * $(tmp)_i), " *
-               "muladd($s, $(tmp)_r, -$c * $(tmp)_i)"
-    elseif quadrant == ImQ1
-        # im*cispi(num/den): -sin + i*cos
-        return "muladd(-$s, $(tmp)_r, -$c * $(tmp)_i), " *
-               "muladd($c, $(tmp)_r, -$s * $(tmp)_i)"
-    elseif quadrant == ImQ4
-        # im*cispi(-num/den): sin + i*cos
-        return "muladd($s, $(tmp)_r, -$c * $(tmp)_i), " *
-               "muladd($c, $(tmp)_r, $s * $(tmp)_i)"
-    elseif quadrant == NegImQ1
-        # -im*cispi(num/den): sin - i*cos
-        return "muladd($s, $(tmp)_r, $c * $(tmp)_i), " *
-               "muladd(-$c, $(tmp)_r, $s * $(tmp)_i)"
-    elseif quadrant == NegImQ4
-        # -im*cispi(-num/den): -sin - i*cos
-        return "muladd(-$s, $(tmp)_r, $c * $(tmp)_i), " *
-               "muladd(-$c, $(tmp)_r, -$s * $(tmp)_i)"
-    else
-        error("Unknown quadrant: $quadrant")
-    end
-end
-
 function sat_expr(tmp, w)
-    if w == "1"
-        return "$(tmp)_r, $(tmp)_i"
-    elseif w == "-1"
-        return "-$(tmp)_r, -$(tmp)_i"
-    elseif w == "-im"
-        return "$(tmp)_i, -$(tmp)_r"
-    elseif w == "INV_SQRT2_Q4"
-        # (a ± b) * (1-i)/√2 = [ (a_r ± b_r + a_i ± b_i)/√2 , (a_i ± b_i - a_r ∓ b_r)/√2 ]
-        return "INV_SQRT2*($(tmp)_r + $(tmp)_i), " *
-               "INV_SQRT2*($(tmp)_i - $(tmp)_r)"
-    elseif w == "-INV_SQRT2_Q1"
-        # -(a ± b) * (1+i)/√2 = [ -(a_r ± b_r - a_i ∓ b_i)/√2 , -(a_r ± b_r + a_i ± b_i)/√2 ]
-        return "INV_SQRT2*($(tmp)_i - $(tmp)_r), " *
-               "-INV_SQRT2*($(tmp)_r + $(tmp)_i)"
-    else
-        num, den, is_q1 = parse_cispi(w)
+    if w isa String
+        if w == "1"
+            return "$(tmp)_r, $(tmp)_i"
+        elseif w == "-1"
+            return "-$(tmp)_r, -$(tmp)_i"
+        elseif w == "-im"
+            return "$(tmp)_i, -$(tmp)_r"
+        elseif w == "im"
+            return "-$(tmp)_i, $(tmp)_r"
+        elseif w == "INV_SQRT2_Q4"
+            # (a ± b) * (1-i)/√2 = [ (a_r ± b_r + a_i ± b_i)/√2 , (a_i ± b_i - a_r ∓ b_r)/√2 ]
+            return "INV_SQRT2*($(tmp)_r + $(tmp)_i), " *
+                   "INV_SQRT2*($(tmp)_i - $(tmp)_r)"
+        elseif w == "-INV_SQRT2_Q1"
+            # -(a ± b) * (1+i)/√2 = [ -(a_r ± b_r - a_i ∓ b_i)/√2 , -(a_r ± b_r + a_i ± b_i)/√2 ]
+            return "INV_SQRT2*($(tmp)_i - $(tmp)_r), " *
+                   "-INV_SQRT2*($(tmp)_r + $(tmp)_i)"
+        end
+    elseif w isa Tuple
+        num, den, quadrant = w
         c = "COSPI_$(num)_$(den)"
         s = "SINPI_$(num)_$(den)"
 
-        if startswith(w, "CISPI")
-            return is_q1 ?
-                # Q1: cosθ + i sinθ
-                "muladd($c, $(tmp)_r, -$s * $(tmp)_i), " *
-                "muladd($s, $(tmp)_r, $c * $(tmp)_i)" :
-                # Q4: cosθ - i sinθ
-                "muladd($c, $(tmp)_r , $s * $(tmp)_i), " *
-                "muladd(-$s, $(tmp)_r, $c * $(tmp)_i) "
-
-        elseif startswith(w, "-im*CISPI")
-            return is_q1 ?
-                # -i*(cosθ + i sinθ) = sinθ - i cosθ
-                "muladd($s, $(tmp)_r, $c * $(tmp)_i), " *
-                "muladd(-$c, $(tmp)_r, $s * $(tmp)_i)" :
-                # -i*(cosθ - i sinθ) = -sinθ - i cosθ
-                "muladd(-$s, $(tmp)_r, $c * $(tmp)_i), " *
-                "muladd(-$c, $(tmp)_r, -$s * $(tmp)_i)"
-
-        elseif startswith(w, "-CISPI")
-            return is_q1 ?
-                # -cosθ - i sinθ
-                "muladd(-$c, $(tmp)_r, $s * $(tmp)_i), " *
-                "muladd(-$s, $(tmp)_r, -$c * $(tmp)_i)" :
-                # -cosθ + i sinθ
-                "muladd(-$c, $(tmp)_r, -$s * $(tmp)_i), " *
-                "muladd($s, $(tmp)_r, -$c * $(tmp)_i)"
-
-        elseif startswith(w, "im*CISPI")
-            return is_q1 ?
-                # i*(cosθ + i sinθ) = -sinθ + i cosθ
-                "muladd(-$s, $(tmp)_r, -$c * $(tmp)_i), " *
-                "muladd($c, $(tmp)_r, -$s * $(tmp)_i)" :
-                # i*(cosθ - i sinθ) = sinθ + i cosθ
-                "muladd($s, $(tmp)_r, -$c * $(tmp)_i), " *
-                "muladd($c, $(tmp)_r, $s * $(tmp)_i)"
+        if quadrant == Q1
+            # cispi(num/den): cos + i*sin
+            return "muladd($c, $(tmp)_r, -$s * $(tmp)_i), " *
+                   "muladd($s, $(tmp)_r, $c * $(tmp)_i)"
+        elseif quadrant == Q4
+            # cispi(-num/den): cos - i*sin
+            return "muladd($c, $(tmp)_r, $s * $(tmp)_i), " *
+                   "muladd(-$s, $(tmp)_r, $c * $(tmp)_i)"
+        elseif quadrant == NegQ1
+            # -cispi(num/den): -cos - i*sin
+            return "muladd(-$c, $(tmp)_r, $s * $(tmp)_i), " *
+                   "muladd(-$s, $(tmp)_r, -$c * $(tmp)_i)"
+        elseif quadrant == NegQ4
+            # -cispi(-num/den): -cos + i*sin
+            return "muladd(-$c, $(tmp)_r, -$s * $(tmp)_i), " *
+                   "muladd($s, $(tmp)_r, -$c * $(tmp)_i)"
+        elseif quadrant == ImQ1
+            # im*cispi(num/den): -sin + i*cos
+            return "muladd(-$s, $(tmp)_r, -$c * $(tmp)_i), " *
+                   "muladd($c, $(tmp)_r, -$s * $(tmp)_i)"
+        elseif quadrant == ImQ4
+            # im*cispi(-num/den): sin + i*cos
+            return "muladd($s, $(tmp)_r, -$c * $(tmp)_i), " *
+                   "muladd($c, $(tmp)_r, $s * $(tmp)_i)"
+        elseif quadrant == NegImQ1
+            # -im*cispi(num/den): sin - i*cos
+            return "muladd($s, $(tmp)_r, $c * $(tmp)_i), " *
+                   "muladd(-$c, $(tmp)_r, $s * $(tmp)_i)"
+        elseif quadrant == NegImQ4
+            # -im*cispi(-num/den): -sin - i*cos
+            return "muladd(-$s, $(tmp)_r, $c * $(tmp)_i), " *
+                   "muladd(-$c, $(tmp)_r, -$s * $(tmp)_i)"
+        else
+        error("Unknown quadrant: $quadrant")
         end
+    else
+        error("Unknown twiddle type: $w")
     end
 end
 
-# Symbolic version for three arguments: (x1 ± x2) * twiddle from d
-# d contains symbolic twiddle representations (String or Twiddle tuple)
-function sat_expr_d(sign, x1, x2, twiddle)
-    return sat_expr(sign, x1, x2, twiddle)
-end
-
-#TODO: Stick to one scalar sat expr vocabulary
 function sat_expr(sign, x1, x2, w)
-  is_t = startswith(x1, "t") || startswith(x2, "t")
-  if w == "1"
-      #return is_t ? 
-          "$(x1)_r $sign $(x2)_r, $(x1)_i $sign $(x2)_i" #:
-          #"$x1[2] $sign $x2[2], $x2[1] $sign $x1[1]"
-  elseif w == "-1"
-          "-($(x1)_r $sign $(x2)_r), -($(x1)_i $sign $(x2)_i)" #:
-  elseif w == "-im"
-      # -i*(a ± b) = ±(b_i ∓ a_i) ± i*(b_r ∓ a_r)
-      #return is_t ? 
-          "$(x1)_i $sign $(x2)_i, $(x2)_r $sign $(x1)_r" #:
-          #"$x1[2] $sign $x2[2], $x2[1] $sign $x1[1]"
-  elseif w == "INV_SQRT2_Q4"
-      # (a ± b) * (1-i)/√2 = [ (a_r ± b_r + a_i ± b_i)/√2 , (a_i ± b_i - a_r ∓ b_r)/√2 ]
-      #return is_t ?
-          "INV_SQRT2*(($(x1)_r $sign $(x2)_r) + ($(x1)_i $sign $(x2)_i)), " *
-          "INV_SQRT2*(($(x1)_i $sign $(x2)_i) - ($(x1)_r $sign $(x2)_r))" #:
-          #"INV_SQRT2*(($(x1)[1] $sign $(x2)[1]) + ($(x1)[2] $sign $(x2)[2])), " *
-          #"INV_SQRT2*(($(x1)[2] $sign $(x2)[2]) - ($(x1)[1] $sign $(x2)[1]))"
-  elseif w == "-INV_SQRT2_Q1"
-      # -(a ± b) * (1+i)/√2 = [ -(a_r ± b_r - a_i ∓ b_i)/√2 , -(a_r ± b_r + a_i ± b_i)/√2 ]
-      #return is_t ? 
-          "INV_SQRT2*(($(x1)_i $sign $(x2)_i) - ($(x1)_r $sign $(x2)_r)), " *
-          "-INV_SQRT2*(($(x1)_r $sign $(x2)_r) + ($(x1)_i $sign $(x2)_i))" #:
-          #"INV_SQRT2*(($(x1)[2] $sign $(x2)[2]) - ($(x1)[1] $sign $(x2)[1])), " *
-          #"-INV_SQRT2*(($(x1)[1] $sign $(x2)[1]) + ($(x1)[2] $sign $(x2)[2]))"
-  else
-      num, den, is_q1 = parse_cispi(w)
-      c = "COSPI_$(num)_$(den)"
-      s = "SINPI_$(num)_$(den)"
-      
-      if startswith(w, "CISPI")
-          if is_q1
-              # Q1: cosθ + i sinθ
-              #return is_t ?
-              "muladd($c, $(x1)_r $sign $(x2)_r, -$s * ($(x1)_i $sign $(x2)_i)), " *
-              "muladd($s, $(x1)_r $sign $(x2)_r, $c * ($(x1)_i $sign $(x2)_i))" #:
-              #"muladd($c, $(x1)[1] $sign $(x2)[1], -$s * ($(x1)[2] $sign $(x2)[2])), " *
-              #"muladd($s, $(x1)[1] $sign $(x2)[1], $c * ($(x1)[2] $sign $(x2)[2]))"
-          else
-              # Q4: cosθ - i sinθ
-              #return is_t ?
-              "muladd($c, $(x1)_r $sign $(x2)_r, $s * ($(x1)_i $sign $(x2)_i)), " *
-              "muladd(-$s, $(x1)_r $sign $(x2)_r, $c * ($(x1)_i $sign $(x2)_i))" #:
-              #"muladd($c, $(x1)[1] $sign $(x2)[1], $s * ($(x1)[2] $sign $(x2)[2])), " *
-              #"muladd(-$s, $(x1)[1] $sign $(x2)[1], $c * ($(x1)[2] $sign $(x2)[2]))"
-          end
-      
-      elseif startswith(w, "-im*CISPI")
-          if is_q1 
-              # -i*(cosθ + i sinθ) = sinθ - i cosθ
-              #return is_t ?
-              "muladd($s, $(x1)_r $sign $(x2)_r, $c * ($(x1)_i $sign $(x2)_i)), " *
-              "muladd(-$c, $(x1)_r $sign $(x2)_r, $s * ($(x1)_i $sign $(x2)_i))" #:
-              #"muladd($s, $(x1)[1] $sign $(x2)[1], $c * ($(x1)[2] $sign $(x2)[2])), " *
-              #"muladd(-$c, $(x1)[1] $sign $(x2)[1], $s * ($(x1)[2] $sign $(x2)[2]))" 
-          else
-              # -i*(cosθ - i sinθ) = -sinθ - i cosθ
-              #return is_t ?
-              "muladd(-$s, $(x1)_r $sign $(x2)_r, $c * ($(x1)_i $sign $(x2)_i)), " *
-              "muladd(-$c, $(x1)_r $sign $(x2)_r, -$s * ($(x1)_i $sign $(x2)_i))" #:
-              #"muladd(-$s, $(x1)[1] $sign $(x2)[1], $c * ($(x1)[2] $sign $(x2)[2])), " *
-              #"muladd(-$c, $(x1)[1] $sign $(x2)[1], -$s * ($(x1)[2] $sign $(x2)[2]))"
-          end
-      
-      elseif startswith(w, "-CISPI")
-          if is_q1 
-              # -cosθ - i sinθ
-              #return is_t ?
-              "muladd(-$c, $(x1)_r $sign $(x2)_r, $s * ($(x1)_i $sign $(x2)_i)), " *
-              "muladd(-$s, $(x1)_r $sign $(x2)_r, -$c * ($(x1)_i $sign $(x2)_i))" #:
-              #"muladd(-$c, $(x1)[1] $sign $(x2)[1], $s * ($(x1)[2] $sign $(x2)[2])), " *
-              #"muladd(-$s, $(x1)[1] $sign $(x2)[1], -$c * ($(x1)[2] $sign $(x2)[2]))" 
-          else
-              # -cosθ + i sinθ
-              #return is_t ?
-              "muladd(-$c, $(x1)_r $sign $(x2)_r, -$s * ($(x1)_i $sign $(x2)_i)), " *
-              "muladd($s, $(x1)_r $sign $(x2)_r, -$c * ($(x1)_i $sign $(x2)_i))" #:
-              #"muladd(-$c, $(x1)[1] $sign $(x2)[1], -$s * ($(x1)[2] $sign $(x2)[2])), " *
-              #"muladd($s, $(x1)[1] $sign $(x2)[1], -$c * ($(x1)[2] $sign $(x2)[2]))"
-          end
-
-      elseif startswith(w, "im*CISPI")
-          if is_q1 
-              # i*(cosθ + i sinθ) = -sinθ + i cosθ
-              #return is_t ?
-              "muladd(-$s, $(x1)_r $sign $(x2)_r, -$c * ($(x1)_i $sign $(x2)_i)), " *
-              "muladd($c, $(x1)_r $sign $(x2)_r, -$s * ($(x1)_i $sign $(x2)_i))" #:
-              #"muladd(-$s, $(x1)[1] $sign $(x2)[1], -$c * ($(x1)[2] $sign $(x2)[2])), " *
-              #"muladd($c, $(x1)[1] $sign $(x2)[1], -$s * ($(x1)[2] $sign $(x2)[2]))" 
-          else
-              # i*(cosθ - i sinθ) = sinθ + i cosθ
-              #return is_t ?
-              "muladd($s, $(x1)_r $sign $(x2)_r, -$c * ($(x1)_i $sign $(x2)_i)), " *
-              "muladd($c, $(x1)_r $sign $(x2)_r, $s * ($(x1)_i $sign $(x2)_i))" #:
-              #"muladd($s, $(x1)[1] $sign $(x2)[1], -$c * ($(x1)[2] $sign $(x2)[2])), " *
-              #"muladd($c, $(x1)[1] $sign $(x2)[1], $s * ($(x1)[2] $sign $(x2)[2]))"
-          end
-      end
-  end
+    if w isa String 
+        if w == "1"
+            "$(x1)_r $sign $(x2)_r, $(x1)_i $sign $(x2)_i" 
+        elseif w == "-1"
+            "-($(x1)_r $sign $(x2)_r), -($(x1)_i $sign $(x2)_i)" 
+        elseif w == "-im"
+            # -i*(a ± b) = ±(b_i ∓ a_i) ± i*(b_r ∓ a_r)
+            "$(x1)_i $sign $(x2)_i, $(x2)_r $sign $(x1)_r" 
+        elseif w == "INV_SQRT2_Q4"
+            # (a ± b) * (1-i)/√2 = [ (a_r ± b_r + a_i ± b_i)/√2 , (a_i ± b_i - a_r ∓ b_r)/√2 ]
+            "INV_SQRT2*(($(x1)_r $sign $(x2)_r) + ($(x1)_i $sign $(x2)_i)), " *
+            "INV_SQRT2*(($(x1)_i $sign $(x2)_i) - ($(x1)_r $sign $(x2)_r))" 
+        elseif w == "-INV_SQRT2_Q1"
+            # -(a ± b) * (1+i)/√2 = [ -(a_r ± b_r - a_i ∓ b_i)/√2 , -(a_r ± b_r + a_i ± b_i)/√2 ]
+            "INV_SQRT2*(($(x1)_i $sign $(x2)_i) - ($(x1)_r $sign $(x2)_r)), " *
+            "-INV_SQRT2*(($(x1)_r $sign $(x2)_r) + ($(x1)_i $sign $(x2)_i))"
+        end
+    elseif w isa Tuple
+        num, den, quadrant = w
+        c = "COSPI_$(num)_$(den)"
+        s = "SINPI_$(num)_$(den)"
+    
+        if quadrant == Q1
+            # Q1: cosθ + i sinθ
+            "muladd($c, $(x1)_r $sign $(x2)_r, -$s * ($(x1)_i $sign $(x2)_i)), " *
+            "muladd($s, $(x1)_r $sign $(x2)_r, $c * ($(x1)_i $sign $(x2)_i))"
+        elseif quadrant == Q4
+            # Q4: cosθ - i sinθ
+            "muladd($c, $(x1)_r $sign $(x2)_r, $s * ($(x1)_i $sign $(x2)_i)), " *
+            "muladd(-$s, $(x1)_r $sign $(x2)_r, $c * ($(x1)_i $sign $(x2)_i))"
+        elseif quadrant == NegQ1
+            # -cosθ - i sinθ
+            "muladd(-$c, $(x1)_r $sign $(x2)_r, $s * ($(x1)_i $sign $(x2)_i)), " *
+            "muladd(-$s, $(x1)_r $sign $(x2)_r, -$c * ($(x1)_i $sign $(x2)_i))" 
+        elseif quadrant == NegQ4
+            # -cosθ + i sinθ
+            "muladd(-$c, $(x1)_r $sign $(x2)_r, -$s * ($(x1)_i $sign $(x2)_i)), " *
+            "muladd($s, $(x1)_r $sign $(x2)_r, -$c * ($(x1)_i $sign $(x2)_i))" 
+        elseif quadrant == ImQ1
+            # i*(cosθ + i sinθ) = -sinθ + i cosθ
+            "muladd(-$s, $(x1)_r $sign $(x2)_r, -$c * ($(x1)_i $sign $(x2)_i)), " *
+            "muladd($c, $(x1)_r $sign $(x2)_r, -$s * ($(x1)_i $sign $(x2)_i))"
+        elseif quadrant == ImQ4
+            # i*(cosθ - i sinθ) = sinθ + i cosθ
+            "muladd($s, $(x1)_r $sign $(x2)_r, -$c * ($(x1)_i $sign $(x2)_i)), " *
+            "muladd($c, $(x1)_r $sign $(x2)_r, $s * ($(x1)_i $sign $(x2)_i))" 
+        elseif quadrant == NegImQ1
+            # -i*(cosθ + i sinθ) = sinθ - i cosθ
+            "muladd($s, $(x1)_r $sign $(x2)_r, $c * ($(x1)_i $sign $(x2)_i)), " *
+            "muladd(-$c, $(x1)_r $sign $(x2)_r, $s * ($(x1)_i $sign $(x2)_i))" 
+        elseif quadrant == NegImQ4
+            # -i*(cosθ - i sinθ) = -sinθ - i cosθ
+            "muladd(-$s, $(x1)_r $sign $(x2)_r, $c * ($(x1)_i $sign $(x2)_i)), " *
+            "muladd(-$c, $(x1)_r $sign $(x2)_r, -$s * ($(x1)_i $sign $(x2)_i))" 
+        else
+            error("Unkown quadrant: $quadrant")
+        end
+    end
 end
 
 """
@@ -658,18 +545,6 @@ end
 
 inc = inccounter()
 
-# Helper function to convert y[i] to py indices
-function parse_y_to_py_indices(y_str::String)
-    # Extract the index from y[i] format
-    m = match(r"y\[(\d+)\]", y_str)
-    if m !== nothing
-        idx = parse(Int, m.captures[1])
-        return "py[$(2*idx-1)], py[$(2*idx)]"
-    end
-    # If it doesn't match, return as-is (shouldn't happen)
-    return y_str
-end
-
 # Generate twiddle factor expressions for FFT
 # w_k = e^(-2πik/n) for k in ks array
 function get_twiddle_expression(ks, n; T=Float64, accuracy=nothing)
@@ -735,14 +610,14 @@ function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1, mode=:default, py="") 
             if root
                 load_real_imag_gen(x; mode=mode, T=T) * "\n" *
                 "tmp0_r, tmp0_i = $(x[1])_r - $(x[2])_r, $(x[1])_i - $(x[2])_i" * "\n" * "$py" * "\n" *
-                "y[1], y[2] = $(x[1])_r + $(x[2])_r, $(x[1])_i + $(x[2])_i\n" *
-                "y[3], y[4] = $(sat_expr_d("tmp0", d[1]))"
+                "$(y[1]), $(y[2]) = $(x[1])_r + $(x[2])_r, $(x[1])_i + $(x[2])_i\n" *
+                "$(y[3]), $(y[4]) = $(sat_expr("tmp0", d[1]))"
             end
           end
         else
           if root
             load_real_imag_gen(x; mode=mode, T=T) * "\n" *
-            "y[1], y[2], y[3], y[4] = $(x[1])_r + $(x[2])_r, $(x[1])_i + $(x[2])_i, $(x[1])_r - $(x[2])_r, $(x[1])_i - $(x[2])_i" 
+            "$(y[1]), $(y[2]), $(y[3]), $(y[4]) = $(x[1])_r + $(x[2])_r, $(x[1])_i + $(x[2])_i, $(x[1])_r - $(x[2])_r, $(x[1])_i - $(x[2])_i" 
           else
             if isnothing(w)
             """
@@ -792,32 +667,23 @@ function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1, mode=:default, py="") 
     if !isnothing(d)
       if isnothing(w)
         if root
-           # Build LHS indices: py[1], py[2], py[3], py[4], ..., py[2*n2-1], py[2*n2]
-           lhs_p = "py[1], py[2]" * foldl(*, vmap(i -> ", py[$(2*i-1)], py[$(2*i)]", 2:n2))
-           # Build RHS values: real1, imag1, real2, imag2, ...
-           # d[i-1] is twiddle at index i-1
-           rhs_p = "$(t[1])_r + $(t[1+n2])_r, $(t[1])_i + $(t[1+n2])_i" * foldl(*, vmap(i -> ", $(sat_expr_d("tmp$(i-2)", d[i-1]))", 2:n2))
+           lhs_p = "$(y[1]), $(y[2])" * foldl(*, vmap(i -> ", $(y[(2*i-1)]), $(y[(2*i)])", 2:n2))
+           rhs_p = "$(t[1])_r + $(t[1+n2])_r, $(t[1])_i + $(t[1+n2])_i" * foldl(*, vmap(i -> ", $(sat_expr("tmp$(i-2)", d[i-1]))", 2:n2))
            s3p = "$py" * "\n" * "$(tmp_decls)" * "\n" * lhs_p * " = " * rhs_p * "\n"
 
-           # Second half: py[2*n2+1], py[2*n2+2], ..., py[2*n-1], py[2*n]
-           lhs_m = "py[$(2*n2+1)], py[$(2*n2+2)]" * foldl(*, vmap(i -> ", py[$(2*(i+n2)-1)], py[$(2*(i+n2))]", 2:n2))
-           # d[n2] is twiddle at index n2
-           # d[i+n2-1] is twiddle at index i+n2-1
-           rhs_m = "$(sat_expr_d("-", "$(t[1])", "$(t[1+n2])", d[n2]))" * foldl(*, vmap(i -> ", $(sat_expr_d("tmp$(i-3+n2)", d[i+n2-1]))", 2:n2))
+           lhs_m = "$(y[(2*n2+1)]), $(y[(2*n2+2)])" * foldl(*, vmap(i -> ", $(y[(2*(i+n2)-1)]), $(y[(2*(i+n2))])", 2:n2))
+           rhs_m = "$(sat_expr("-", "$(t[1])", "$(t[1+n2])", d[n2]))" * foldl(*, vmap(i -> ", $(sat_expr("tmp$(i-3+n2)", d[i+n2-1]))", 2:n2))
            s3m = lhs_m * " = " * rhs_m * "\n"
         end
       end
     else
       if isnothing(w)
         if root
-          # Build LHS indices: py[1], py[2], py[3], py[4], ..., py[2*n2-1], py[2*n2]
-          lhs_p = "py[1], py[2]" * foldl(*, vmap(i -> ", py[$(2*i-1)], py[$(2*i)]", 2:n2))
-          # Build RHS values: real1, imag1, real2, imag2, ...
+          lhs_p = "$(y[1]), $(y[2])" * foldl(*, vmap(i -> ", $(y[(2*i-1)]), $(y[(2*i)])", 2:n2))
           rhs_p = "$(t[1])_r + $(t[1+n2])_r, $(t[1])_i + $(t[1+n2])_i" * foldl(*, vmap(i -> ", $(t[i])_r + $(t[i+n2])_r, $(t[i])_i + $(t[i+n2])_i", 2:n2))
           s3p = "$py" * "\n" * lhs_p * " = " * rhs_p * "\n"
 
-          # Second half: py[2*n2+1], py[2*n2+2], ..., py[2*n-1], py[2*n]
-          lhs_m = "py[$(2*n2+1)], py[$(2*n2+2)]" * foldl(*, vmap(i -> ", py[$(2*(i+n2)-1)], py[$(2*(i+n2))]", 2:n2))
+          lhs_m = "$(y[(2*n2+1)]), $(y[(2*n2+2)])" * foldl(*, vmap(i -> ", $(y[(2*(i+n2)-1)]), $(y[(2*(i+n2))])", 2:n2))
           rhs_m = "$(t[1])_r - $(t[1+n2])_r, $(t[1])_i - $(t[1+n2])_i" * foldl(*, vmap(i -> ", $(t[i])_r - $(t[i+n2])_r, $(t[i])_i - $(t[i+n2])_i", 2:n2))
           s3m = lhs_m * " = " * rhs_m * "\n"
         else

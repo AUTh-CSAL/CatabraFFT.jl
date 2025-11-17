@@ -125,51 +125,70 @@ end
 
 function generate_local_constants_dict(n::Int, ::Type{T}) where T <: AbstractFloat
     @assert ispow2(n) "n must be a power of 2"
-    constants_dict = Dict{Symbol, T}()
-    
-    # Pre-allocate set with estimated size
-    fractions = Set{Tuple{Int,Int}}()
-    sizehint!(fractions, n >> 1)
-    
-    # Generate base fractions
-    @inbounds for k in 1:(n÷2-1)
-        gcd_val = gcd(k, n÷2)
-        num = k ÷ gcd_val
-        den = (n÷2) ÷ gcd_val
-        push!(fractions, (num, den))
-    end
-    
-    # Generate additional fractions for radix-8 patterns
-    current_n = n
-    @inbounds while current_n >= 16
-        n2 = current_n >> 1
-        n4 = current_n >> 2
-        s = current_n >> 3
-        
-        for i in 1:2:s
-            num = n4 - i
-            den = n2
-            gcd_val = gcd(abs(num), den)
-            reduced_num = abs(num) ÷ gcd_val
-            reduced_den = den ÷ gcd_val
-            push!(fractions, (reduced_num, reduced_den))
+    @assert n >= 8 "n must be at least 8"
+
+    # Collect all unique reduced fractions needed for all sizes from 8 up to n
+    fractions = Vector{Tuple{Int,Int}}()
+
+    # Pre-estimate size: for powers of 2, approximately log2(n/4) fractions per level
+    estimated_size = max(1, (n >> 3))  # Rough estimate
+    sizehint!(fractions, estimated_size)
+
+    # Start from n=8 and work up to the target n
+    current_n = 8
+    @inbounds while current_n <= n
+        denominator = current_n ÷ 2  # For n=8: den=4, n=16: den=8, n=32: den=16, etc.
+        max_numerator = denominator ÷ 4  # Only fractions < 1/4 (angles < π/4)
+
+        # Add all odd numerators k where k <= den/4 and gcd(k, denominator) = 1
+        # This ensures we only add new fractions in reduced form with angles < π/4
+        # Avoids duplicates since cos(θ) = sin(π/2 - θ) for θ < π/4
+        for k in 1:2:max_numerator  # Only odd k: 1, 3, 5, 7, ...
+            if gcd(k, denominator) == 1
+                push!(fractions, (k, denominator))
+            end
         end
-        current_n >>= 1
+
+        current_n <<= 1  # Double for next iteration
     end
-    
-    # Pre-compute all trig constants
-    sizehint!(constants_dict, length(fractions) * 2 + 1)
-    @inbounds for (num, den) in fractions
-        angle_cos = T(cospi(num/den))
-        angle_sin = T(sinpi(num/den))
-        constants_dict[Symbol("COSPI_$(num)_$(den)")] = angle_cos
-        constants_dict[Symbol("SINPI_$(num)_$(den)")] = angle_sin
+
+    # Pre-allocate dictionary: 1 for INV_SQRT2 + 2 per remaining fraction (cos + sin)
+    num_fractions = length(fractions)
+    has_inv_sqrt2 = num_fractions > 0 && fractions[1] == (1, 4)
+    dict_size = (has_inv_sqrt2 ? 1 : 0) + 2 * (num_fractions - (has_inv_sqrt2 ? 1 : 0))
+    constants_dict = Dict{Symbol, T}()
+    sizehint!(constants_dict, dict_size)
+
+    # Vectorized trig computation for better performance
+    if num_fractions > 1 || (num_fractions == 1 && !has_inv_sqrt2)
+        # Build phase array for vectorized computation
+        start_idx = has_inv_sqrt2 ? 2 : 1
+        num_trig = num_fractions - (has_inv_sqrt2 ? 1 : 0)
+
+        if num_trig > 0
+            phases = Vector{T}(undef, num_trig)
+            @inbounds for i in 1:num_trig
+                num, den = fractions[start_idx + i - 1]
+                phases[i] = T(num) / T(den)
+            end
+
+            # Compute cos and sin in parallel using vectorized operations
+            cos_vals, sin_vals = fast_cossinpi(phases, T)
+
+            # Populate dictionary
+            @inbounds for i in 1:num_trig
+                num, den = fractions[start_idx + i - 1]
+                constants_dict[Symbol("COSPI_$(num)_$(den)")] = cos_vals[i]
+                constants_dict[Symbol("SINPI_$(num)_$(den)")] = sin_vals[i]
+            end
+        end
     end
-    
-    if n >= 8
+
+    # Special case: INV_SQRT2 for 1/4
+    if has_inv_sqrt2
         constants_dict[:INV_SQRT2] = T(1/√2)
     end
-    
+
     return constants_dict
 end
 
@@ -205,10 +224,14 @@ function generate_all_kernel_expressions(plan_data::NamedTuple, ::Type{T};
                 end
             else
                 vec_suffix = add_flag(suffix_combinations, VEC)
+                println("Creating final terminal VEC kernel: $op")
+                name, expr = generate_kernel_expression(radix, op, vec_suffix, 0, Vector{T}, true, T)
+                #=
                 for p in 0:(n_kernels_needed-1)
                     name, expr = generate_kernel_expression(radix, op, vec_suffix, p, Vector{T}, true, T)
                     kernels[name] = expr
                 end
+                =#
             end
         end
     end
@@ -252,7 +275,7 @@ function generate_D_kernel(p, radix::Int, current_stride::Int, next_stride::Int,
     (next_stride == 1 || n_groups == 1 || p == 1) && return Union{String, Twiddle}[]
 
     N = next_stride * n_groups
-    D_flat = create_D_kernel(radix, current_stride, next_stride, n_groups, T)
+    @show D_flat = create_D_kernel(radix, current_stride, next_stride, n_groups, T)
 
     # D_flat is organized as: for each group j in [0, n_groups-1], all radix twiddles for that group
     # Layout: [(k=0,j=0), (k=1,j=0), ..., (k=radix-1,j=0), (k=0,j=1), (k=1,j=1), ..., (k=radix-1,j=n_groups-1)]
@@ -274,6 +297,7 @@ function generate_D_kernel(p, radix::Int, current_stride::Int, next_stride::Int,
         symbolic_w = get_constant_expression(w, N)
         push!(result, symbolic_w)
     end
+    @show result
 
     return result
 end
@@ -304,7 +328,7 @@ end
         cos_vals, sin_vals = fast_cossinpi(phases, T)
 
         # Interleave cos and sin
-        @inbounds for i in 1:n_elements
+        @inbounds @simd for i in 1:n_elements
             d_real[2*i - 1] = cos_vals[i]
             d_real[2*i] = sin_vals[i]
         end
@@ -312,7 +336,7 @@ end
         # Scalar fallback
         phase = T(-2 / N)
         idx = 1
-        @inbounds for j in 0:(n_groups-1)
+        @inbounds @simd for j in 0:(n_groups-1)
             for k in 0:(radix-1)
                 angle = phase * k * current_stride * j
                 d_real[idx] = cospi(angle)

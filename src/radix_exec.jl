@@ -34,14 +34,15 @@ function GenerateMatrixExpr!(plan::RadixPlan, show_function::Bool=false)::Expr
     end
 
     @inbounds for (stage_idx, op) in enumerate(plan.operations)
-        current_input  = op.eo ? :y : :x
-        current_output = op.eo ? :x : :y
+        #current_input  = op.eo ? :y : :x
+        #current_output = op.eo ? :x : :y
+        current_input, current_output = op.input_buffer, op.output_buffer
 
         is_final_stage = (stage_idx == length(plan.operations))
-        radix  = get_radix_divisor(op.op_type)
-        n_g    = op.n_groups
+        radix = get_radix_divisor(op.op_type)
+        n_g = op.n_groups
         stride = op.stride
-        SIZE   = n_g * stride
+        SIZE = n_g * stride
         is_monolithic_shell = (radix == n_g) && (stride == 1)
         
         show_function && println("Stage $stage_idx: radix=$radix, n_groups=$n_g, stride=$stride, in=$current_input, out=$current_output")
@@ -55,7 +56,7 @@ function GenerateMatrixExpr!(plan::RadixPlan, show_function::Bool=false)::Expr
         elseif !is_final_stage 
             n_groups_per_radix = SIZE ÷ radix
             
-            for p in 0:(n_groups_per_radix-1)
+            @inbounds @simd for p in 0:(n_groups_per_radix-1)
                 key = "fft$(radix)_$(stride)x$(n_g)_$(p)!"
                 haskey(kernel_exprs, key) || error("Missing kernel: $key")
                 show_function && println("  Sub-kernel: $key")
@@ -69,7 +70,7 @@ function GenerateMatrixExpr!(plan::RadixPlan, show_function::Bool=false)::Expr
             show_function && println("  Terminal kernel: $key (looped $stride times)")
             
             # Determine correct output based on stage parity
-            current_output = (length(plan.operations) % 2 == 0) ? :x : :y
+            #current_output = (length(plan.operations) % 2 == 0) ? :x : :y
 
             loop_body = substitute_strided_final_loop(kernel_exprs[key], current_output, current_input, stride, SIZE, radix)
 
@@ -96,16 +97,18 @@ function generate_mat_execute_function!(plan::RadixPlan, show_function::Bool=fal
     show_function && println("Generated function body")
 
     func_expr = quote
-        @inline function (y_out::AbstractVector{Complex{$T}}, x_complex::AbstractVector{Complex{$T}})
+        @inline function (y_complex::AbstractVector{Complex{$T}}, x_complex::AbstractVector{Complex{$T}})
             # Reinterpret Complex{T} arrays as T arrays for kernel access
             # Complex numbers are stored as consecutive pairs: [real1, imag1, real2, imag2, ...]
             x = reinterpret($T, x_complex)
-            y = reinterpret($T, y_out)
-            py = y  # Alias for compatibility with generated kernel code
+            y = reinterpret($T, y_complex)
 
             @fastmath @inbounds begin
                 $function_body
             end
+
+            y_complex = reinterpret(Complex{$T}, y)
+
             nothing
         end
     end
@@ -115,21 +118,23 @@ function generate_mat_execute_function!(plan::RadixPlan, show_function::Bool=fal
 end
 
 function materialize_plan_function!(plan::RadixPlan, ::Type{T}) where {T}
-    constants_dict = RadixGenerator.generate_local_constants_dict(plan.n, T)
-    body = GenerateMatrixExpr!(plan, false)
+    @show constants_dict = RadixGenerator.generate_local_constants_dict(plan.n, T)
+    @show body = GenerateMatrixExpr!(plan, true)
     substituted_body = substitute_constants_in_expr(body, constants_dict)
 
     fexpr = quote
-        @inline function (y_out::AbstractVector{Complex{$T}}, x_complex::AbstractVector{Complex{$T}})
+        @inline function (y_complex::AbstractVector{Complex{$T}}, x_complex::AbstractVector{Complex{$T}})
             # Reinterpret Complex{T} arrays as T arrays for kernel access
             # Complex numbers are stored as consecutive pairs: [real1, imag1, real2, imag2, ...]
             x = reinterpret($T, x_complex)
-            y = reinterpret($T, y_out)
-            py = y  # Alias for compatibility with generated kernel code
+            y = reinterpret($T, y_complex)
 
             @fastmath @inbounds begin
                 $substituted_body
             end
+
+            y_complex = reinterpret(Complex{$T}, y)
+
             nothing
         end
     end

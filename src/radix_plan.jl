@@ -58,7 +58,7 @@ function create_all_radix_plans(n::Int, valid_radices::Vector{Int}, ::Type{T}) w
     end
     
     filtered = filter(is_valid, decompositions)
-    #filtered = [[8]]
+    @show filtered
     
     return [create_radix_plan_from_decomposition(n, decomp, T) for decomp in filtered]
 end
@@ -88,6 +88,12 @@ function create_radix_plan_from_decomposition(n::Int, decomposition::Vector{Int}
         current_stride *= radix
         eo = !eo
         input_buffer, output_buffer = output_buffer, input_buffer
+    end
+
+    # Obvious fix!
+    last_idx = length(decomposition)
+    if ((last_idx % 2 == 0) && operations[last_idx].eo) 
+        operations[last_idx].output_buffer = :y
     end
     
     return RadixPlan{T}(operations, n)
