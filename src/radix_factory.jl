@@ -270,7 +270,7 @@ function generate_D_kernel(p, radix::Int, current_stride::Int, next_stride::Int,
     (next_stride == 1 || n_groups == 1 || p == 1) && return Union{String, Twiddle}[]
 
     N = next_stride * n_groups
-    @show D_flat = create_D_kernel(radix, current_stride, next_stride, n_groups, T)
+    D_flat = create_D_kernel(radix, current_stride, next_stride, n_groups, T)
 
     # D_flat is organized as: for each group j in [0, n_groups-1], all radix twiddles for that group
     # Layout: [(k=0,j=0), (k=1,j=0), ..., (k=radix-1,j=0), (k=0,j=1), (k=1,j=1), ..., (k=radix-1,j=n_groups-1)]
@@ -292,7 +292,6 @@ function generate_D_kernel(p, radix::Int, current_stride::Int, next_stride::Int,
         symbolic_w = get_constant_expression(w, N)
         push!(result, symbolic_w)
     end
-    @show result
 
     return result
 end

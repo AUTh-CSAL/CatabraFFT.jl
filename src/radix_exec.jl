@@ -8,7 +8,6 @@ using SIMD
 
 include("helper_tools.jl")
 
-
 #TODO : Experiment with possible permutation of specific instructions across different layers. 
 # Possible cache friendly patterns to be utilized. Fully saturate a part of the next layer before the previous layer is done computing. 
 # ex. fft4xfft2. Isn't this just split-radix ???? Automate this for other pairs (8-4).
@@ -34,8 +33,6 @@ function GenerateMatrixExpr!(plan::RadixPlan, show_function::Bool=false)::Expr
     end
 
     @inbounds for (stage_idx, op) in enumerate(plan.operations)
-        #current_input  = op.eo ? :y : :x
-        #current_output = op.eo ? :x : :y
         current_input, current_output = op.input_buffer, op.output_buffer
 
         is_final_stage = (stage_idx == length(plan.operations))
@@ -72,7 +69,6 @@ function GenerateMatrixExpr!(plan::RadixPlan, show_function::Bool=false)::Expr
             # Determine correct output based on stage parity
             #current_output = (length(plan.operations) % 2 == 0) ? :x : :y
 
-            @show kernel_exprs[key]
             loop_body = substitute_strided_final_loop(kernel_exprs[key], current_output, current_input, stride, SIZE, radix)
 
             show_function && @show loop_body
@@ -119,8 +115,8 @@ function generate_mat_execute_function!(plan::RadixPlan, show_function::Bool=fal
 end
 
 function materialize_plan_function!(plan::RadixPlan, ::Type{T}) where {T}
-    @show constants_dict = RadixGenerator.generate_local_constants_dict(plan.n, T)
-    @show body = GenerateMatrixExpr!(plan, true)
+    constants_dict = RadixGenerator.generate_local_constants_dict(plan.n, T)
+    body = GenerateMatrixExpr!(plan, false)
     substituted_body = substitute_constants_in_expr(body, constants_dict)
 
     fexpr = quote
@@ -241,7 +237,10 @@ function substitute_strided_final_loop(kernel_expr::Expr, out_var, in_var, strid
 end
 
 # Benchmarking function with optimized execution
-function return_best_static_linear_expr(plans::Vector{RadixPlan{T}}, show_function::Bool)::Expr where T<:AbstractFloat
+# Returns a NamedTuple with:
+#   - expr: the best body expression
+#   - benchmarks: dictionary mapping plan operations to benchmark results
+function return_best_static_linear_expr(plans::Vector{RadixPlan{T}}, show_function::Bool) where T<:AbstractFloat
     @assert !isempty(plans)
     N = plans[1].n
 
@@ -251,36 +250,53 @@ function return_best_static_linear_expr(plans::Vector{RadixPlan{T}}, show_functi
 
     best_time = Inf
     best_body_expr::Union{Expr,Nothing} = nothing
-    
-    @inbounds for plan in plans
+    best_plan_idx = 0
+
+    # Dictionary to store all benchmark results
+    # Key: index in plans vector
+    # Value: NamedTuple with plan, time, function, and expression
+    benchmark_results = Dict{Int, NamedTuple}()
+
+    @inbounds for (idx, plan) in enumerate(plans)
         try
             show_function && println("Benchmarking plan: ", plan.operations)
 
             f = materialize_plan_function!(plan, T)
-            
+
             show_function && println("Materialized function")
-            
+
             # Warmup
             Base.invokelatest(f, y, x)
 
             # Benchmark
             t = @belapsed Base.invokelatest($f, $y, $x)
-            
+
             show_function && println("Benchmarked time: $t")
+
+            # Generate body expression
+            body_expr = GenerateMatrixExpr!(plan, show_function)
+
+            # Store benchmark result
+            benchmark_results[idx] = (
+                plan = plan,
+                time = t,
+            )
 
             if t < best_time
                 best_time = t
-                best_body_expr = GenerateMatrixExpr!(plan, show_function)
+                best_body_expr = body_expr
+                best_plan_idx = idx
             end
         catch e
             @warn "Failed to benchmark plan $(plan.operations): $e"
         end
     end
-    
-    show_function && println("Best time: $best_time")
+
+    show_function && println("Best time: $best_time (plan #$best_plan_idx)")
 
     best_body_expr === nothing && error("No valid plan found")
-    return best_body_expr
+
+    return (expr = best_body_expr, benchmarks = benchmark_results)
 end
 
 function generate_linear_execute_function!(plan::RadixPlan, show_function::Bool, ivdep::Bool)

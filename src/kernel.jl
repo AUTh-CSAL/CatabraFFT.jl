@@ -90,7 +90,13 @@ function generate_radix_fft_function(n::Int, ::Type{T}, flag::FLAG)::Expr where 
 
     if flag >= ENCHANT
         plans = Radix_Plan.create_all_radix_plans(n, subpowers_of_two(n), T)
-        return Radix_Execute.return_best_static_linear_expr(plans, true)
+        result = Radix_Execute.return_best_static_linear_expr(plans, true)
+        # Store benchmark results for later analysis if needed
+        # Access via result.benchmarks
+        for bench in enumerate(result.benchmarks)
+            println("Time: $(bench[2]) \n")
+        end
+        return result.expr
     else
         plan = Radix_Plan.create_std_radix_plan(n, [8,4,2], T)
         # Return just the kernel body, not a full function definition
