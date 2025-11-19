@@ -192,6 +192,9 @@ function substitute_strided_final_loop(kernel_expr::Expr, out_var, in_var, strid
     in_sym = in_var isa Symbol ? in_var : Symbol(in_var)
 
     # Recursive transformation for a generic strided Stockham stage.
+    # This function transforms contiguous template indices (e.g., y[1], y[17])
+    # into strided loop indices (e.g., y[2*idx - 1], y[2*idx - 1 + 32])
+    # based on the decomposition geometry (size, radix, stride).
     @inline function transform(ex, is_lhs::Bool)
         if isa(ex, Expr)
             if ex.head == :ref && length(ex.args) == 2
@@ -200,70 +203,79 @@ function substitute_strided_final_loop(kernel_expr::Expr, out_var, in_var, strid
 
                 if (arr_sym == out_sym || arr_sym == in_sym) && isa(idx_val, Int)
                     
-                    # ------------------------------------------------------------------
-                    # UNIFIED STRIDED ACCESS LOGIC (Ensuring compile-time offset)
-                    # Maps template indices (1 to 2*radix) to strided access.
-                    # ------------------------------------------------------------------
-                    
-                    # Determine the complex index (0-based) in the template.
-                    # Example: 1->0, 2->0 (real/imag of C0), 3->1, 4->1 (real/imag of C1), etc.
+                    # 1. Determine the complex index (0-based) in the template.
+                    # e.g., index 1 (real) -> (1-1)//2 = 0, index 2 (imag) -> (2-1)//2 = 0
                     template_complex_num = (idx_val - 1) ÷ 2 
                     is_imag = (idx_val - 1) % 2 == 1  # Is this the imaginary part?
 
-                    # The relative butterfly position (k in the equation)
-                    # This is the complex position *within the radix block*.
-                    # For a radix-R kernel, the positions are typically: 
-                    # 0, 1, 2, ..., R-1 (for the result/output part)
-                    # 0, R, 2R, ..., (R-1)R (for the load/input part)
-                    
-                    # We must find the complex element's position relative to the first element (position 0)
-                    # and SCALE this by the stride.
-                    
-                    # For a standard R-radix kernel operating on contiguous data (stride=1 effectively):
-                    # - If template index is for a LOAD: template_complex_num = k * radix (e.g., 0, 4, 8, 12 for radix 4)
-                    # - If template index is for a STORE: template_complex_num = k (e.g., 0, 1, 2, 3 for radix 4)
-                    
-                    # Since the input kernel is already pre-generated with contiguous indices,
-                    # we use the template index to find the offset in complex units, and then scale by stride.
+                    k::Int = 0 # k is the complex offset multiplier
                     
                     if is_lhs # STORE indices (Outputs of the butterfly)
-                        # Template indices are 1-based. Example: Radix 4 kernel outputs to positions 1, 3, 5, 7, ...
-                        # Complex positions (0-based) relative to the start of the block: 0, 1, 2, 3
-                        # Final indices must be strided: 0*stride, 1*stride, 2*stride, 3*stride
-                        k = template_complex_num # k = 0, 1, 2, 3 (for radix=4)
+                        # Store pattern for DIF Stockham is contiguous in the output block.
+                        # The complex offset scales directly with the current stage stride.
+                        # k is simply the complex index (0, 1, 2, 3...)
+                        k = template_complex_num 
                         
                     else # LOAD indices (Inputs of the butterfly)
-                        # Template indices for loads are 1-based. Example: Radix 4 kernel loads from positions 1, 9, 17, 25
-                        # Complex positions (0-based) relative to the start of the block: 0, 4, 8, 12
-                        # The scaling factor 'k' here is template_complex_num / radix
-                        k = template_complex_num ÷ radix # k = 0, 1, 2, 3 (for radix=4)
+                        # Load pattern for DIF Stockham is strided.
+                        # The template kernel was generated for a total block size of 'size'.
+                        # The inputs to a butterfly of size 'size' with radix 'radix'
+                        # are separated by 'size ÷ radix'. This is the implicit stride 
+                        # baked into the template's indices.
+                        
+                        implicit_template_load_stride::Int = size ÷ radix
+                        
+                        if implicit_template_load_stride == 0
+                            # Should not happen for valid FFTs (size >= radix)
+                            implicit_template_load_stride = 1 
+                        end
+
+                        # k is the complex offset multiplier determined by the striding 
+                        # within the template kernel indices.
+                        # e.g. for N=32, radix=2, inputs are at 0 and 16. 
+                        # implicit_stride = 16. k values are 0/16=0 and 16/16=1.
+                        k = template_complex_num ÷ implicit_template_load_stride
                     end
                     
-                    # The float offset due to the strided access (k * stride * 2)
-                    # This MUST be calculated as a literal Int and spliced in.
+                    # 2. The float offset (MUST be a compile-time constant)
+                    # Float Offset = k (complex offset) * stride (stage stride) * 2 (floats per complex)
                     strided_float_offset::Int = k * stride * 2
 
-                    # The base index expression (real part of the first element in the loop block)
-                    float_start_of_current_group = :(2*idx - 1)
+                    # 3. Construct the clean indexing expression.
+                    # The total constant offset C is the strided offset plus 1 if imaginary.
+                    total_const_offset::Int = strided_float_offset + (is_imag ? 1 : 0)
+
+                    # The base variable part of the index: (2 * idx - 1)
+                    # This assumes the loop variable 'idx' is 1-based and iterates over complex pairs.
+                    base_var_expr = :((2 * idx) - 1)
                     
-                    # Final index expression
-                    # The index for the imaginary part is always 1 greater than the real part
-                    if is_imag
-                        return Expr(:ref, arr_sym, :($float_start_of_current_group + $strided_float_offset + 1))
+                    if total_const_offset == 0
+                        # Simplest case: y[2idx - 1]. No redundant + 0.
+                        index_expr = base_var_expr
                     else
-                        return Expr(:ref, arr_sym, :($float_start_of_current_group + $strided_float_offset))
+                        # General case: y[(2idx - 1) + C]. We use a saturated quote to insert the constant.
+                        index_expr = :($base_var_expr + $total_const_offset)
                     end
+                    
+                    return Expr(:ref, arr_sym, index_expr)
                 end
 
             # Recursive traversal for assignment expressions
             elseif ex.head == :(=)
-                # Apply the strided logic to both LHS (Store) and RHS (Load)
+                # Apply the strided logic to both LHS (Store - is_lhs=true) and RHS (Load - is_lhs=false)
                 return Expr(:(=), transform(ex.args[1], true), transform(ex.args[2], false))
                 
             # Recursive traversal for tuples, blocks, calls, etc.
             else
-                # For non-assignment expressions, the is_lhs status doesn't change for children
-                return Expr(ex.head, [transform(arg, is_lhs) for arg in ex.args]...)
+                # Clean up metadata lines from the initial quote (like #= none:3 =#)
+                new_args = []
+                for arg in ex.args
+                    if isa(arg, Expr) && arg.head == :line
+                        continue
+                    end
+                    push!(new_args, transform(arg, is_lhs))
+                end
+                return Expr(ex.head, new_args...)
             end
         end
         return ex

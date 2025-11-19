@@ -261,7 +261,7 @@ function makefftradix(n::Int, suffixes::SuffixFlags, D::Union{Vector{Union{Strin
         return quote end
     else
         try
-            @show parsed_expr = Meta.parse("begin\n$kernel_code\nend")
+            parsed_expr = Meta.parse("begin\n$kernel_code\nend")
             return parsed_expr
         catch e
             @warn "Failed to parse kernel code: $e"
@@ -310,8 +310,6 @@ end
 
 # Tuple-based sat_expr for (num, den, quadrant) format
 function sat_expr(tmp, w)
-    @show tmp, w
-    @show typeof(w)
     if w isa String
         if w == "1"
             return "$(tmp)_r, $(tmp)_i"
