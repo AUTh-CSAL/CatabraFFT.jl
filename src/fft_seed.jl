@@ -310,6 +310,8 @@ end
 
 # Tuple-based sat_expr for (num, den, quadrant) format
 function sat_expr(tmp, w)
+    @show tmp, w
+    @show typeof(w)
     if w isa String
         if w == "1"
             return "$(tmp)_r, $(tmp)_i"
@@ -328,6 +330,22 @@ function sat_expr(tmp, w)
             return "INV_SQRT2*($(tmp)_i - $(tmp)_r), " *
                    "-INV_SQRT2*($(tmp)_r + $(tmp)_i)"
         end
+            try
+              # Meta.parse returns an expression, which needs to be evaluated/used
+              # or passed to the Tuple logic. We'll evaluate it to get the value.
+              w_parsed = Core.eval(Main, Meta.parse(w))
+                  
+              # If successfully parsed into a Tuple, jump to the Tuple logic below
+              if w_parsed isa Tuple
+                  return sat_expr(tmp, w_parsed)
+              end
+            catch
+              # If parsing failed, it's a genuinely unknown string twiddle factor.
+                error("Unknown string twiddle factor: $w")
+            end
+
+            error("Unknown string twiddle factor: $w")
+
     elseif w isa Tuple
         num, den, quadrant = w
         c = "COSPI_$(num)_$(den)"
@@ -575,7 +593,8 @@ function get_twiddle_expression(ks, n; T=Float64, accuracy=nothing)
 
     return twiddles
 end
-#
+
+
 # Scalar version of the recursive radix generator for n = 2^q sizes
 function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1, mode=:default, py="", input_buffer="x") where T <: AbstractFloat
   n = length(x)
