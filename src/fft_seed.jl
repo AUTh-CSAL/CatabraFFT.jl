@@ -240,10 +240,30 @@ function makefftradix(n::Int, suffixes::SuffixFlags, D::Union{Vector{Union{Strin
     stride = op.stride
     input_spacing = SIZE ÷ radix  # Spacing between input elements in each butterfly
     
-    x = mode == :default ? ["$(input)$(p + 1 + (i-1)*input_spacing)" for i in 1:radix] : ["v_all$(p + 1 + (i-1)*input_spacing)" for i in 1:radix] 
-    base = 2 * ((p ÷ stride) * (stride * radix) + (p % stride))
+    x = mode == :default ? ["$(input)$(p + 1 + (i-1)*input_spacing)" for i in 1:radix] : ["v_all$(p + 1 + (i-1)*input_spacing)" for i in 1:radix]
 
-    y = ["$output[$(base + 1 + i)]" for i in 0:2*radix-1]
+    # Generate output indices based on whether this is a final (terminal) stage
+    # Final stages (with VEC flag) use consecutive indices that get transformed by substitute_strided_final_loop
+    # Non-final stages: In DIF Stockham, loads are strided but stores are consecutive blocks
+    is_terminal = has_flag(suffixes, VEC)
+
+    if is_terminal
+        # Terminal stage: use consecutive template indices (will be transformed later)
+        base = 2 * ((p ÷ stride) * (stride * radix) + (p % stride))
+        y = ["$output[$(base + 1 + i)]" for i in 0:2*radix-1]
+    else
+        # Non-terminal stage: DIF Stockham stores to consecutive blocks
+        # Each sub-kernel p writes radix consecutive complexes starting at p*radix
+        base_complex = p * radix
+        y_indices = Int[]
+        for k in 0:radix-1
+            complex_idx = base_complex + k
+            float_idx = 2 * complex_idx
+            push!(y_indices, float_idx + 1)  # real part
+            push!(y_indices, float_idx + 2)  # imag part
+        end
+        y = ["$output[$(idx)]" for idx in y_indices]
+    end
     
     d = isempty(D) ? nothing : D
     
