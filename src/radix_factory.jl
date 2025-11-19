@@ -489,9 +489,24 @@ function get_twiddle_expression(ks::AbstractVector{<:Integer}, n::Integer; T::Ty
 
     # Compute cos and sin via IntelVectorMath in-place functions (fast, threaded)
     # The mutating (!) forms accept 1D strided arrays and are much faster than broadcasting.
-    # Example: IVM.cos!(cosbuf, angles); IVM.sin!(sinbuf, angles)
-    IVM.cos!(cosbuf, angles)
-    IVM.sin!(sinbuf, angles)
+    if USE_IVM
+        try
+            IVM.cos!(cosbuf, angles)
+            IVM.sin!(sinbuf, angles)
+        catch e
+            # Fallback to scalar computation if IVM fails
+            @inbounds for i in 1:len
+                cosbuf[i] = cos(angles[i])
+                sinbuf[i] = sin(angles[i])
+            end
+        end
+    else
+        # Scalar fallback when IVM is not available
+        @inbounds for i in 1:len
+            cosbuf[i] = cos(angles[i])
+            sinbuf[i] = sin(angles[i])
+        end
+    end
 
     return [get_constant_expression(Complex{T}(cosbuf[i], sinbuf[i]), n) for i in 1:len]
 end

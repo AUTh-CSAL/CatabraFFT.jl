@@ -240,45 +240,11 @@ function makefftradix(n::Int, suffixes::SuffixFlags, D::Union{Vector{Union{Strin
     stride = op.stride
     input_spacing = SIZE ÷ radix  # Spacing between input elements in each butterfly
     
-    # INPUT indexing: Check if this is a final-stage template (has VEC flag)
-    # Final stage templates use consecutive indices; substitute_strided_final_loop transforms them
-    # Non-final stages use strided indices to read from different parts of input
-    @show suffixes
-    is_final_template = has_flag(suffixes, VEC)
-    @show is_final_template
-
-    if mode == :default
-        if is_final_template
-            # Final stage template: consecutive indices for transformation
-            x = ["$(input)$(i)" for i in 1:radix]
-        else
-            # Non-final stage: strided indices to read correct input portions
-            x = ["$(input)$(p + 1 + (i-1)*input_spacing)" for i in 1:radix]
-        end
-    else
-        x = ["v_all$(p + 1 + (i-1)*input_spacing)" for i in 1:radix]
-    end
-    #TODO Convert "x" input values to "v$i" / "v_all" respectible vector capacities as constructed by load_gen_simd lamda
-
-    # OUTPUT indexing: Multiply by 2 for T representation (2 floats per complex)
+    x = mode == :default ? ["$(input)$(p + 1 + (i-1)*input_spacing)" for i in 1:radix] : ["v_all$(p + 1 + (i-1)*input_spacing)" for i in 1:radix] 
     base = 2 * ((p ÷ stride) * (stride * radix) + (p % stride))
 
-    # y needs 2*radix elements because recfft2 with root=true expects 2*n elements (real + imag)
-    # For final stages: consecutive (substitute_strided_final_loop transforms later)
-    # For non-final stages: strided by stride (Stockham pattern)
-    if is_final_template
-        # Final stage: consecutive indices
-        y = ["$output[$(base + 1 + i)]" for i in 0:2*radix-1]
-    else
-        # Non-final stage: strided indices (Stockham DIF pattern)
-        # stride is in complex units, need to multiply by 2 for float representation
-        y = String[]
-        for k in 0:radix-1
-            offset = 2 * k * stride  # Convert complex stride to float offset
-            push!(y, "$output[$(base + 1 + offset)]")      # real part
-            push!(y, "$output[$(base + 1 + offset + 1)]")  # imag part (consecutive with real)
-        end
-    end
+    y = ["$output[$(base + 1 + i)]" for i in 0:2*radix-1]
+    @show x, y
     
     d = isempty(D) ? nothing : D
     
@@ -296,7 +262,7 @@ function makefftradix(n::Int, suffixes::SuffixFlags, D::Union{Vector{Union{Strin
         return quote end
     else
         try
-            parsed_expr = Meta.parse("begin\n$kernel_code\nend")
+            @show parsed_expr = Meta.parse("begin\n$kernel_code\nend")
             return parsed_expr
         catch e
             @warn "Failed to parse kernel code: $e"
@@ -610,7 +576,7 @@ function get_twiddle_expression(ks, n; T=Float64, accuracy=nothing)
 
     return twiddles
 end
-
+#
 # Scalar version of the recursive radix generator for n = 2^q sizes
 function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1, mode=:default, py="", input_buffer="x") where T <: AbstractFloat
   n = length(x)

@@ -192,10 +192,9 @@ function substitute_strided_final_loop(kernel_expr::Expr, out_var, in_var, strid
     in_sym = in_var isa Symbol ? in_var : Symbol(in_var)
 
     # Recursive transformation for Stockham algorithm final stage
-    # For radix-R butterfly at iteration i:
-    # - Inputs come from x at positions: i, i+stride, i+2*stride, ..., i+(R-1)*stride
-    # - Outputs go to y at positions: i, i+stride, i+2*stride, ..., i+(R-1)*stride
-    # With real/imag interleaving: position k = 2*k + [0 for real, 1 for imag]
+    # Template indices map directly to loop positions via:
+    # Loop position = (idx-1) + template_position * stride (in complex units)
+    # Float offset = 2 * template_position * stride
     @inline function transform(ex, is_lhs::Bool)
         if isa(ex, Expr)
             if ex.head == :ref && length(ex.args) == 2
@@ -204,20 +203,24 @@ function substitute_strided_final_loop(kernel_expr::Expr, out_var, in_var, strid
 
                 # Transform array indices for strided Stockham pattern
                 if (arr_sym == out_sym || arr_sym == in_sym) && isa(idx_val, Int)
-                    # Determine which complex element this is (0-indexed)
+                    # Determine which complex element this is in the template (0-indexed)
                     # Float indices come in pairs: [1,2] = complex 0, [3,4] = complex 1, etc.
-                    complex_num = (idx_val - 1) ÷ 2  # Which complex element (0, 1, 2, ...)
+                    template_complex_num = (idx_val - 1) ÷ 2
                     is_imag = (idx_val - 1) % 2 == 1  # Is this the imaginary part?
 
-                    # Stockham final stage: element k of iteration idx goes to position (idx + k*stride)
-                    # In float indices: 2*(idx + k*stride) - 1 for real, 2*(idx + k*stride) for imag
-                    # Note: idx is 1-indexed loop variable (1 to stride)
-                    if complex_num == 0
-                        # First complex: position idx
+                    # Direct mapping: template_complex_num to loop position
+                    # Stockham pattern: position (idx-1) + k*stride in complex units
+                    # where k is the relative butterfly position (0, 1, 2, ...)
+                    # template_complex_num is absolute (e.g., 0, 8, 16 for stride=8)
+                    # we need relative k = template_complex_num ÷ stride
+                    # offset in float units = 2 * k * stride
+                    if template_complex_num == 0
+                        # First element: position idx-1
                         return is_imag ? Expr(:ref, arr_sym, :(2*idx)) : Expr(:ref, arr_sym, :(2*idx - 1))
                     else
-                        # Other complex: position idx + k*stride
-                        offset = 2 * complex_num * stride
+                        # Other elements: offset by relative template position scaled by stride
+                        template_position = template_complex_num ÷ stride
+                        offset = 2 * template_position * stride
                         return is_imag ?
                             Expr(:ref, arr_sym, :(2*idx + $offset)) :
                             Expr(:ref, arr_sym, :(2*idx + $(offset - 1)))
