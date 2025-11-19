@@ -191,52 +191,88 @@ function substitute_strided_final_loop(kernel_expr::Expr, out_var, in_var, strid
     out_sym = out_var isa Symbol ? out_var : Symbol(out_var)
     in_sym = in_var isa Symbol ? in_var : Symbol(in_var)
 
-    # Recursive transformation for Stockham algorithm final stage
-    # Template indices map directly to loop positions via:
-    # Loop position = (idx-1) + template_position * stride (in complex units)
-    # Float offset = 2 * template_position * stride
+    # Recursive transformation for a generic strided Stockham stage.
     @inline function transform(ex, is_lhs::Bool)
         if isa(ex, Expr)
             if ex.head == :ref && length(ex.args) == 2
                 arr_sym = ex.args[1] isa Symbol ? ex.args[1] : Symbol(ex.args[1])
                 idx_val = ex.args[2]
 
-                # Transform array indices for strided Stockham pattern
                 if (arr_sym == out_sym || arr_sym == in_sym) && isa(idx_val, Int)
-                    # Determine which complex element this is in the template (0-indexed)
-                    # Float indices come in pairs: [1,2] = complex 0, [3,4] = complex 1, etc.
-                    template_complex_num = (idx_val - 1) ÷ 2
+                    
+                    # ------------------------------------------------------------------
+                    # UNIFIED STRIDED ACCESS LOGIC (Ensuring compile-time offset)
+                    # Maps template indices (1 to 2*radix) to strided access.
+                    # ------------------------------------------------------------------
+                    
+                    # Determine the complex index (0-based) in the template.
+                    # Example: 1->0, 2->0 (real/imag of C0), 3->1, 4->1 (real/imag of C1), etc.
+                    template_complex_num = (idx_val - 1) ÷ 2 
                     is_imag = (idx_val - 1) % 2 == 1  # Is this the imaginary part?
 
-                    # Direct mapping: template_complex_num to loop position
-                    # Stockham pattern: position (idx-1) + k*stride in complex units
-                    # where k is the relative butterfly position (0, 1, 2, ...)
-                    # template_complex_num is absolute (e.g., 0, 8, 16 for stride=8)
-                    # we need relative k = template_complex_num ÷ stride
-                    # offset in float units = 2 * k * stride
-                    if template_complex_num == 0
-                        # First element: position idx-1
-                        return is_imag ? Expr(:ref, arr_sym, :(2*idx)) : Expr(:ref, arr_sym, :(2*idx - 1))
+                    # The relative butterfly position (k in the equation)
+                    # This is the complex position *within the radix block*.
+                    # For a radix-R kernel, the positions are typically: 
+                    # 0, 1, 2, ..., R-1 (for the result/output part)
+                    # 0, R, 2R, ..., (R-1)R (for the load/input part)
+                    
+                    # We must find the complex element's position relative to the first element (position 0)
+                    # and SCALE this by the stride.
+                    
+                    # For a standard R-radix kernel operating on contiguous data (stride=1 effectively):
+                    # - If template index is for a LOAD: template_complex_num = k * radix (e.g., 0, 4, 8, 12 for radix 4)
+                    # - If template index is for a STORE: template_complex_num = k (e.g., 0, 1, 2, 3 for radix 4)
+                    
+                    # Since the input kernel is already pre-generated with contiguous indices,
+                    # we use the template index to find the offset in complex units, and then scale by stride.
+                    
+                    if is_lhs # STORE indices (Outputs of the butterfly)
+                        # Template indices are 1-based. Example: Radix 4 kernel outputs to positions 1, 3, 5, 7, ...
+                        # Complex positions (0-based) relative to the start of the block: 0, 1, 2, 3
+                        # Final indices must be strided: 0*stride, 1*stride, 2*stride, 3*stride
+                        k = template_complex_num # k = 0, 1, 2, 3 (for radix=4)
+                        
+                    else # LOAD indices (Inputs of the butterfly)
+                        # Template indices for loads are 1-based. Example: Radix 4 kernel loads from positions 1, 9, 17, 25
+                        # Complex positions (0-based) relative to the start of the block: 0, 4, 8, 12
+                        # The scaling factor 'k' here is template_complex_num / radix
+                        k = template_complex_num ÷ radix # k = 0, 1, 2, 3 (for radix=4)
+                    end
+                    
+                    # The float offset due to the strided access (k * stride * 2)
+                    # This MUST be calculated as a literal Int and spliced in.
+                    strided_float_offset::Int = k * stride * 2
+
+                    # The base index expression (real part of the first element in the loop block)
+                    float_start_of_current_group = :(2*idx - 1)
+                    
+                    # Final index expression
+                    # The index for the imaginary part is always 1 greater than the real part
+                    if is_imag
+                        return Expr(:ref, arr_sym, :($float_start_of_current_group + $strided_float_offset + 1))
                     else
-                        # Other elements: offset by relative template position scaled by stride
-                        template_position = template_complex_num ÷ stride
-                        offset = 2 * template_position * stride
-                        return is_imag ?
-                            Expr(:ref, arr_sym, :(2*idx + $offset)) :
-                            Expr(:ref, arr_sym, :(2*idx + $(offset - 1)))
+                        return Expr(:ref, arr_sym, :($float_start_of_current_group + $strided_float_offset))
                     end
                 end
 
+            # Recursive traversal for assignment expressions
             elseif ex.head == :(=)
+                # Apply the strided logic to both LHS (Store) and RHS (Load)
                 return Expr(:(=), transform(ex.args[1], true), transform(ex.args[2], false))
+                
+            # Recursive traversal for tuples, blocks, calls, etc.
             else
+                # For non-assignment expressions, the is_lhs status doesn't change for children
                 return Expr(ex.head, [transform(arg, is_lhs) for arg in ex.args]...)
             end
         end
         return ex
     end
 
-    return transform(kernel_expr, false)
+    # The transform function is called once on the entire kernel expression
+    kernel_expr = transform(kernel_expr, false)
+    
+    return kernel_expr
 end
 
 # Benchmarking function with optimized execution

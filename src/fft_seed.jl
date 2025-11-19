@@ -244,7 +244,6 @@ function makefftradix(n::Int, suffixes::SuffixFlags, D::Union{Vector{Union{Strin
     base = 2 * ((p ÷ stride) * (stride * radix) + (p % stride))
 
     y = ["$output[$(base + 1 + i)]" for i in 0:2*radix-1]
-    @show x, y
     
     d = isempty(D) ? nothing : D
     
