@@ -125,7 +125,7 @@ end
 
 function generate_local_constants_dict(n::Int, ::Type{T}) where T <: AbstractFloat
     @assert ispow2(n) "n must be a power of 2"
-    @assert n >= 8 "n must be at least 8"
+    #@assert n >= 8 "n must be at least 8"
 
     # Collect all unique reduced fractions needed for all sizes from 8 up to n
     fractions = Vector{Tuple{Int,Int}}()
@@ -270,245 +270,170 @@ function generate_D_kernel(p, radix::Int, current_stride::Int, next_stride::Int,
     (next_stride == 1 || n_groups == 1 || p == 1) && return Union{String, Twiddle}[]
 
     N = next_stride * n_groups
-    D_flat = create_D_kernel(radix, current_stride, next_stride, n_groups, T)
-
-    # D_flat is organized as: for each group j in [0, n_groups-1], all radix twiddles for that group
-    # Layout: [(k=0,j=0), (k=1,j=0), ..., (k=radix-1,j=0), (k=0,j=1), (k=1,j=1), ..., (k=radix-1,j=n_groups-1)]
-    # Extract column p (1-indexed), which corresponds to group j = p-1
-    # Convert numerical twiddles to symbolic representations for compile-time optimization
-    result = Union{String, Twiddle}[]
-    sizehint!(result, radix-1)
-
     j = p - 1  # Convert to 0-indexed group
-    @inbounds for k in 1:(radix-1)  # Skip k=0 (identity), extract k=1 to radix-1
-        # Twiddle for (k, j) is at indices: 2*j*radix + 2*k + 1 (cos), 2*j*radix + 2*k + 2 (sin)
-        cos_idx = 2*j*radix + 2*k + 1
-        sin_idx = 2*j*radix + 2*k + 2
 
-        # Reconstruct complex twiddle factor from cos/sin
-        w = Complex{T}(D_flat[cos_idx], D_flat[sin_idx])
+    # Compute effective k values for analytical twiddle generation
+    # Each twiddle is cispi(-2 * k * current_stride * j / N)
+    # which equals cispi(-2 * effective_k / N) where effective_k = k * current_stride * j
+    ks = [k * current_stride * j for k in 1:(radix-1)]
 
-        # Convert to symbolic representation (String or Twiddle tuple)
-        symbolic_w = get_constant_expression(w, N)
-        push!(result, symbolic_w)
+    # Use analytical twiddle expression generator (no trig computation!)
+    return get_twiddle_expression(ks, N; T=T)
+end
+
+# Helper function to classify twiddle factors analytically
+# Returns the appropriate string or Twiddle representation for cispi(-2k/n)
+# Constrains numerator to be <= denominator/4 to match generate_local_constants_dict
+@inline function classify_twiddle_factor(k_norm::Int, n::Int)
+    # w_k = cispi(-2k/n) where k_norm is already normalized to [0, n)
+
+    # Reduce the fraction 2k/n to lowest terms
+    numerator = 2 * k_norm
+    g = gcd(numerator, n)
+    num = numerator ÷ g
+    den = n ÷ g
+
+    # Now we have cispi(-num/den)
+    # Normalize to [0, 2) by taking mod 2
+    phase_times_den = mod(-num, 2*den)  # This gives (-num mod 2*den)
+
+    # Reduce this fraction to lowest terms
+    g2 = gcd(phase_times_den, den)
+    phase_num = phase_times_den ÷ g2
+    phase_den = den ÷ g2
+
+    # Now phase = phase_num/phase_den ∈ [0, 2)
+    # We want to express cispi(phase_num/phase_den) using only base twiddles
+    # where the numerator is <= denominator/4
+
+    # Use transformations to reduce to canonical form:
+    # cispi(x + 1/2) = i * cispi(x)
+    # cispi(x + 1) = -cispi(x)
+    # cispi(x + 3/2) = -i * cispi(x)
+
+    # Classify based on which octant phase falls into:
+    # [0, 1/4]: Q1,    [1/4, 1/2]: ImQ4,   [1/2, 3/4]: ImQ1,    [3/4, 1]: NegQ4
+    # [1, 5/4]: NegQ1, [5/4, 3/2]: NegImQ4, [3/2, 7/4]: NegImQ1, [7/4, 2]: Q4
+
+    # Check boundaries using integer arithmetic to avoid floating point
+    # phase < 1/4 iff 4*phase_num < phase_den
+    if 4 * phase_num <= phase_den
+        # phase ∈ [0, 1/4]: cispi(phase) = cispi(r/s) where r/s = phase
+        return (phase_num, phase_den, Q1)
+
+    elseif 2 * phase_num <= phase_den
+        # phase ∈ (1/4, 1/2]: cispi(phase) = cispi(1/2 - r/s)
+        # = i * cispi(-r/s) where r/s = 1/2 - phase
+        # r/s = (phase_den - 2*phase_num) / (2*phase_den)
+        base_num = phase_den - 2 * phase_num
+        base_den = 2 * phase_den
+        g3 = gcd(base_num, base_den)
+        return (base_num ÷ g3, base_den ÷ g3, ImQ4)
+
+    elseif 4 * phase_num <= 3 * phase_den
+        # phase ∈ (1/2, 3/4]: cispi(phase) = cispi(1/2 + r/s)
+        # = i * cispi(r/s) where r/s = phase - 1/2
+        # r/s = (2*phase_num - phase_den) / (2*phase_den)
+        base_num = 2 * phase_num - phase_den
+        base_den = 2 * phase_den
+        g3 = gcd(base_num, base_den)
+        return (base_num ÷ g3, base_den ÷ g3, ImQ1)
+
+    elseif phase_num <= phase_den
+        # phase ∈ (3/4, 1]: cispi(phase) = cispi(1 - r/s)
+        # = -cispi(-r/s) where r/s = 1 - phase
+        # r/s = (phase_den - phase_num) / phase_den
+        base_num = phase_den - phase_num
+        g3 = gcd(base_num, phase_den)
+        return (base_num ÷ g3, phase_den ÷ g3, NegQ4)
+
+    elseif 4 * phase_num <= 5 * phase_den
+        # phase ∈ (1, 5/4]: cispi(phase) = cispi(1 + r/s)
+        # = -cispi(r/s) where r/s = phase - 1
+        # r/s = (phase_num - phase_den) / phase_den
+        base_num = phase_num - phase_den
+        g3 = gcd(base_num, phase_den)
+        return (base_num ÷ g3, phase_den ÷ g3, NegQ1)
+
+    elseif 2 * phase_num <= 3 * phase_den
+        # phase ∈ (5/4, 3/2]: cispi(phase) = cispi(3/2 - r/s)
+        # = -i * cispi(-r/s) where r/s = 3/2 - phase
+        # r/s = (3*phase_den - 2*phase_num) / (2*phase_den)
+        base_num = 3 * phase_den - 2 * phase_num
+        base_den = 2 * phase_den
+        g3 = gcd(base_num, base_den)
+        return (base_num ÷ g3, base_den ÷ g3, NegImQ4)
+
+    elseif 4 * phase_num <= 7 * phase_den
+        # phase ∈ (3/2, 7/4]: cispi(phase) = cispi(3/2 + r/s)
+        # = -i * cispi(r/s) where r/s = phase - 3/2
+        # r/s = (2*phase_num - 3*phase_den) / (2*phase_den)
+        base_num = 2 * phase_num - 3 * phase_den
+        base_den = 2 * phase_den
+        g3 = gcd(base_num, base_den)
+        return (base_num ÷ g3, base_den ÷ g3, NegImQ1)
+
+    else
+        # phase ∈ (7/4, 2): cispi(phase) = cispi(2 - r/s)
+        # = cispi(-r/s) where r/s = 2 - phase
+        # r/s = (2*phase_den - phase_num) / phase_den
+        base_num = 2 * phase_den - phase_num
+        g3 = gcd(base_num, phase_den)
+        return (base_num ÷ g3, phase_den ÷ g3, Q4)
+    end
+end
+
+# Unified twiddle factor expression generator using analytical mathematics
+# w_k = e^(-2πik/n) = cispi(-2k/n) for k in ks array
+# Returns symbolic representations without computing actual trigonometric values
+@inline function get_twiddle_expression(ks::AbstractVector{<:Integer}, n::Integer; T::Type = Float64, accuracy=nothing)
+    result = Union{String, Twiddle}[]
+    sizehint!(result, length(ks))
+
+    for k in ks
+        # Normalize k to 0 <= k < n
+        k_norm = mod(k, n)
+
+        # Fast paths for common special cases
+        if k_norm == 0
+            # cispi(0) = 1
+            push!(result, "1")
+        elseif 2 * k_norm == n  # k = n/2
+            # cispi(-1) = -1
+            push!(result, "-1")
+        elseif 4 * k_norm == n  # k = n/4
+            # cispi(-1/2) = -i
+            push!(result, "-im")
+        elseif 4 * k_norm == 3 * n  # k = 3n/4
+            # cispi(-3/2) = cispi(1/2) = i
+            push!(result, "im")
+        elseif 8 * k_norm == n  # k = n/8
+            # cispi(-1/4) = (1-i)/√2
+            push!(result, "INV_SQRT2_Q4")
+        elseif 8 * k_norm == 3 * n  # k = 3n/8
+            # cispi(-3/4) = -(1+i)/√2
+            push!(result, "-INV_SQRT2_Q1")
+        elseif 8 * k_norm == 5 * n  # k = 5n/8
+            # cispi(-5/4) = cispi(3/4) = -(1-i)/√2
+            push!(result, "-INV_SQRT2_Q4")
+        elseif 8 * k_norm == 7 * n  # k = 7n/8
+            # cispi(-7/4) = cispi(1/4) = (1+i)/√2
+            push!(result, "INV_SQRT2_Q1")
+        else
+            # General case: classify analytically
+            push!(result, classify_twiddle_factor(k_norm, n))
+        end
     end
 
     return result
 end
 
-@inline function create_D_kernel(radix::Int, current_stride::Int, next_stride::Int, n_groups::Int, ::Type{T})::Vector{T} where T <: AbstractFloat
-    N = next_stride * n_groups
-    n_elements = radix * n_groups
-
-    # Output: [cos1, sin1, cos2, sin2, ...] interleaved
-    d_real = Vector{T}(undef, 2 * n_elements)
-
-    if USE_IVM && n_elements > 16
-        # Use IntelVectorMath for vectorized cos/sin computation
-        phases = Vector{T}(undef, n_elements)
-        phase_factor = T(-2 / N)
-
-        idx = 1
-        @inbounds @simd for j in 0:(n_groups-1)
-            for k in 0:(radix-1)
-                phase_val = phase_factor * k * current_stride * j
-                # Avoid -0.0 which can cause issues
-                phases[idx] = iszero(phase_val) ? zero(T) : phase_val
-                idx += 1
-            end
-        end
-
-        # Compute cos and sin using IVM
-        cos_vals, sin_vals = fast_cossinpi(phases, T)
-
-        # Interleave cos and sin
-        @inbounds @simd for i in 1:n_elements
-            d_real[2*i - 1] = cos_vals[i]
-            d_real[2*i] = sin_vals[i]
-        end
-    else
-        # Scalar fallback
-        phase = T(-2 / N)
-        idx = 1
-        @inbounds @simd for j in 0:(n_groups-1)
-            for k in 0:(radix-1)
-                angle = phase * k * current_stride * j
-                d_real[idx] = cospi(angle)
-                d_real[idx + 1] = sinpi(angle)
-                idx += 2
-            end
-        end
-    end
-
-    return d_real
-end
-
-function get_constant_expression(w::Complex{T}, n::Integer) where T <: AbstractFloat
-    real_part = real(w)
-    imag_part = imag(w)
-    tol = eps(T) * 20
-
-    @inline isclose(a, b) = abs(a - b) < tol
-
-    # Fast path: check simple constants first
-    if isclose(real_part, 1.0) && isclose(imag_part, 0.0)
-        return "1"
-    elseif isclose(real_part, -1.0) && isclose(imag_part, 0.0)
-        return "-1"
-    elseif isclose(real_part, 0.0) && isclose(imag_part, 1.0)
-        return "im"
-    elseif isclose(real_part, 0.0) && isclose(imag_part, -1.0)
-        return "-im"
-    end
-
-    # Check sqrt(2) cases
-    inv_sqrt2 = T(1/√2)
-    if isclose(real_part, inv_sqrt2) && isclose(imag_part, inv_sqrt2)
-        return "INV_SQRT2_Q1"
-    elseif isclose(real_part, inv_sqrt2) && isclose(imag_part, -inv_sqrt2)
-        return "INV_SQRT2_Q4"
-    elseif isclose(real_part, -inv_sqrt2) && isclose(imag_part, inv_sqrt2)
-        return "-INV_SQRT2_Q4"
-    elseif isclose(real_part, -inv_sqrt2) && isclose(imag_part, -inv_sqrt2)
-        return "-INV_SQRT2_Q1"
-    end
-
-    # Check twiddle factors
-    n_half = n ÷ 2
-    @inbounds for k in 1:(n_half-1)
-        gcd_val = gcd(k, n_half)
-        num = k ÷ gcd_val
-        den = n_half ÷ gcd_val
-
-        w_basic = cispi(T(-num/den))
-        re_basic = real(w_basic)
-        im_basic = imag(w_basic)
-
-        # Check all phase/sign combinations for Q4 (negative angle)
-        if isclose(real_part, re_basic) && isclose(imag_part, im_basic)
-            return (num, den, Q4)
-        elseif isclose(real_part, -re_basic) && isclose(imag_part, -im_basic)
-            return (num, den, NegQ4)
-        elseif isclose(real_part, -im_basic) && isclose(imag_part, re_basic)
-            return (num, den, ImQ4)
-        elseif isclose(real_part, im_basic) && isclose(imag_part, -re_basic)
-            return (num, den, NegImQ4)
-        end
-
-        w_pos = cispi(T(num/den))
-        re_pos = real(w_pos)
-        im_pos = imag(w_pos)
-
-        # Check all phase/sign combinations for Q1 (positive angle)
-        if isclose(real_part, re_pos) && isclose(imag_part, im_pos)
-            return (num, den, Q1)
-        elseif isclose(real_part, -re_pos) && isclose(imag_part, -im_pos)
-            return (num, den, NegQ1)
-        elseif isclose(real_part, -im_pos) && isclose(imag_part, re_pos)
-            return (num, den, ImQ1)
-        elseif isclose(real_part, im_pos) && isclose(imag_part, -re_pos)
-            return (num, den, NegImQ1)
-        end
-    end
-
-    # Fallback to literal value
-    sign = imag_part >= 0 ? "+" : ""
-    return "($(round(real_part, digits=16))$sign$(round(imag_part, digits=16))*im)"
-end
 
 @inline function extract_plan_data(plan::T) where T
     if !(:n in fieldnames(T)) || !(:operations in fieldnames(T))
         error("Invalid plan type: missing required fields")
     end
     return (n=plan.n, operations=plan.operations)
-end
-
-#=
-function get_twiddle_expression(collect::Vector{Int}, n::Int)::Vector{String}
-    #if USE_IVM && n > 16
-    wn = cispi.(-2/n * collect)
-    return [get_constant_expression(w, n) for w in wn]
-end
-
-=#
-
-"""
-get_twiddle_expression(ks, n; T=Float32, accuracy=nothing)
-
-Compute twiddle factors for indices `ks` (vector of integers) for transform length `n`.
-Returns a Vector of tuples (wr, wi) where wr = cos(-2π*k/n), wi = sin(-2π*k/n),
-computed using IntelVectorMath.jl (IVM) mutating APIs for best throughput.
-
-Arguments
-- ks : Vector{<:Integer} — indices (supports zero-based ks like 0:(n/2-1))
-- n  : Int — FFT length (denominator of angle)
-- T  : Float32 or Float64 (default Float32) — element type for trig evaluation
-- accuracy : optional symbol to set VML accuracy, e.g. :HA (high), :LA (low), :EP (enhanced perf)
-
-Return
-- Vector{Tuple{T,T}} where each entry is (cosθ, sinθ) for θ = -2π * k / n
-"""
-function get_twiddle_expression(ks::AbstractVector{<:Integer}, n::Integer; T::Type = Float32, accuracy=nothing)
-    len = length(ks)
-    if len == 0
-        return Vector{Tuple{T,T}}()
-    end
-
-    # Prepare angle array (θ = -2π * k / n) as T
-    angles = Vector{T}(undef, len)
-    two_pi = T(2pi)
-    # ks may be zero-based (you used collect(0:n2-1)); preserve that semantics
-    @inbounds for i in 1:len
-        k = ks[i]
-        angles[i] = -two_pi * T(k) / T(n)
-    end
-
-    # Optionally control accuracy/mode (wrap IVM calls; recommended values: :HA, :LA, :EP)
-    # Use IVM.vml_set_accuracy if caller wants to tune speed vs accuracy.
-    # Map friendly symbols to IVM constants if provided
-    if !isnothing(accuracy)
-        # allowed symbols: :HA, :LA, :EP  (matches Intel VML accuracy modes)
-        try
-            if accuracy === :LA
-                IVM.vml_set_accuracy(IVM.VML_LA)
-            elseif accuracy === :EP
-                IVM.vml_set_accuracy(IVM.VML_EP)
-            elseif accuracy === :HA
-                IVM.vml_set_accuracy(IVM.VML_HA)
-            else
-                @warn "Unknown accuracy symbol; ignoring" accuracy
-            end
-        catch e
-            @warn "Could not set IVM accuracy: $e"
-        end
-    end
-
-    # Allocate destination buffers (mutating, no extra allocations other than these)
-    cosbuf = Vector{T}(undef, len)
-    sinbuf = Vector{T}(undef, len)
-
-    # Compute cos and sin via IntelVectorMath in-place functions (fast, threaded)
-    # The mutating (!) forms accept 1D strided arrays and are much faster than broadcasting.
-    if USE_IVM
-        try
-            IVM.cos!(cosbuf, angles)
-            IVM.sin!(sinbuf, angles)
-        catch e
-            # Fallback to scalar computation if IVM fails
-            @inbounds for i in 1:len
-                cosbuf[i] = cos(angles[i])
-                sinbuf[i] = sin(angles[i])
-            end
-        end
-    else
-        # Scalar fallback when IVM is not available
-        @inbounds for i in 1:len
-            cosbuf[i] = cos(angles[i])
-            sinbuf[i] = sin(angles[i])
-        end
-    end
-
-    return [get_constant_expression(Complex{T}(cosbuf[i], sinbuf[i]), n) for i in 1:len]
 end
 
 end
