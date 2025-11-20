@@ -428,8 +428,7 @@ end
     return result
 end
 
-
-@inline function extract_plan_data(plan::T) where T
+function extract_plan_data(plan::T) where T
     if !(:n in fieldnames(T)) || !(:operations in fieldnames(T))
         error("Invalid plan type: missing required fields")
     end

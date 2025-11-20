@@ -228,7 +228,7 @@ end
 function makefftradix(n::Int, suffixes::SuffixFlags, D::Union{Vector{Union{String, Twiddle}}, Vector{T}}, p::Int, op, SIZE::Int, ::Type{T}, SIMD_BITS) where T <: AbstractFloat
     global inc = inccounter()
     
-    mode = :default # ALL ME
+    mode = :vgather # ALL ME
 
     input, output = String(op.input_buffer), String(op.output_buffer)
     
@@ -670,381 +670,131 @@ function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1, mode=:default, py="", 
   return s
 end
 
-# Helper function to apply twiddle factors using SIMD
-function apply_twiddle_simd(vec_name, twiddle, T, n_complex)
-    if twiddle == "1"
-        ""
-    elseif twiddle == "-im"
-        # -im rotation: swap and negate real part
-        """
-        $vec_name = shufflevector($vec_name, Val((1,0))) * Vec{2,$T}((-1,1))
-        """
-    elseif twiddle == "INV_SQRT2_Q4"
-        # (1-i)/√2
-        """
-        v_tmp_sum = shufflevector($vec_name, Val((0,0))) + shufflevector($vec_name, Val((1,1)))
-        v_tmp_diff = shufflevector($vec_name, Val((1,1))) - shufflevector($vec_name, Val((0,0)))
-        $vec_name = shufflevector(v_tmp_sum, v_tmp_diff, Val((0,2))) * Vec{2,$T}((INV_SQRT2, INV_SQRT2))
-        """
-    else
-        # General twiddle - extract cos/sin values
-        if startswith(twiddle, "CISPI")
-            parsed = parse_cispi(twiddle)
-            c = "COSPI_$(parsed.num)_$(parsed.den)"
-            s = parsed.q1 ? "SINPI_$(parsed.num)_$(parsed.den)" : "-SINPI_$(parsed.num)_$(parsed.den)"
-            
-            """
-            # Complex multiply by ($c, $s)
-            v_r = $vec_name[1] * $c - $vec_name[2] * $s
-            v_i = $vec_name[1] * $s + $vec_name[2] * $c
-            $vec_name = Vec{2,$T}((v_r, v_i))
-            """
-        else
-            ""
-        end
-    end
-end
-
-# Core SIMD saturated arithmetic for complex numbers stored as [r1,i1,r2,i2,...]
-function sat_expr_simd_vec(sign::String, v1_name::String, v2_name::String, w::String, ::Type{T}, n_complex::Int) where T <: AbstractFloat
-    """
-    Perform complex butterfly with twiddle: (v1 ± v2) * w
-    Vectors store complex as interleaved: [r1,i1,r2,i2,...]
-    """
-    
-    if w == "1"
-        # Simple add/subtract
-        op = sign == "+" ? "+" : "-"
-        return """
-        Vec{$(2*n_complex),$T}($v1_name $op $v2_name)
-        """
-        
-    elseif w == "-im"
-        # -i * (v1 ± v2) = ±(i1 ∓ i2) ± i*(r1 ∓ r2)
-        # Result: swap real/imag and negate appropriately
-        op = sign == "+" ? "+" : "-"
-        return """
-        begin
-            diff = $v1_name $op $v2_name
-            # Swap real/imag: [r,i] -> [i,-r] for -im multiplication
-            shufflevector(diff, Val($(join([2*i-1 for i in 1:n_complex], ",")))) * 
-                Vec{$(2*n_complex),$T}($((join(["1" for _ in 1:n_complex], ",")))) -
-            shufflevector(diff, Val($(join([2*i-2 for i in 1:n_complex], ",")))) * 
-                Vec{$(2*n_complex),$T}($((join(["1" for _ in 1:n_complex], ","))))
-        end
-        """
-        
-    elseif w == "INV_SQRT2_Q4"
-        # (v1 ± v2) * (1-i)/√2 = [(r±s+i±t)/√2, (i±t-r∓s)/√2]
-        op = sign == "+" ? "+" : "-"
-        return """
-        begin
-            diff = $v1_name $op $v2_name
-            r_plus_i = shufflevector(diff, Val($(join([i for i in 0:2*n_complex-1 if i%2==0], ",")))) + 
-                       shufflevector(diff, Val($(join([i for i in 0:2*n_complex-1 if i%2==1], ","))))
-            i_minus_r = shufflevector(diff, Val($(join([i for i in 0:2*n_complex-1 if i%2==1], ",")))) - 
-                        shufflevector(diff, Val($(join([i for i in 0:2*n_complex-1 if i%2==0], ","))))
-            # Interleave back: [r1,i1,r2,i2,...]
-            shufflevector(r_plus_i, i_minus_r, Val($(join(vcat([[2*i,2*i+n_complex] for i in 0:n_complex-1]...), ",")))) * 
-                Vec{$(2*n_complex),$T}(($(join(["INV_SQRT2" for _ in 1:2*n_complex], ","))))
-        end
-        """
-        
-    elseif w == "-INV_SQRT2_Q1"
-        # -(v1 ± v2) * (1+i)/√2 = [-(r±s-i∓t)/√2, -(r±s+i±t)/√2]
-        op = sign == "+" ? "+" : "-"
-        return """
-        begin
-            diff = $v1_name $op $v2_name
-            i_minus_r = shufflevector(diff, Val($(join([i for i in 0:2*n_complex-1 if i%2==1], ",")))) - 
-                        shufflevector(diff, Val($(join([i for i in 0:2*n_complex-1 if i%2==0], ","))))
-            neg_r_plus_i = -(shufflevector(diff, Val($(join([i for i in 0:2*n_complex-1 if i%2==0], ",")))) + 
-                            shufflevector(diff, Val($(join([i for i in 0:2*n_complex-1 if i%2==1], ",")))))
-            shufflevector(i_minus_r, neg_r_plus_i, Val($(join(vcat([[2*i,2*i+n_complex] for i in 0:n_complex-1]...), ",")))) * 
-                Vec{$(2*n_complex),$T}(($(join(["INV_SQRT2" for _ in 1:2*n_complex], ","))))
-        end
-        """
-        
-    else
-        # General CISPI twiddle factors
-        parsed = parse_cispi(w)
-        num, den, is_q1 = parsed.num, parsed.den, parsed.q1
-        c = "COSPI_$(num)_$(den)"
-        s = "SINPI_$(num)_$(den)"
-        
-        # Build cosine and sine vectors (broadcast to all complex numbers)
-        cos_vec = "Vec{$(2*n_complex),$T}(($(join(["$c" for _ in 1:2*n_complex], ","))))"
-        sin_vec = "Vec{$(2*n_complex),$T}(($(join(["$s" for _ in 1:2*n_complex], ","))))"
-        
-        if startswith(w, "CISPI")
-            # (a+bi)(c+di) = (ac-bd) + i(ad+bc)
-            # Q1: cos+i*sin, Q4: cos-i*sin
-            sign_s = is_q1 ? "+" : "-"
-            op = sign == "+" ? "+" : "-"
-            
-            return """
-            begin
-                diff = $v1_name $op $v2_name
-                # Extract real and imag parts
-                real_parts = shufflevector(diff, Val($(join([i for i in 0:2*n_complex-1 if i%2==0], ","))))
-                imag_parts = shufflevector(diff, Val($(join([i for i in 0:2*n_complex-1 if i%2==1], ","))))
-                
-                # Complex multiply: (r+ii) * (c±is)
-                # Result real: r*c ∓ i*s
-                # Result imag: r*s ± i*c
-                res_real = muladd(real_parts, $cos_vec[0:$(n_complex-1)], 
-                                  $(is_q1 ? "-" : "+")imag_parts * $sin_vec[0:$(n_complex-1)])
-                res_imag = muladd(real_parts, $sin_vec[0:$(n_complex-1)], 
-                                  $(is_q1 ? "+" : "-")imag_parts * $cos_vec[0:$(n_complex-1)])
-                
-                # Interleave back
-                shufflevector(res_real, res_imag, Val($(join(vcat([[2*i,2*i+n_complex] for i in 0:n_complex-1]...), ","))))
-            end
-            """
-            
-        elseif startswith(w, "-im*CISPI")
-            # -i*(cos±i*sin) = ±sin - i*cos
-            op = sign == "+" ? "+" : "-"
-            sign_real = is_q1 ? "+" : "-"
-            
-            return """
-            begin
-                diff = $v1_name $op $v2_name
-                real_parts = shufflevector(diff, Val($(join([i for i in 0:2*n_complex-1 if i%2==0], ","))))
-                imag_parts = shufflevector(diff, Val($(join([i for i in 0:2*n_complex-1 if i%2==1], ","))))
-                
-                # -i * (cos±i*sin) = ±sin - i*cos
-                res_real = muladd($(sign_real == "+" ? "" : "-")real_parts, $sin_vec[0:$(n_complex-1)], 
-                                  imag_parts * $cos_vec[0:$(n_complex-1)])
-                res_imag = muladd(-real_parts, $cos_vec[0:$(n_complex-1)], 
-                                  $(sign_real == "+" ? "" : "-")imag_parts * $sin_vec[0:$(n_complex-1)])
-                
-                shufflevector(res_real, res_imag, Val($(join(vcat([[2*i,2*i+n_complex] for i in 0:n_complex-1]...), ","))))
-            end
-            """
-            
-        elseif startswith(w, "-CISPI")
-            # -(cos±i*sin)
-            op = sign == "+" ? "+" : "-"
-            sign_s = is_q1 ? "-" : "+"
-            
-            return """
-            begin
-                diff = $v1_name $op $v2_name
-                real_parts = shufflevector(diff, Val($(join([i for i in 0:2*n_complex-1 if i%2==0], ","))))
-                imag_parts = shufflevector(diff, Val($(join([i for i in 0:2*n_complex-1 if i%2==1], ","))))
-                
-                res_real = muladd(-real_parts, $cos_vec[0:$(n_complex-1)], 
-                                  $(sign_s)imag_parts * $sin_vec[0:$(n_complex-1)])
-                res_imag = muladd(-real_parts, $sin_vec[0:$(n_complex-1)], 
-                                  $(is_q1 ? "-" : "+")imag_parts * $cos_vec[0:$(n_complex-1)])
-                
-                shufflevector(res_real, res_imag, Val($(join(vcat([[2*i,2*i+n_complex] for i in 0:n_complex-1]...), ","))))
-            end
-            """
-            
-        elseif startswith(w, "im*CISPI")
-            # i*(cos±i*sin) = ∓sin + i*cos
-            op = sign == "+" ? "+" : "-"
-            sign_real = is_q1 ? "-" : "+"
-            
-            return """
-            begin
-                diff = $v1_name $op $v2_name
-                real_parts = shufflevector(diff, Val($(join([i for i in 0:2*n_complex-1 if i%2==0], ","))))
-                imag_parts = shufflevector(diff, Val($(join([i for i in 0:2*n_complex-1 if i%2==1], ","))))
-                
-                res_real = muladd($(sign_real)real_parts, $sin_vec[0:$(n_complex-1)], 
-                                  -imag_parts * $cos_vec[0:$(n_complex-1)])
-                res_imag = muladd(real_parts, $cos_vec[0:$(n_complex-1)], 
-                                  $(sign_real)imag_parts * $sin_vec[0:$(n_complex-1)])
-                
-                shufflevector(res_real, res_imag, Val($(join(vcat([[2*i,2*i+n_complex] for i in 0:n_complex-1]...), ","))))
-            end
-            """
-        end
-    end
-end
-
-# Scalar version 1: Apply twiddle to single temp variable (tmp already computed)
-function sat_expr_simd_scalar(tmp::String, w::String, ::Type{T}) where T <: AbstractFloat
-    if w == "1"
-        return "$(tmp)_r, $(tmp)_i"
-    elseif w == "-im"
-        return "$(tmp)_i, -$(tmp)_r"
-    elseif w == "INV_SQRT2_Q4"
-        return "INV_SQRT2*($(tmp)_r + $(tmp)_i), INV_SQRT2*($(tmp)_i - $(tmp)_r)"
-    elseif w == "-INV_SQRT2_Q1"
-        return "INV_SQRT2*($(tmp)_i - $(tmp)_r), -INV_SQRT2*($(tmp)_r + $(tmp)_i)"
-    else
-        parsed = parse_cispi(w)
-        c = "COSPI_$(parsed.num)_$(parsed.den)"
-        s = "SINPI_$(parsed.num)_$(parsed.den)"
-        
-        if startswith(w, "CISPI")
-            if parsed.q1
-                return "muladd($c, $(tmp)_r, -$s * $(tmp)_i), muladd($s, $(tmp)_r, $c * $(tmp)_i)"
-            else
-                return "muladd($c, $(tmp)_r, $s * $(tmp)_i), muladd(-$s, $(tmp)_r, $c * $(tmp)_i)"
-            end
-        elseif startswith(w, "-im*CISPI")
-            if parsed.q1
-                return "muladd($s, $(tmp)_r, $c * $(tmp)_i), muladd(-$c, $(tmp)_r, $s * $(tmp)_i)"
-            else
-                return "muladd(-$s, $(tmp)_r, $c * $(tmp)_i), muladd(-$c, $(tmp)_r, -$s * $(tmp)_i)"
-            end
-        elseif startswith(w, "-CISPI")
-            if parsed.q1
-                return "muladd(-$c, $(tmp)_r, $s * $(tmp)_i), muladd(-$s, $(tmp)_r, -$c * $(tmp)_i)"
-            else
-                return "muladd(-$c, $(tmp)_r, -$s * $(tmp)_i), muladd($s, $(tmp)_r, -$c * $(tmp)_i)"
-            end
-        elseif startswith(w, "im*CISPI")
-            if parsed.q1
-                return "muladd(-$s, $(tmp)_r, -$c * $(tmp)_i), muladd($c, $(tmp)_r, -$s * $(tmp)_i)"
-            else
-                return "muladd($s, $(tmp)_r, -$c * $(tmp)_i), muladd($c, $(tmp)_r, $s * $(tmp)_i)"
-            end
-        end
-    end
-end
-
-# Scalar version 2: Butterfly operation with twiddle: (x1 ± x2) * w
-function sat_expr_simd_scalar(sign::String, x1::String, x2::String, w::String, ::Type{T}) where T <: AbstractFloat
-    if w == "1"
-        return "$(x1)_r $sign $(x2)_r, $(x1)_i $sign $(x2)_i"
-        
-    elseif w == "-im"
-        # -i*(x1 ± x2) = ±(i1 ∓ i2) ± i*(r1 ∓ r2)
-        return "$(x1)_i $sign $(x2)_i, $(x2)_r $sign $(x1)_r"
-        
-    elseif w == "INV_SQRT2_Q4"
-        # (x1 ± x2) * (1-i)/√2
-        return "INV_SQRT2*(($(x1)_r $sign $(x2)_r) + ($(x1)_i $sign $(x2)_i)), " *
-               "INV_SQRT2*(($(x1)_i $sign $(x2)_i) - ($(x1)_r $sign $(x2)_r))"
-               
-    elseif w == "-INV_SQRT2_Q1"
-        # -(x1 ± x2) * (1+i)/√2
-        return "INV_SQRT2*(($(x1)_i $sign $(x2)_i) - ($(x1)_r $sign $(x2)_r)), " *
-               "-INV_SQRT2*(($(x1)_r $sign $(x2)_r) + ($(x1)_i $sign $(x2)_i))"
-               
-    else
-        parsed = parse_cispi(w)
-        c = "COSPI_$(parsed.num)_$(parsed.den)"
-        s = "SINPI_$(parsed.num)_$(parsed.den)"
-        
-        if startswith(w, "CISPI")
-            if parsed.q1
-                # Q1: cos + i*sin
-                return "muladd($c, $(x1)_r $sign $(x2)_r, -$s * ($(x1)_i $sign $(x2)_i)), " *
-                       "muladd($s, $(x1)_r $sign $(x2)_r, $c * ($(x1)_i $sign $(x2)_i))"
-            else
-                # Q4: cos - i*sin
-                return "muladd($c, $(x1)_r $sign $(x2)_r, $s * ($(x1)_i $sign $(x2)_i)), " *
-                       "muladd(-$s, $(x1)_r $sign $(x2)_r, $c * ($(x1)_i $sign $(x2)_i))"
-            end
-            
-        elseif startswith(w, "-im*CISPI")
-            if parsed.q1
-                # -i*(cos + i*sin) = sin - i*cos
-                return "muladd($s, $(x1)_r $sign $(x2)_r, $c * ($(x1)_i $sign $(x2)_i)), " *
-                       "muladd(-$c, $(x1)_r $sign $(x2)_r, $s * ($(x1)_i $sign $(x2)_i))"
-            else
-                # -i*(cos - i*sin) = -sin - i*cos
-                return "muladd(-$s, $(x1)_r $sign $(x2)_r, $c * ($(x1)_i $sign $(x2)_i)), " *
-                       "muladd(-$c, $(x1)_r $sign $(x2)_r, -$s * ($(x1)_i $sign $(x2)_i))"
-            end
-            
-        elseif startswith(w, "-CISPI")
-            if parsed.q1
-                # -cos - i*sin
-                return "muladd(-$c, $(x1)_r $sign $(x2)_r, $s * ($(x1)_i $sign $(x2)_i)), " *
-                       "muladd(-$s, $(x1)_r $sign $(x2)_r, -$c * ($(x1)_i $sign $(x2)_i))"
-            else
-                # -cos + i*sin
-                return "muladd(-$c, $(x1)_r $sign $(x2)_r, -$s * ($(x1)_i $sign $(x2)_i)), " *
-                       "muladd($s, $(x1)_r $sign $(x2)_r, -$c * ($(x1)_i $sign $(x2)_i))"
-            end
-            
-        elseif startswith(w, "im*CISPI")
-            if parsed.q1
-                # i*(cos + i*sin) = -sin + i*cos
-                return "muladd(-$s, $(x1)_r $sign $(x2)_r, -$c * ($(x1)_i $sign $(x2)_i)), " *
-                       "muladd($c, $(x1)_r $sign $(x2)_r, -$s * ($(x1)_i $sign $(x2)_i))"
-            else
-                # i*(cos - i*sin) = sin + i*cos
-                return "muladd($s, $(x1)_r $sign $(x2)_r, -$c * ($(x1)_i $sign $(x2)_i)), " *
-                       "muladd($c, $(x1)_r $sign $(x2)_r, $s * ($(x1)_i $sign $(x2)_i))"
-            end
-        end
-    end
-end
-
 # Complete SIMD FFT kernel generator
 """
-recfft2_simd(y, x, d, w, root, ::Type{T}; tmp_base=1, mode=:default, py="", complexes_per_vec=2)
+recfft2_simd(y, x, d, w, root, ::Type{T}; SIMD_WIDTH=256, tmp_base=1, mode=:default, py="")
 
 A SIMD-aware code-generator replacement for your scalar recfft2 codegen.
-- Produces vector temporaries tvec1, tvec2, ... each of type Vec{2*complexes_per_vec, T}
-  (2 floats per complex: real, imag interleaved).
-- `complexes_per_vec` = number of complex elements per SIMD register (e.g. 2 for AVX2 + Complex{Float32}).
-- Returns source string for generated kernel (same style as your scalar generator).
+Generates horizontal SIMD operations like vfft8_fastest.
+
+# Arguments
+- `y, x`: Output and input symbolic variable arrays
+- `d, w`: Twiddle factors (d for DIT, w for general)
+- `root`: Whether this is the root call
+- `T`: Float type (Float32, Float64, Float16)
+- `SIMD_WIDTH`: Hardware SIMD width in bits (256 for AVX2, 512 for AVX512)
+- `tmp_base`: Base index for temporary variables
+- `mode`: Load/store mode (:default, :vgather, etc.)
+- `py`: Python-style code to inject
+
+# Strategy
+- Packs multiple complex numbers horizontally in Vec{N,T}
+- Uses shufflevector for data rearrangement
+- Uses signflip (XOR) for sign corrections
+- Ensures Vec{N,T} fits in hardware SIMD registers
 """
+function recfft2_simd(y, x, d, w, root, ::Type{T}, tmp_base=1, mode=:vgather, py="", complexes_per_vec=4) where T <: AbstractFloat
+    n = length(x)  # Number of complex numbers
 
-# VERY DIFFICULT
-
-#TODO To do a horizontal unrolling of all possible saturated scalar 't' vals of recfft2 to a single ymm/zmm vectorized operation,
-# the solution can't be concluded at the terminal n = 2 level. Optimization can fix even at n = 32 of AVX512 Real Float16 zmm registers... (16 * 32 = 512)
-# Do a horizontal expr saturator FUNCTOR anamorphism on top of symbolic SIMD width ymms produced at each height... pipe? (|)
-# This way we produce cross-platform cross-type cross-size saturated vectorized ops...
-
-function recfft2_simd(y, x, d, w, root, ::Type{T}, tmp_base=1, mode=:vgather, py="", complexes_per_vec=2) where T <: AbstractFloat
-    n = length(x)
+    # Calculate vector width from complexes_per_vec
     floats_per_vec = 2 * complexes_per_vec
+    SIMD_WIDTH = floats_per_vec * sizeof(T) * 8
+
+    # Helper: generate shuffle indices to extract real or imag parts
+    function make_extract_indices(which::Symbol, n_complex::Int)
+        # which = :real extracts [0, 2, 4, 6, ...] (0-indexed)
+        # which = :imag extracts [1, 3, 5, 7, ...]
+        offset = (which == :real) ? 0 : 1
+        return join([offset + 2*i for i in 0:n_complex-1], ", ")
+    end
+
+    # Helper: generate shuffle indices to interleave two vectors
+    function make_interleave_indices(n_complex::Int)
+        # Interleave v_r and v_i: [r0, i0, r1, i1, ...]
+        # v_r is indices 0..(n_complex-1), v_i is indices n_complex..(2*n_complex-1)
+        indices = Int[]
+        for i in 0:n_complex-1
+            push!(indices, i)              # from v_r
+            push!(indices, i + n_complex)  # from v_i
+        end
+        return join(indices, ", ")
+    end
+
+    # Helper: generate signflip mask
+    function make_signflip_mask(pattern::Vector{Bool}, vec_size::Int, ::Type{T})
+        # pattern[i] = true means flip sign at position i
+        # For Float32: sign bit is 0x80000000, for Float64: 0x8000000000000000
+        UIntType = T == Float32 ? "UInt32" : (T == Float64 ? "UInt64" : "UInt16")
+        sign_bit = T == Float32 ? "0x80000000" : (T == Float64 ? "0x8000000000000000" : "0x8000")
+        zero_bit = T == Float32 ? "0x00000000" : (T == Float64 ? "0x0000000000000000" : "0x0000")
+
+        mask_vals = [pattern[min(i, length(pattern))] ? sign_bit : zero_bit for i in 1:vec_size]
+        return "Vec{$vec_size,$UIntType}(($(join(mask_vals, ", "))))"
+    end
 
     if n == 1
         return ""
 
     elseif n == 2
-        # BASE CASE: Mirror recfft2's n=2 logic with Vec operations
+        # BASE CASE: Radix-2 butterfly
+        # Scalar equivalent: y1 = x1 + x2, y2 = x1 - x2 (with twiddles)
+        # Vector equivalent: each variable holds complexes_per_vec complex numbers
+
         s = if !isnothing(d)
             if isnothing(w)
                 if root
-                    load_code = load_gen_simd(x; mode=mode, T=T, ptr_name="px", SIMD_BITS=SIMD_BITS)
-                    store_code = store_gen_simd(y, ["v_sum", "v_diff"]; mode=:contiguous, T=T, ptr_name="py", SIMD_BITS=SIMD_BITS)
+                    # Load, butterfly, apply twiddles, store
                     """
-                    $load_code
+                    # Load $n complex numbers = $(2*n) floats
+                    $(x[1]) = vload(Vec{$floats_per_vec,$T}, px, 1)
+                    $(x[2]) = vload(Vec{$floats_per_vec,$T}, px, $(floats_per_vec + 1))
+
+                    # Butterfly
                     tmp0 = $(x[1]) - $(x[2])
                     $py
-                    v_sum = $(x[1]) + $(x[2])
-                    v_diff = $(vec_mul_twiddle_d("tmp0", 1, 2, T, floats_per_vec))
-                    $store_code
+                    $(y[1]) = $(x[1]) + $(x[2])
+                    $(y[2]) = $(sat_expr_simd("tmp0", d[1], T, floats_per_vec))
+
+                    # Store
+                    vstore($(y[1]), py, 1)
+                    vstore($(y[2]), py, $(floats_per_vec + 1))
                     """
                 end
             end
         else
             if root
-                load_code = load_gen_simd(x; mode=mode, T=T, ptr_name="px", SIMD_BITS=SIMD_BITS)
-                store_code = store_gen_simd(y, ["v_sum", "v_diff"]; mode=:contiguous, T=T, ptr_name="py", SIMD_BITS=SIMD_BITS)
                 """
-                $load_code
-                v_sum = $(x[1]) + $(x[2])
-                v_diff = $(x[1]) - $(x[2])
-                $store_code
+                # Load
+                $(x[1]) = vload(Vec{$floats_per_vec,$T}, px, 1)
+                $(x[2]) = vload(Vec{$floats_per_vec,$T}, px, $(floats_per_vec + 1))
+
+                # Butterfly
+                $(y[1]) = $(x[1]) + $(x[2])
+                $(y[2]) = $(x[1]) - $(x[2])
+
+                # Store
+                vstore($(y[1]), py, 1)
+                vstore($(y[2]), py, $(floats_per_vec + 1))
                 """
             else
                 if isnothing(w)
+                    # Non-root, no twiddles: simple butterfly
                     """
                     $(y[1]), $(y[2]) = $(x[1]) + $(x[2]), $(x[1]) - $(x[2])
                     """
                 else
-                    w[1] == "1" ?
+                    # Non-root with twiddles
+                    if w[1] == "1"
                         """
-                        $(y[1]), $(y[2]) = $(x[1]) + $(x[2]), $(vec_mul_twiddle("-", x[1], x[2], w[2], T, floats_per_vec))
-                        """ :
+                        $(y[1]) = $(x[1]) + $(x[2])
+                        $(y[2]) = $(sat_expr_simd("($(x[1]) - $(x[2]))", w[2], T, floats_per_vec))
                         """
-                        $(y[1]), $(y[2]) = $(vec_mul_twiddle("+", x[1], x[2], w[1], T, floats_per_vec)), $(vec_mul_twiddle("-", x[1], x[2], w[2], T, floats_per_vec))
+                    else
                         """
+                        $(y[1]) = $(sat_expr_simd("($(x[1]) + $(x[2]))", w[1], T, floats_per_vec))
+                        $(y[2]) = $(sat_expr_simd("($(x[1]) - $(x[2]))", w[2], T, floats_per_vec))
+                        """
+                    end
                 end
             end
         end
@@ -1052,102 +802,161 @@ function recfft2_simd(y, x, d, w, root, ::Type{T}, tmp_base=1, mode=:vgather, py
         return something(s, "")
 
     else
+        # RECURSIVE CASE: Split into two sub-transforms, then combine
         n2 = n ÷ 2
-        t = ["t$i" for i in tmp_base:(tmp_base + n - 1)]
+        t = ["tvec$(tmp_base + i - 1)" for i in 1:n]
         new_tmp_base = tmp_base + n
 
-        # Recursively handle sub-transforms (mirror recfft2 lines 708-709)
-        s1 = recfft2_simd(t[1:n2], x[1:2:n], nothing, nothing, false, T, new_tmp_base, mode, py, complexes_per_vec)
-        s2 = recfft2_simd(t[n2+1:n], x[2:2:n], nothing, get_twiddle_expression(collect(0:n2-1), n; T=T, accuracy=nothing), false, T, new_tmp_base, mode, py, complexes_per_vec)
+        # Generate loads if this is the root call
+        load_code, store_setup = if root
+            # Use load_gen_simd to load all input variables
+            raw_load = load_gen_simd(x; mode=mode, T=T, ptr_name="px", SIMD_BITS=SIMD_WIDTH)
 
+            # Map loaded variables to expected names
+            # load_gen_simd creates either: v_all, or v1, v2, v3, ...
+            # We need to assign these to x[1], x[2], etc.
+            assignments = String[]
+            if n <= complexes_per_vec
+                # Single vector loaded as v_all
+                for (i, var) in enumerate(x)
+                    push!(assignments, "$var = v_all")
+                end
+            else
+                # Multiple vectors loaded as v1, v2, v3, ...
+                vectors_per_group = complexes_per_vec
+                for (i, var) in enumerate(x)
+                    vec_idx = ((i - 1) ÷ vectors_per_group) + 1
+                    push!(assignments, "$var = v$vec_idx")
+                end
+            end
+
+            load_str = raw_load * "\n" * join(assignments, "\n") * "\n"
+            store_str = "py = reinterpret($T, y)\n"
+            (load_str, store_str)
+        else
+            ("", "")
+        end
+
+        # Recursively generate sub-transforms
+        # Even indices: x[1], x[3], x[5], ...
+        # Odd indices: x[2], x[4], x[6], ...
+        s1 = recfft2_simd(t[1:n2], x[1:2:n], nothing, nothing, false, T,
+                          new_tmp_base, mode, py, complexes_per_vec)
+
+        # Second half with twiddles
+        twiddles_second_half = isnothing(w) && isnothing(d) ? nothing :
+                               get_twiddle_expression(collect(0:n2-1), n; T=T, accuracy=nothing)
+        s2 = recfft2_simd(t[n2+1:n], x[2:2:n], nothing, twiddles_second_half, false, T,
+                          new_tmp_base, mode, py, complexes_per_vec)
+
+        # Generate temporary declarations for butterfly combinations
         tmp_decls = if n > 2
             parts = String[]
-            idx = 0
-            # First create sum temps (corresponding to x1_exprs in scalar)
+            # Create sum and diff temporaries
             for i in 2:n2
-                push!(parts, "tmp$(idx) = $(t[i]) + $(t[i+n2])")
-                idx += 1
+                push!(parts, "tmp$(i-2) = $(t[i]) + $(t[i+n2])")
             end
-            # Then create diff temps (corresponding to x2_exprs in scalar)
             for i in 2:n2
-                push!(parts, "tmp$(idx) = $(t[i]) - $(t[i+n2])")
-                idx += 1
+                push!(parts, "tmp$(n2+i-3) = $(t[i]) - $(t[i+n2])")
             end
             join(parts, "\n") * "\n"
         else
             ""
         end
 
-        # Final layer combining with D matrix or twiddles (mirror recfft2 lines 729-787)
+        # Final butterfly layer
         s3p, s3m = "", ""
 
         if !isnothing(d)
+            # Using D-matrix twiddles (DIT)
             if isnothing(w)
                 if root
-                    # Build vector variables for first half
-                    #vec_vars_p = ["v_out_$(i-1)" for i in 1:n2]
-                    lhs_p = "$(y[1])" * foldl(*, vmap(i -> ", $(y[i])", 2:n2))
-                    # d[i-1] is twiddle (i-1) -> cos at 2*(i-1)-1 = 2i-3, sin at 2*(i-1) = 2i-2
-                    #vec_assigns_p = ["$(vec_vars_p[1]) = $(t[1]) + $(t[1+n2])"] * ["$(vec_vars_p[i]) = $(vec_mul_twiddle_d("tmp$(i-2)", 2*i-3, 2*i-2, T, floats_per_vec))" for i in 2:n2]
-                    rhs_p = "$(t[1]) + $(t[1+n2])" * foldl(*, vmap(i -> ", $(vec_mul_twiddle("tmp$(i-2)", d[i-1], T, floats_per_vec))", 2:n2))
+                    # Create intermediate Vec variables
+                    vec_vars_p = ["v_out$(i)" for i in 1:n2]
+                    vec_vars_m = ["v_out$(i+n2)" for i in 1:n2]
 
-                    # Build vector variables for second half
-                    vec_vars_m = ["v_out_$(i+n2-1)" for i in 1:n2]
-                    lhs_m = "$(y[n2+1])" * foldl(*, vmap(i -> ", $(y[n2+i])", 2:n2))
-                    # d[n2] -> (2*n2-1, 2*n2), d[i+n2-1] -> (2i+2n2-3, 2i+2n2-2)
-                    vec_assigns_m = ["$(vec_vars_m[1]) = $(vec_mul_twiddle_d("-", t[1], "$(t[1+n2])", 2*n2-1, 2*n2, T, floats_per_vec))"] *
-                                   ["$(vec_vars_m[i]) = $(vec_mul_twiddle_d("tmp$(i-3+n2)", 2*i+2*n2-3, 2*i+2*n2-2, T, floats_per_vec))" for i in 2:n2]
-                    rhs_m = vec_mul_twiddle_op("-", "$(t[1])", "$(t[1+n2])", "1", T, floats_per_vec ) * foldl()
+                    # First half: t[i] + t[i+n2] with twiddles
+                    lhs_p = join(vec_vars_p, ", ")
+                    rhs_parts_p = ["$(t[1]) + $(t[1+n2])"]
+                    for i in 2:n2
+                        push!(rhs_parts_p, "$(sat_expr_simd("tmp$(i-2)", d[i-1], T, floats_per_vec))")
+                    end
+                    rhs_p = join(rhs_parts_p, ", ")
 
-                    store_code_p = store_gen_simd(y[1:n2], vec_vars_p; mode=:contiguous, T=T, ptr_name="py", SIMD_BITS=SIMD_BITS)
-                    store_code_m = store_gen_simd(y[n2+1:end], vec_vars_m; mode=:contiguous, T=T, ptr_name="py", SIMD_BITS=SIMD_BITS)
+                    # Second half: t[i] - t[i+n2] with twiddles
+                    lhs_m = join(vec_vars_m, ", ")
+                    rhs_parts_m = ["$(sat_expr_simd("($(t[1]) - $(t[1+n2]))", d[n2], T, floats_per_vec))"]
+                    for i in 2:n2
+                        push!(rhs_parts_m, "$(sat_expr_simd("tmp$(n2+i-3)", d[n2+i-1], T, floats_per_vec))")
+                    end
+                    rhs_m = join(rhs_parts_m, ", ")
 
-                    s3p = "$py \n $tmp_decls" * join(vec_assigns_p, "\n") * "\n$store_code_p\n"
-                    s3m = join(vec_assigns_m, "\n") * "\n$store_code_m\n"
+                    s3p = "$store_setup$py\n$tmp_decls$lhs_p = $rhs_p\n"
+                    s3m = "$lhs_m = $rhs_m\n"
+
+                    # Add stores using intermediate variables
+                    stores_p = join(["vstore($(vec_vars_p[i]), py, $(1 + (i-1)*floats_per_vec))" for i in 1:n2], "\n")
+                    stores_m = join(["vstore($(vec_vars_m[i]), py, $(1 + (i+n2-1)*floats_per_vec))" for i in 1:n2], "\n")
+                    s3p *= "$stores_p\n"
+                    s3m *= "$stores_m\n"
                 end
             end
         else
             if isnothing(w)
+                # No twiddles: simple butterfly
                 if root
-                    # Build vector variables for first half
-                    @show vec_vars_p = ["v_out_$(i-1)" for i in 1:n2]
-                    @show vec_assigns_p = ["$(vec_vars_p[1]) = $(t[1]) + $(t[1+n2])"] *
-                                   ["$(vec_vars_p[i]) = $(t[i]) + $(t[i+n2])" for i in 2:n2]
+                    # Create intermediate Vec variables
+                    vec_vars_p = ["v_out$(i)" for i in 1:n2]
+                    vec_vars_m = ["v_out$(i+n2)" for i in 1:n2]
 
-                    # Build vector variables for second half
-                    vec_vars_m = ["v_out_$(i+n2-1)" for i in 1:n2]
-                    vec_assigns_m = ["$(vec_vars_m[1]) = $(t[1]) - $(t[1+n2])"] *
-                                   ["$(vec_vars_m[i]) = $(t[i]) - $(t[i+n2])" for i in 2:n2]
+                    lhs_p = join(vec_vars_p, ", ")
+                    rhs_p = join(["$(t[i]) + $(t[i+n2])" for i in 1:n2], ", ")
 
-                    @show store_code_p = store_gen_simd(y[1:n2], vec_vars_p; mode=:contiguous, T=T, ptr_name="py", SIMD_BITS=SIMD_BITS)
-                    @show store_code_m = store_gen_simd(y[n2+1:end], vec_vars_m; mode=:contiguous, T=T, ptr_name="py", SIMD_BITS=SIMD_BITS)
+                    lhs_m = join(vec_vars_m, ", ")
+                    rhs_m = join(["$(t[i]) - $(t[i+n2])" for i in 1:n2], ", ")
 
-                    s3p = "$py\n" * join(vec_assigns_p, "\n") * "\n$store_code_p\n"
-                    s3m = join(vec_assigns_m, "\n") * "\n$store_code_m\n"
+                    s3p = "$store_setup$py\n$lhs_p = $rhs_p\n"
+                    s3m = "$lhs_m = $rhs_m\n"
+
+                    # Add stores using intermediate variables
+                    stores_p = join(["vstore($(vec_vars_p[i]), py, $(1 + (i-1)*floats_per_vec))" for i in 1:n2], "\n")
+                    stores_m = join(["vstore($(vec_vars_m[i]), py, $(1 + (i+n2-1)*floats_per_vec))" for i in 1:n2], "\n")
+                    s3p *= "$stores_p\n"
+                    s3m *= "$stores_m\n"
                 else
-                    s3p = "$(y[1])" * join([", $(y[i])" for i in 2:n2]) *
-                          " = " *
-                          "$(t[1]) + $(t[1+n2])" * join([", $(t[i]) + $(t[i+n2])" for i in 2:n2]) * "\n"
-                    s3m = "$(y[n2+1])" * join([", $(y[i+n2])" for i in 2:n2]) *
-                          " = " *
-                          "$(t[1]) - $(t[1+n2])" * join([", $(t[i]) - $(t[i+n2])" for i in 2:n2]) * "\n"
+                    lhs_p = join([y[i] for i in 1:n2], ", ")
+                    rhs_p = join(["$(t[i]) + $(t[i+n2])" for i in 1:n2], ", ")
+
+                    lhs_m = join([y[i+n2] for i in 1:n2], ", ")
+                    rhs_m = join(["$(t[i]) - $(t[i+n2])" for i in 1:n2], ", ")
+
+                    s3p = "$lhs_p = $rhs_p\n"
+                    s3m = "$lhs_m = $rhs_m\n"
                 end
-                @show s3p s3m
             else
-                # With twiddles (mirror recfft2 lines 759-787)
-                s3p = "$tmp_decls" *
-                      "$(y[1])" * join([", $(y[i])" for i in 2:n2]) *
-                      " = " *
-                      (w[1] == "1" ? "$(t[1]) + $(t[1+n2])" : "$(vec_mul_twiddle("tmp_$(t[1])", w[1], T, floats_per_vec))") *
-                      join([", $(vec_mul_twiddle("tmp$(i-2)", w[i], T, floats_per_vec))" for i in 2:n2]) * "\n"
-                s3m = "$(y[n2+1])" * join([", $(y[i+n2])" for i in 2:n2]) *
-                      " = " *
-                      "$(vec_mul_twiddle("-", t[1], "$(t[1+n2])", w[n2+1], T, floats_per_vec))" *
-                      join([", $(vec_mul_twiddle("tmp$(i-3+n2)", w[n2+i], T, floats_per_vec))" for i in 2:n2]) * "\n"
+                # With twiddles
+                s3p = tmp_decls
+
+                lhs_p = join([y[i] for i in 1:n2], ", ")
+                rhs_parts_p = [w[1] == "1" ? "$(t[1]) + $(t[1+n2])" : "$(sat_expr_simd("($(t[1]) + $(t[1+n2]))", w[1], T, floats_per_vec))"]
+                for i in 2:n2
+                    push!(rhs_parts_p, "$(sat_expr_simd("tmp$(i-2)", w[i], T, floats_per_vec))")
+                end
+                rhs_p = join(rhs_parts_p, ", ")
+
+                lhs_m = join([y[i+n2] for i in 1:n2], ", ")
+                rhs_parts_m = ["$(sat_expr_simd("($(t[1]) - $(t[1+n2]))", w[n2+1], T, floats_per_vec))"]
+                for i in 2:n2
+                    push!(rhs_parts_m, "$(sat_expr_simd("tmp$(n2+i-3)", w[n2+i], T, floats_per_vec))")
+                end
+                rhs_m = join(rhs_parts_m, ", ")
+
+                s3p *= "$lhs_p = $rhs_p\n"
+                s3m = "$lhs_m = $rhs_m\n"
             end
         end
 
-        return s1 * s2 * s3p * s3m
+        return load_code * s1 * s2 * s3p * s3m
     end
 end
 
@@ -1161,11 +970,26 @@ end
 
 # SIMD code generation helpers for complex twiddle multiplication
 # These generate actual SIMD.jl expressions that will be inlined
-function vec_mul_twiddle(vec_name::String, twiddle::String, ::Type{T}, floats_per_vec::Int) where T
+function sat_expr_simd(vec_name::String, twiddle, ::Type{T}, floats_per_vec::Int) where T
     if twiddle isa String
         if twiddle == "1"
             return vec_name
+        elseif twiddle == "-1"
+            # Negate all components: -1*(r+ii) = -r - ii
+            return "-$vec_name"
+        elseif twiddle == "im"
+            # i*(r+ii) = ir - i = -i + ir → [r,i] becomes [-i, r]
+            # Generate shuffle indices to swap r,i pairs: [r1,i1,r2,i2,...] -> [i1,r1,i2,r2,...]
+            swap_indices = Int[]
+            for i in 1:2:floats_per_vec
+                push!(swap_indices, i+1)  # imag component (1-based)
+                push!(swap_indices, i)    # real component (1-based)
+            end
+            # Generate sign mask to negate imaginary parts (now at odd indices after swap)
+            sign_mask = join(["0x$(i % 2 == 0 ? "00000000" : "80000000")" for i in 1:floats_per_vec], ", ")
+            return "shufflevector(signflip($vec_name, Vec{$floats_per_vec,UInt32}(($sign_mask))), Val(($(join(swap_indices .- 1, ", ")))))"
         elseif twiddle == "-im"
+            # -i*(r+ii) = -ir + i = i - ir → [r,i] becomes [i, -r]
             # Generate shuffle indices to swap r,i pairs: [r1,i1,r2,i2,...] -> [i1,r1,i2,r2,...]
             # For 1-based indexing: [1,2,3,4,...] we want [2,1,4,3,...]
             # After subtracting 1 for 0-based: [1,0,3,2,...]
@@ -1226,10 +1050,12 @@ function vec_mul_twiddle(vec_name::String, twiddle::String, ::Type{T}, floats_pe
               # Meta.parse returns an expression, which needs to be evaluated/used
               # or passed to the Tuple logic. We'll evaluate it to get the value.
               twiddle_parsed = Core.eval(Main, Meta.parse(twiddle))
+              @show twiddle_parsed
+              @show typeof(twiddle_parsed)
                   
               # If successfully parsed into a Tuple, jump to the Tuple logic below
               if twiddle_parsed isa Tuple
-                  return vec_mul_twiddle(vec_name, twiddle_parsed, T, floats_per_vec)
+                  return sat_expr_simd(vec_name, twiddle_parsed, T, floats_per_vec)
               end
             catch
               # If parsing failed, it's a genuinely unknown string twiddle factor.
@@ -1257,32 +1083,101 @@ function vec_mul_twiddle(vec_name::String, twiddle::String, ::Type{T}, floats_pe
             push!(interleave_indices, i + num_complex)  # from out_i
         end
 
-        # Complex multiply: (r+ii)*(c+si) = (rc-si) + i(ri+sc)  if q1
-        #                   (r+ii)*(c-si) = (rc+si) + i(ri-sc)  if !q1
+        # Complex multiply using muladd for FMA optimization
+        # cispi(θ) = cos(πθ) + i*sin(πθ)
         if quadrant == Q1
+            # Q1: cispi(θ) = cos + i*sin
+            # (r+ii)*(c+si) = (rc-si) + i(rs+ic)
             """(let
                 v = $vec_name
                 v_r = shufflevector(v, Val(($(join(r_indices .- 1, ", ")))))
                 v_i = shufflevector(v, Val(($(join(i_indices .- 1, ", ")))))
-                c = $c
-                s = $s
-                out_r = v_r * c - v_i * s
-                out_i = v_r * s + v_i * c
+                out_r = muladd(v_r, $c, -v_i * $s)
+                out_i = muladd(v_r, $s, v_i * $c)
                 shufflevector(out_r, out_i, Val(($(join(interleave_indices, ", ")))))
             end)"""
         elseif quadrant == Q4
+            # Q4: cispi(-θ) = cos - i*sin
+            # (r+ii)*(c-si) = (rc+si) + i(-rs+ic)
+            """(let
+                v = $vec_name
+                v_r = shufflevector(v, Val(($(join(r_indices .- 1, ", ")))))
+                v_i = shufflevector(v, Val(($(join(i_indices .- 1, ", ")))))
+                out_r = muladd(v_r, $c, v_i * $s)
+                out_i = muladd(-v_r, $s, v_i * $c)
+                shufflevector(out_r, out_i, Val(($(join(interleave_indices, ", ")))))
+            end)"""
+        elseif quadrant == NegQ1
+            # NegQ1: -cispi(θ) = -cos - i*sin
+            # (r+ii)*(-c-si) = (-rc+si) + i(-rs-ic)
+            """(let
+                v = $vec_name
+                v_r = shufflevector(v, Val(($(join(r_indices .- 1, ", ")))))
+                v_i = shufflevector(v, Val(($(join(i_indices .- 1, ", ")))))
+                out_r = muladd(-v_r, $c, v_i * $s)
+                out_i = muladd(-v_r, $s, -v_i * $c)
+                shufflevector(out_r, out_i, Val(($(join(interleave_indices, ", ")))))
+            end)"""
+        elseif quadrant == NegQ4
+            # NegQ4: -cispi(-θ) = -cos + i*sin
+            # (r+ii)*(-c+si) = (-rc-si) + i(rs-ic)
+            """(let
+                v = $vec_name
+                v_r = shufflevector(v, Val(($(join(r_indices .- 1, ", ")))))
+                v_i = shufflevector(v, Val(($(join(i_indices .- 1, ", ")))))
+                out_r = muladd(-v_r, $c, -v_i * $s)
+                out_i = muladd(v_r, $s, -v_i * $c)
+                shufflevector(out_r, out_i, Val(($(join(interleave_indices, ", ")))))
+            end)"""
+        elseif quadrant == ImQ1
+            # ImQ1: i*cispi(θ) = -sin + i*cos
+            # (r+ii)*(-s+ci) = (-rs-ic) + i(rc-is)
+            """(let
+                v = $vec_name
+                v_r = shufflevector(v, Val(($(join(r_indices .- 1, ", ")))))
+                v_i = shufflevector(v, Val(($(join(i_indices .- 1, ", ")))))
+                out_r = muladd(-v_r, $s, -v_i * $c)
+                out_i = muladd(v_r, $c, -v_i * $s)
+                shufflevector(out_r, out_i, Val(($(join(interleave_indices, ", ")))))
+            end)"""
+        elseif quadrant == ImQ4
+            # ImQ4: i*cispi(-θ) = sin + i*cos
+            # (r+ii)*(s+ci) = (rs-ic) + i(rc+is)
+            """(let
+                v = $vec_name
+                v_r = shufflevector(v, Val(($(join(r_indices .- 1, ", ")))))
+                v_i = shufflevector(v, Val(($(join(i_indices .- 1, ", ")))))
+                out_r = muladd(v_r, $s, -v_i * $c)
+                out_i = muladd(v_r, $c, v_i * $s)
+                shufflevector(out_r, out_i, Val(($(join(interleave_indices, ", ")))))
+            end)"""
+        elseif quadrant == NegImQ1
+            # NegImQ1: -i*cispi(θ) = sin - i*cos
+            # (r+ii)*(s-ci) = (rs+ic) + i(-rc+is)
+            """(let
+                v = $vec_name
+                v_r = shufflevector(v, Val(($(join(r_indices .- 1, ", ")))))
+                v_i = shufflevector(v, Val(($(join(i_indices .- 1, ", ")))))
+                out_r = muladd(v_r, $s, v_i * $c)
+                out_i = muladd(-v_r, $c, v_i * $s)
+                shufflevector(out_r, out_i, Val(($(join(interleave_indices, ", ")))))
+            end)"""
+        elseif quadrant == NegImQ4
+            # NegImQ4: -i*cispi(-θ) = -sin - i*cos
+            # (r+ii)*(-s-ci) = (-rs+ic) + i(-rc-is)
             """(let
                 v = $vec_name
                 v_r = shufflevector(v, Val(($(join(r_indices .- 1, ", ")))))
                 v_i = shufflevector(v, Val(($(join(i_indices .- 1, ", ")))))
                 c = $c
                 s = $s
-                out_r = v_r * c + v_i * s
-                out_i = v_r * (-s) + v_i * c
+                out_r = muladd(-v_r, s, v_i * c)
+                out_i = muladd(-v_r, c, -v_i * s)
                 shufflevector(out_r, out_i, Val(($(join(interleave_indices, ", ")))))
             end)"""
+        else
+            error("Unknown quadrant: $quadrant")
         end
-        #TODO MORE quadrance cispi cases
     end
 end
 
