@@ -56,61 +56,59 @@ function load_gen_simd(x_vars; mode, T, ptr_name="px", SIMD_BITS=256)
     complexes_per_vec = SIMD_BITS ÷ complex_size_bits
     n_floats = 2 * n
     
-    # Extract indices from variable names
-    indices = Int[]
-    for var in x_vars
-        m = match(r"(\d+)", var)
-        push!(indices, parse(Int, m.captures[1]))
-    end
+    # Extract indices from variable names (x1 -> 1, x5 -> 5, etc.)
+    indices = [parse(Int, match(r"(\d+)", var).captures[1]) for var in x_vars]
     
     # Check if contiguous
     is_contiguous = all(i -> indices[i] == indices[1] + i - 1, 2:length(indices))
     
     if is_contiguous && n <= complexes_per_vec
-        # Contiguous load - single vload
-        offset = 2 * (indices[1] - 1) * sizeof(T)
-        return """
-        # Load $n contiguous complex numbers as Vec{$(n_floats),$T}
-        LANE = SIMD.VecRange{$n_floats}(0)
-        v_all = $ptr_name[LANE + $offset]
-        #v_all = vload(Vec{$(n_floats),$T}, $ptr_name, 1 + $offset)
-        """
+        # Case 1: Contiguous access - single vload
+        start_idx = 2 * (indices[1] - 1) + 1  # Convert to 1-based float index
+        return "v_all = vload(Vec{$(n_floats),$T}, $ptr_name, $start_idx)"
+        
     elseif n <= complexes_per_vec
-        # Non-contiguous - use vgather
+        # Case 2: Non-contiguous, fits in one register - single vgather
         float_indices = Int[]
         for idx in indices
-            push!(float_indices, 2*idx - 1)
-            push!(float_indices, 2*idx)
+            push!(float_indices, 2 * (idx - 1) + 1)  # Real part (1-based)
+            push!(float_indices, 2 * (idx - 1) + 2)  # Imag part (1-based)
         end
-        idx_tuple = Tuple(float_indices)
+        idx_tuple = tuple(float_indices...)
         
-        return """
-        # Gather $n non-contiguous complex numbers
-        idx = Vec($idx_tuple)
-        v_all = vgather($ptr_name, idx)
-        """
+        return "v_all = vgather($ptr_name, Vec($idx_tuple))"
+        
     else
-        # Multiple vectors needed
-        code_parts = String[]
-        for chunk_start in 1:complexes_per_vec:n
-            chunk_end = min(chunk_start + complexes_per_vec - 1, n)
-            chunk_size = chunk_end - chunk_start + 1
+        # Case 3: Large discrete access - multiple vgathers or vloads
+        code_lines = String[]
+        n_chunks = cld(n, complexes_per_vec)  # Ceiling division
+
+        for chunk_id in 1:n_chunks
+            chunk_start = (chunk_id - 1) * complexes_per_vec + 1
+            chunk_end = min(chunk_id * complexes_per_vec, n)
             chunk_indices = indices[chunk_start:chunk_end]
-            
-            float_indices = Int[]
-            for idx in chunk_indices
-                push!(float_indices, 2*idx - 1)
-                push!(float_indices, 2*idx)
+            chunk_n_floats = 2 * length(chunk_indices)
+
+            # Check if this chunk is contiguous
+            chunk_is_contiguous = all(i -> chunk_indices[i] == chunk_indices[1] + i - 1, 2:length(chunk_indices))
+
+            if chunk_is_contiguous
+                # Use vload for contiguous chunk
+                start_idx = 2 * (chunk_indices[1] - 1) + 1
+                push!(code_lines, "v$chunk_id = vload(Vec{$chunk_n_floats,$T}, $ptr_name, $start_idx)")
+            else
+                # Use vgather for non-contiguous chunk
+                float_indices = Int[]
+                for idx in chunk_indices
+                    push!(float_indices, 2 * (idx - 1) + 1)
+                    push!(float_indices, 2 * (idx - 1) + 2)
+                end
+                idx_tuple = tuple(float_indices...)
+                push!(code_lines, "v$chunk_id = vgather($ptr_name, Vec($idx_tuple))")
             end
-            
-            chunk_id = (chunk_start - 1) ÷ complexes_per_vec + 1
-            idx_tuple = Tuple(float_indices)
-            
-            push!(code_parts, "idx$chunk_id = Vec($idx_tuple)")
-            push!(code_parts, "v$chunk_id = vgather($ptr_name, idx$chunk_id)")
         end
-        
-        return join(code_parts, "\n")
+
+        return join(code_lines, "\n")
     end
 end
 
@@ -119,103 +117,80 @@ function store_gen_simd(y_vars, src_vars; mode, T, ptr_name="py", SIMD_BITS=256)
     n = length(y_vars)
     complex_size_bits = 2 * sizeof(T) * 8
     complexes_per_vec = SIMD_BITS ÷ complex_size_bits
-    n_floats = 2 * n
+    n_floats = length(src_vars)  # Use actual number of floats passed
     
-    # Extract indices from y variable names
-    indices = Int[]
-    for var in y_vars
-        m = match(r"\[(\d+)\]", var)
-        if m !== nothing
-            push!(indices, parse(Int, m.captures[1]))
-        end
-    end
+    # Extract indices from y variable names (y[1] -> 1, y[5] -> 5, etc.)
+    indices = [parse(Int, match(r"\[(\d+)\]", var).captures[1]) for var in y_vars]
     
     # Check if contiguous
     is_contiguous = all(i -> indices[i] == indices[1] + i - 1, 2:length(indices))
     
     if is_contiguous && n <= complexes_per_vec
-        # Contiguous store - use vstore
-        offset = 2 * (indices[1] - 1) * sizeof(T)
-        
-        # Handle special cases for src_vars
-        if src_vars == ["+", "-"]
-            return """
-            # Store sum and diff
-            vstore(v1 + v2, $ptr_name, $offset)
-            vstore(v1 - v2, $ptr_name, $(offset + n_floats * sizeof(T)))
-            """
-        else
-            # Build vector from source variables
-            vals = String[]
-            for src in src_vars
-                if endswith(src, "_r") || endswith(src, "_i")
-                    push!(vals, src)
-                else
-                    push!(vals, "$(src)_r", "$(src)_i")
-                end
-            end
-            vals_tuple = "(" * join(vals, ",") * ")"
-            
-            return """
-            # Store $n contiguous complex numbers
-            v_out = Vec{$(n_floats),$T}($vals_tuple)
-            vstore(v_out, $ptr_name, $offset)
-            """
-        end
+        # Case 1: Contiguous store - single vstore
+        start_idx = 2 * (indices[1] - 1) + 1  # 1-based float index
+        vals_str = join(src_vars, ", ")
+
+        # Use intermediate variable for clarity - wrap in begin/end
+        return "begin\nv_out = Vec{$(n_floats),$T}($vals_str)\nvstore(v_out, $ptr_name, $start_idx)\nend"
+
     elseif n <= complexes_per_vec
-        # Non-contiguous - use vscatter
+        # Case 2: Non-contiguous, fits in one register - single vscatter
         float_indices = Int[]
         for idx in indices
-            push!(float_indices, 2*idx - 1)
-            push!(float_indices, 2*idx)
+            push!(float_indices, 2 * (idx - 1) + 1)
+            push!(float_indices, 2 * (idx - 1) + 2)
         end
-        
-        vals = String[]
-        for src in src_vars
-            push!(vals, "$(src)_r", "$(src)_i")
-        end
-        
-        idx_tuple = "(" * join(float_indices, ",") * ")"
-        vals_tuple = "(" * join(vals, ",") * ")"
-        
-        return """
-        # Scatter $n non-contiguous complex numbers
-        idx = Vec{$(n_floats),Int64}($idx_tuple)
-        v_out = Vec{$(n_floats),$T}($vals_tuple)
-        vscatter(v_out, $ptr_name, idx)
-        """
+
+        idx_str = join(float_indices, ", ")
+        vals_str = join(src_vars, ", ")
+
+        # Use intermediate variable for clarity - wrap in begin/end
+        return "begin\nv_out = Vec{$(n_floats),$T}($vals_str)\nvscatter(v_out, $ptr_name, Vec($idx_str))\nend"
+
     else
-        # Multiple vscatters for large radix
-        code_parts = String[]
-        for chunk_start in 1:complexes_per_vec:n
-            chunk_end = min(chunk_start + complexes_per_vec - 1, n)
-            chunk_size = chunk_end - chunk_start + 1
+        # Case 3: Large discrete store - multiple vscatters or vstores
+        code_lines = String[]
+        n_chunks = cld(n, complexes_per_vec)
+        floats_per_chunk = 2 * complexes_per_vec
+
+        for chunk_id in 1:n_chunks
+            chunk_start = (chunk_id - 1) * complexes_per_vec + 1
+            chunk_end = min(chunk_id * complexes_per_vec, n)
             chunk_indices = indices[chunk_start:chunk_end]
-            chunk_src = src_vars[chunk_start:chunk_end]
-            
-            float_indices = Int[]
-            for idx in chunk_indices
-                push!(float_indices, 2*idx - 1)
-                push!(float_indices, 2*idx)
+            chunk_n_floats = 2 * length(chunk_indices)
+
+            # Get corresponding source floats for this chunk
+            src_start = (chunk_id - 1) * floats_per_chunk + 1
+            src_end = min(chunk_id * floats_per_chunk, length(src_vars))
+            chunk_src = src_vars[src_start:src_end]
+
+            # Check if this chunk is contiguous
+            chunk_is_contiguous = all(i -> chunk_indices[i] == chunk_indices[1] + i - 1, 2:length(chunk_indices))
+
+            vals_str = join(chunk_src, ", ")
+
+            if chunk_is_contiguous
+                # Use vstore for contiguous chunk
+                start_idx = 2 * (chunk_indices[1] - 1) + 1
+                push!(code_lines, "v_out$chunk_id = Vec{$chunk_n_floats,$T}($vals_str)")
+                push!(code_lines, "vstore(v_out$chunk_id, $ptr_name, $start_idx)")
+            else
+                # Use vscatter for non-contiguous chunk
+                float_indices = Int[]
+                for idx in chunk_indices
+                    push!(float_indices, 2 * (idx - 1) + 1)
+                    push!(float_indices, 2 * (idx - 1) + 2)
+                end
+
+                idx_str = join(float_indices, ", ")
+                push!(code_lines, "v_out$chunk_id = Vec{$chunk_n_floats,$T}($vals_str)")
+                push!(code_lines, "vscatter(v_out$chunk_id, $ptr_name, Vec($idx_str))")
             end
-            
-            vals = String[]
-            for src in chunk_src
-                push!(vals, "$(src)_r", "$(src)_i")
-            end
-            
-            chunk_id = (chunk_start - 1) ÷ complexes_per_vec + 1
-            idx_tuple = "(" * join(float_indices, ",") * ")"
-            vals_tuple = "(" * join(vals, ",") * ")"
-            
-            push!(code_parts, "idx$chunk_id = Vec{$(2*chunk_size),Int64}($idx_tuple)")
-            push!(code_parts, "v_out$chunk_id = Vec{$(2*chunk_size),$T}($vals_tuple)")
-            push!(code_parts, "vscatter(v_out$chunk_id, $ptr_name, idx$chunk_id)")
         end
-        
-        return join(code_parts, "\n")
+
+        # Wrap multiple statements in begin/end block
+        return "begin\n$(join(code_lines, "\n"))\nend"
     end
-    
 end
 
 # Overload for when D is a type (no actual D matrix)
@@ -262,7 +237,8 @@ function makefftradix(n::Int, suffixes::SuffixFlags, D::Union{Vector{Union{Strin
     
     d = isempty(D) ? nothing : D
     
-    px = mode == :vgather ? "p$(input) = reinterpret($T, $(input));" : "" 
+    #px = mode == :vgather ? "p$(input) = reinterpret($T, $(input));" : "" 
+    px = ""
     py = ""
 
     complex_size_bits = 2 * sizeof(T) * 8
@@ -1275,57 +1251,57 @@ end
     end
 end
 
-@inline function vfft8_fastest(x::Vector{Float32}, y::Vector{Float32}) 
+@inline function vfft8_fastest(x::Vector{Float32}, y::Vector{Float32})
     @inbounds @fastmath begin
         INV_SQRT2 = 0.7071067811865476f0
-        
+
         # ========== ULTRA-FAST LOAD: Only 2 instructions! ==========
         LANE = VecRange{8}(0)
         ymm_all = x[LANE + 1]  # Load all 16 floats in ONE vector!
-        
+
         # Split into two 128-bit halves
         xmm_low = shufflevector(ymm_all, Val((0, 1, 2, 3)))   # x[1:4]
         xmm_high = shufflevector(ymm_all, Val((4, 5, 6, 7)))  # x[5:8]
-        
+
         # Load second half
         ymm_all2 = x[LANE + 9]
         xmm_low2 = shufflevector(ymm_all2, Val((0, 1, 2, 3)))   # x[9:12]
         xmm_high2 = shufflevector(ymm_all2, Val((4, 5, 6, 7)))  # x[13:16]
-        
+
         # Now continue with the same butterfly structure as before
         # (using xmm_low, xmm_high, xmm_low2, xmm_high2 as xmm0, xmm1, xmm2, xmm3)
-        
+
         # ========== FIRST RADIX-4 ==========
         v1_a = shufflevector(xmm_low, xmm_high, Val((0, 1, 4, 5)))
         v2_a = shufflevector(xmm_low2, xmm_high2, Val((0, 1, 4, 5)))
-        
+
         t9_11_a = v1_a + v2_a
         diff_a = v1_a - v2_a
         diff_a_swapped = shufflevector(diff_a, Val((0, 1, 3, 2)))
         sign_mask_t12 = Vec{4,UInt32}((0x00000000, 0x00000000, 0x00000000, 0x80000000))
         t10_12_a = signflip(diff_a_swapped, sign_mask_t12)
-        
+
         h1_a = shufflevector(t9_11_a, t10_12_a, Val((0, 1, 4, 5)))
         h2_a = shufflevector(t9_11_a, t10_12_a, Val((2, 3, 6, 7)))
-        
+
         t1_2 = h1_a + h2_a
         t3_4 = h1_a - h2_a
-        
+
         # ========== SECOND RADIX-4 ==========
         v1_b = shufflevector(xmm_low, xmm_high, Val((2, 3, 6, 7)))
         v2_b = shufflevector(xmm_low2, xmm_high2, Val((2, 3, 6, 7)))
-        
+
         t9_11_b = v1_b + v2_b
         diff_b = v1_b - v2_b
         diff_b_swapped = shufflevector(diff_b, Val((0, 1, 3, 2)))
         t10_12_b = signflip(diff_b_swapped, sign_mask_t12)
-        
+
         h1_b = shufflevector(t9_11_b, t10_12_b, Val((0, 1, 4, 5)))
         h2_b = shufflevector(t9_11_b, t10_12_b, Val((2, 3, 6, 7)))
-        
+
         t5_tmp0 = h1_b + h2_b
         diff_t9t11_tmp1 = h1_b - h2_b
-        
+
         # ========== TWIDDLES ==========
         tmp0 = shufflevector(t5_tmp0, t5_tmp0, Val((2, 3, 2, 3)))
         tmp0_rotated = shufflevector(tmp0, Val((1, 0, 1, 0)))
@@ -1333,10 +1309,10 @@ end
         tmp0_rotated_signed = signflip(tmp0_rotated, sign_mask_rot)
         t6_unscaled = tmp0 + tmp0_rotated_signed
         t6 = t6_unscaled * Vec{4,Float32}((INV_SQRT2, INV_SQRT2, 0.0f0, 0.0f0))
-        
+
         t7_raw = shufflevector(diff_t9t11_tmp1, Val((1, 0, 1, 0)))
         t7 = signflip(t7_raw, sign_mask_rot)
-        
+
         tmp1 = shufflevector(diff_t9t11_tmp1, diff_t9t11_tmp1, Val((2, 3, 2, 3)))
         tmp1_swapped = shufflevector(tmp1, Val((1, 0, 1, 0)))
         tmp1_sum = tmp1 + tmp1_swapped
@@ -1344,17 +1320,17 @@ end
         t8_unsigned = shufflevector(tmp1_diff, tmp1_sum, Val((0, 5, 0, 0)))
         t8_signed = signflip(t8_unsigned, sign_mask_rot)
         t8 = t8_signed * Vec{4,Float32}((INV_SQRT2, INV_SQRT2, 0.0f0, 0.0f0))
-        
+
         t5_6 = shufflevector(t5_tmp0, t6, Val((0, 1, 4, 5)))
         t7_8 = shufflevector(t7, t8, Val((0, 1, 4, 5)))
-        
+
         # ========== FINAL BUTTERFLY ==========
         ymm1 = shufflevector(t1_2, t3_4, Val((0, 1, 2, 3, 4, 5, 6, 7)))
         ymm2 = shufflevector(t5_6, t7_8, Val((0, 1, 2, 3, 4, 5, 6, 7)))
-        
+
         y1_8_top = ymm1 + ymm2
         y1_8_bot = ymm1 - ymm2
-        
+
         vstore(y1_8_top, y, 1)
         vstore(y1_8_bot, y, 9)
     end

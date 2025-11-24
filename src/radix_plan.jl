@@ -48,7 +48,6 @@ function create_all_radix_plans(n::Int, valid_radices::Vector{Int}, ::Type{T}) w
     function is_valid(decomp)
         # Allow single-element decompositions
         length(decomp) == 1 && return true
-        return false
 
         # Check balanced distribution of small radices
         count_mins = count(==(min_elem), decomp)
