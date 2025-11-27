@@ -50,7 +50,7 @@ load_real_imag_gen = (t; mode, T, input="x") -> begin
 end
 
 # Updated load_gen for SIMD vector loading
-function load_gen_simd(x_vars; mode, T, ptr_name="px", SIMD_BITS=256)
+function load_gen_simd(x_vars; mode, T, ptr_name="x", SIMD_BITS=256)
     n = length(x_vars)
     complex_size_bits = 2 * sizeof(T) * 8
     complexes_per_vec = SIMD_BITS ÷ complex_size_bits
@@ -65,7 +65,7 @@ function load_gen_simd(x_vars; mode, T, ptr_name="px", SIMD_BITS=256)
     if is_contiguous && n <= complexes_per_vec
         # Case 1: Contiguous access - single vload
         start_idx = 2 * (indices[1] - 1) + 1  # Convert to 1-based float index
-        return "v_all = vload(Vec{$(n_floats),$T}, $ptr_name, $start_idx)"
+        return "l_all = vload(Vec{$(n_floats),$T}, $ptr_name, $start_idx)"
         
     elseif n <= complexes_per_vec
         # Case 2: Non-contiguous, fits in one register - single vgather
@@ -76,7 +76,7 @@ function load_gen_simd(x_vars; mode, T, ptr_name="px", SIMD_BITS=256)
         end
         idx_tuple = tuple(float_indices...)
         
-        return "v_all = vgather($ptr_name, Vec($idx_tuple))"
+        return "l_all = vgather($ptr_name, Vec($idx_tuple))"
         
     else
         # Case 3: Large discrete access - multiple vgathers or vloads
@@ -95,7 +95,7 @@ function load_gen_simd(x_vars; mode, T, ptr_name="px", SIMD_BITS=256)
             if chunk_is_contiguous
                 # Use vload for contiguous chunk
                 start_idx = 2 * (chunk_indices[1] - 1) + 1
-                push!(code_lines, "v$chunk_id = vload(Vec{$chunk_n_floats,$T}, $ptr_name, $start_idx)")
+                push!(code_lines, "l$chunk_id = vload(Vec{$chunk_n_floats,$T}, $ptr_name, $start_idx)")
             else
                 # Use vgather for non-contiguous chunk
                 float_indices = Int[]
@@ -104,7 +104,7 @@ function load_gen_simd(x_vars; mode, T, ptr_name="px", SIMD_BITS=256)
                     push!(float_indices, 2 * (idx - 1) + 2)
                 end
                 idx_tuple = tuple(float_indices...)
-                push!(code_lines, "v$chunk_id = vgather($ptr_name, Vec($idx_tuple))")
+                push!(code_lines, "l$chunk_id = vgather($ptr_name, Vec($idx_tuple))")
             end
         end
 
@@ -113,7 +113,7 @@ function load_gen_simd(x_vars; mode, T, ptr_name="px", SIMD_BITS=256)
 end
 
 # Updated store_gen for SIMD vector storing
-function store_gen_simd(y_vars, src_vars; mode, T, ptr_name="py", SIMD_BITS=256)
+function store_gen_simd(y_vars, src_vars; mode, T, ptr_name="y", SIMD_BITS=256)
     n = length(y_vars)
     complex_size_bits = 2 * sizeof(T) * 8
     complexes_per_vec = SIMD_BITS ÷ complex_size_bits
@@ -203,7 +203,7 @@ end
 function makefftradix(n::Int, suffixes::SuffixFlags, D::Union{Vector{Union{String, Twiddle}}, Vector{T}}, p::Int, op, SIZE::Int, ::Type{T}, SIMD_BITS) where T <: AbstractFloat
     global inc = inccounter()
     
-    mode = :vgather # ALL ME
+    mode = :default # ALL ME
 
     input, output = String(op.input_buffer), String(op.output_buffer)
     
@@ -213,7 +213,7 @@ function makefftradix(n::Int, suffixes::SuffixFlags, D::Union{Vector{Union{Strin
     input_spacing = SIZE ÷ radix  # Spacing between input elements in each butterfly
     
     # TODO FOR SOME n = s * n_g decompositions, input has wrong indexing  MUST DO!!!
-    x = mode == :default ? ["$(input)$(p + 1 + (i-1)*input_spacing)" for i in 1:radix] : ["v_all$(p + 1 + (i-1)*input_spacing)" for i in 1:radix]
+    x = mode == :default ? ["$(input)$(p + 1 + (i-1)*input_spacing)" for i in 1:radix] : ["v$(p + 1 + (i-1)*input_spacing)" for i in 1:radix]
 
     is_terminal = has_flag(suffixes, VEC)
 
@@ -244,8 +244,12 @@ function makefftradix(n::Int, suffixes::SuffixFlags, D::Union{Vector{Union{Strin
     complex_size_bits = 2 * sizeof(T) * 8
     complexes_per_vec = SIMD_BITS ÷ complex_size_bits
 
+
+    # Calculate vector width from complexes_per_vec
+    floats_per_vec = 2 * complexes_per_vec
+
     # MOST IMPORTANT LINE!!!
-    kernel_code = mode == :default ? recfft2(y, x, d, nothing, true, T, 1, mode, py, input) : recfft2_simd(y, x, d, nothing, true, T, 1, mode, py, complexes_per_vec) 
+    kernel_code = mode == :default ? recfft2(y, x, d, nothing, true, T, 1, mode, py, input) : recfft2_simd(y, x, d, nothing, true, T, floats_per_vec, 1, mode, py, complexes_per_vec) 
     kernel_code = "$px\n$kernel_code"
     
     if isempty(kernel_code)
@@ -661,7 +665,7 @@ Generates horizontal SIMD operations like vfft8_fastest.
 - `SIMD_WIDTH`: Hardware SIMD width in bits (256 for AVX2, 512 for AVX512)
 - `tmp_base`: Base index for temporary variables
 - `mode`: Load/store mode (:default, :vgather, etc.)
-- `py`: Python-style code to inject
+- `py`: 
 
 # Strategy
 - Packs multiple complex numbers horizontally in Vec{N,T}
@@ -669,12 +673,14 @@ Generates horizontal SIMD operations like vfft8_fastest.
 - Uses signflip (XOR) for sign corrections
 - Ensures Vec{N,T} fits in hardware SIMD registers
 """
-function recfft2_simd(y, x, d, w, root, ::Type{T}, tmp_base=1, mode=:vgather, py="", complexes_per_vec=4) where T <: AbstractFloat
+function recfft2_simd(y, x, d, w, root, ::Type{T}, floats_per_vec, tmp_base=1, mode=:vgather, py="", complexes_per_vec=4) where T <: AbstractFloat
     n = length(x)  # Number of complex numbers
 
-    # Calculate vector width from complexes_per_vec
-    floats_per_vec = 2 * complexes_per_vec
     SIMD_WIDTH = floats_per_vec * sizeof(T) * 8
+
+    # Actual vector size for operations: at root level before extraction, use floats_per_vec
+    # After extraction or in recursive calls, each variable is Vec{2,T} (one complex number)
+    actual_vec_size = root && n == 2 ? floats_per_vec : 2
 
     # Helper: generate shuffle indices to extract real or imag parts
     function make_extract_indices(which::Symbol, n_complex::Int)
@@ -722,18 +728,18 @@ function recfft2_simd(y, x, d, w, root, ::Type{T}, tmp_base=1, mode=:vgather, py
                     # Load, butterfly, apply twiddles, store
                     """
                     # Load $n complex numbers = $(2*n) floats
-                    $(x[1]) = vload(Vec{$floats_per_vec,$T}, px, 1)
-                    $(x[2]) = vload(Vec{$floats_per_vec,$T}, px, $(floats_per_vec + 1))
+                    $(x[1]) = vload(Vec{$floats_per_vec,$T}, x, 1)
+                    $(x[2]) = vload(Vec{$floats_per_vec,$T}, x, $(floats_per_vec + 1))
 
                     # Butterfly
                     tmp0 = $(x[1]) - $(x[2])
                     $py
                     $(y[1]) = $(x[1]) + $(x[2])
-                    $(y[2]) = $(sat_expr_simd("tmp0", d[1], T, floats_per_vec))
+                    $(y[2]) = $(sat_expr_simd("tmp0", d[1], T, actual_vec_size))
 
                     # Store
-                    vstore($(y[1]), py, 1)
-                    vstore($(y[2]), py, $(floats_per_vec + 1))
+                    vstore($(y[1]), y, 1)
+                    vstore($(y[2]), y, $(floats_per_vec + 1))
                     """
                 end
             end
@@ -741,16 +747,16 @@ function recfft2_simd(y, x, d, w, root, ::Type{T}, tmp_base=1, mode=:vgather, py
             if root
                 """
                 # Load
-                $(x[1]) = vload(Vec{$floats_per_vec,$T}, px, 1)
-                $(x[2]) = vload(Vec{$floats_per_vec,$T}, px, $(floats_per_vec + 1))
+                $(x[1]) = vload(Vec{$floats_per_vec,$T}, x, 1)
+                $(x[2]) = vload(Vec{$floats_per_vec,$T}, x, $(floats_per_vec + 1))
 
                 # Butterfly
                 $(y[1]) = $(x[1]) + $(x[2])
                 $(y[2]) = $(x[1]) - $(x[2])
 
                 # Store
-                vstore($(y[1]), py, 1)
-                vstore($(y[2]), py, $(floats_per_vec + 1))
+                vstore($(y[1]), y, 1)
+                vstore($(y[2]), y, $(floats_per_vec + 1))
                 """
             else
                 if isnothing(w)
@@ -763,12 +769,12 @@ function recfft2_simd(y, x, d, w, root, ::Type{T}, tmp_base=1, mode=:vgather, py
                     if w[1] == "1"
                         """
                         $(y[1]) = $(x[1]) + $(x[2])
-                        $(y[2]) = $(sat_expr_simd("($(x[1]) - $(x[2]))", w[2], T, floats_per_vec))
+                        $(y[2]) = $(sat_expr_simd("($(x[1]) - $(x[2]))", w[2], T, actual_vec_size))
                         """
                     else
                         """
-                        $(y[1]) = $(sat_expr_simd("($(x[1]) + $(x[2]))", w[1], T, floats_per_vec))
-                        $(y[2]) = $(sat_expr_simd("($(x[1]) - $(x[2]))", w[2], T, floats_per_vec))
+                        $(y[1]) = $(sat_expr_simd("($(x[1]) + $(x[2]))", w[1], T, actual_vec_size))
+                        $(y[2]) = $(sat_expr_simd("($(x[1]) - $(x[2]))", w[2], T, actual_vec_size))
                         """
                     end
                 end
@@ -786,28 +792,44 @@ function recfft2_simd(y, x, d, w, root, ::Type{T}, tmp_base=1, mode=:vgather, py
         # Generate loads if this is the root call
         load_code, store_setup = if root
             # Use load_gen_simd to load all input variables
-            raw_load = load_gen_simd(x; mode=mode, T=T, ptr_name="px", SIMD_BITS=SIMD_WIDTH)
+            raw_load = load_gen_simd(x; mode=mode, T=T, ptr_name="x", SIMD_BITS=SIMD_WIDTH)
 
-            # Map loaded variables to expected names
+            # Map loaded variables to expected names using shufflevector
             # load_gen_simd creates either: v_all, or v1, v2, v3, ...
-            # We need to assign these to x[1], x[2], etc.
+            # We need to extract specific complexes to x[1], x[2], etc.
             assignments = String[]
             if n <= complexes_per_vec
                 # Single vector loaded as v_all
+                # Extract each complex number (2 floats) to individual variables
                 for (i, var) in enumerate(x)
-                    push!(assignments, "$var = v_all")
+                    # Calculate indices for i-th complex number (0-indexed for shufflevector)
+                    idx_start = 2 * (i - 1)
+                    shuffle_indices = join([idx_start, idx_start + 1], ", ")
+                    push!(assignments, "$var = shufflevector(v_all, Val(($shuffle_indices)))")
                 end
             else
                 # Multiple vectors loaded as v1, v2, v3, ...
-                vectors_per_group = complexes_per_vec
+                # Need to extract and potentially combine across vectors
+                n_vecs = cld(n, complexes_per_vec)  # Number of loaded vectors
+
                 for (i, var) in enumerate(x)
-                    vec_idx = ((i - 1) ÷ vectors_per_group) + 1
-                    push!(assignments, "$var = v$vec_idx")
+                    # Which complex number is this (1-indexed)
+                    complex_idx = i
+                    # Which vector contains it (1-indexed)
+                    vec_idx = ((complex_idx - 1) ÷ complexes_per_vec) + 1
+                    # Position within that vector (0-indexed for shufflevector)
+                    pos_in_vec = (complex_idx - 1) % complexes_per_vec
+                    # Float indices within the vector (0-indexed)
+                    idx_start = 2 * pos_in_vec
+                    shuffle_indices = join([idx_start, idx_start + 1], ", ")
+
+                    push!(assignments, "$var = shufflevector(l$vec_idx, Val(($shuffle_indices)))")
                 end
             end
 
             load_str = raw_load * "\n" * join(assignments, "\n") * "\n"
-            store_str = "py = reinterpret($T, y)\n"
+            #store_str = "py = reinterpret($T, y)\n"
+            store_str = "\n"
             (load_str, store_str)
         else
             ("", "")
@@ -817,13 +839,12 @@ function recfft2_simd(y, x, d, w, root, ::Type{T}, tmp_base=1, mode=:vgather, py
         # Even indices: x[1], x[3], x[5], ...
         # Odd indices: x[2], x[4], x[6], ...
         s1 = recfft2_simd(t[1:n2], x[1:2:n], nothing, nothing, false, T,
-                          new_tmp_base, mode, py, complexes_per_vec)
+                          floats_per_vec ÷ 2, new_tmp_base, mode, py, complexes_per_vec)
 
-        # Second half with twiddles
-        twiddles_second_half = isnothing(w) && isnothing(d) ? nothing :
-                               get_twiddle_expression(collect(0:n2-1), n; T=T, accuracy=nothing)
+        # Second half with twiddles (always compute for proper FFT, like scalar recfft2)
+        twiddles_second_half = get_twiddle_expression(collect(0:n2-1), n; T=T, accuracy=nothing)
         s2 = recfft2_simd(t[n2+1:n], x[2:2:n], nothing, twiddles_second_half, false, T,
-                          new_tmp_base, mode, py, complexes_per_vec)
+                          floats_per_vec ÷ 2, new_tmp_base, mode, py, complexes_per_vec)
 
         # Generate temporary declarations for butterfly combinations
         tmp_decls = if n > 2
@@ -855,26 +876,46 @@ function recfft2_simd(y, x, d, w, root, ::Type{T}, tmp_base=1, mode=:vgather, py
                     lhs_p = join(vec_vars_p, ", ")
                     rhs_parts_p = ["$(t[1]) + $(t[1+n2])"]
                     for i in 2:n2
-                        push!(rhs_parts_p, "$(sat_expr_simd("tmp$(i-2)", d[i-1], T, floats_per_vec))")
+                        push!(rhs_parts_p, "$(sat_expr_simd("tmp$(i-2)", d[i-1], T, actual_vec_size))")
                     end
                     rhs_p = join(rhs_parts_p, ", ")
 
                     # Second half: t[i] - t[i+n2] with twiddles
                     lhs_m = join(vec_vars_m, ", ")
-                    rhs_parts_m = ["$(sat_expr_simd("($(t[1]) - $(t[1+n2]))", d[n2], T, floats_per_vec))"]
+                    rhs_parts_m = ["$(sat_expr_simd("($(t[1]) - $(t[1+n2]))", d[n2], T, actual_vec_size))"]
                     for i in 2:n2
-                        push!(rhs_parts_m, "$(sat_expr_simd("tmp$(n2+i-3)", d[n2+i-1], T, floats_per_vec))")
+                        push!(rhs_parts_m, "$(sat_expr_simd("tmp$(n2+i-3)", d[n2+i-1], T, actual_vec_size))")
                     end
                     rhs_m = join(rhs_parts_m, ", ")
 
                     s3p = "$store_setup$py\n$tmp_decls$lhs_p = $rhs_p\n"
                     s3m = "$lhs_m = $rhs_m\n"
 
-                    # Add stores using intermediate variables
-                    stores_p = join(["vstore($(vec_vars_p[i]), py, $(1 + (i-1)*floats_per_vec))" for i in 1:n2], "\n")
-                    stores_m = join(["vstore($(vec_vars_m[i]), py, $(1 + (i+n2-1)*floats_per_vec))" for i in 1:n2], "\n")
-                    s3p *= "$stores_p\n"
-                    s3m *= "$stores_m\n"
+                    # Combine Vec{2,T} results into wide vectors and store
+                    # Each vec_vars element is Vec{2,T}, combine n2 of them into Vec{floats_per_vec,T}
+                    if n2 * 2 == floats_per_vec && n2 == 4
+                        # FFT8 case: 4 Vec{2,T} -> Vec{8,T}
+                        # shufflevector only takes 1-2 sources, so do nested combines
+                        # Use let block to avoid register pressure
+                        s3p *= "let\n"
+                        s3p *= "    y_tmp1 = shufflevector($(vec_vars_p[1]), $(vec_vars_p[2]), Val((0, 1, 2, 3)))\n"
+                        s3p *= "    y_tmp2 = shufflevector($(vec_vars_p[3]), $(vec_vars_p[4]), Val((0, 1, 2, 3)))\n"
+                        s3p *= "    y_wide1 = shufflevector(y_tmp1, y_tmp2, Val((0, 1, 2, 3, 4, 5, 6, 7)))\n"
+                        s3p *= "    vstore(y_wide1, y, 1)\n"
+                        s3p *= "end\n"
+                        s3m *= "let\n"
+                        s3m *= "    y_tmp3 = shufflevector($(vec_vars_m[1]), $(vec_vars_m[2]), Val((0, 1, 2, 3)))\n"
+                        s3m *= "    y_tmp4 = shufflevector($(vec_vars_m[3]), $(vec_vars_m[4]), Val((0, 1, 2, 3)))\n"
+                        s3m *= "    y_wide2 = shufflevector(y_tmp3, y_tmp4, Val((0, 1, 2, 3, 4, 5, 6, 7)))\n"
+                        s3m *= "    vstore(y_wide2, y, $(floats_per_vec + 1))\n"
+                        s3m *= "end\n"
+                    else
+                        # Fall back to individual stores with correct stride
+                        stores_p = join(["vstore($(vec_vars_p[i]), y, $(1 + (i-1)*2))" for i in 1:n2], "\n")
+                        stores_m = join(["vstore($(vec_vars_m[i]), y, $(1 + (i+n2-1)*2))" for i in 1:n2], "\n")
+                        s3p *= "$stores_p\n"
+                        s3m *= "$stores_m\n"
+                    end
                 end
             end
         else
@@ -894,11 +935,30 @@ function recfft2_simd(y, x, d, w, root, ::Type{T}, tmp_base=1, mode=:vgather, py
                     s3p = "$store_setup$py\n$lhs_p = $rhs_p\n"
                     s3m = "$lhs_m = $rhs_m\n"
 
-                    # Add stores using intermediate variables
-                    stores_p = join(["vstore($(vec_vars_p[i]), py, $(1 + (i-1)*floats_per_vec))" for i in 1:n2], "\n")
-                    stores_m = join(["vstore($(vec_vars_m[i]), py, $(1 + (i+n2-1)*floats_per_vec))" for i in 1:n2], "\n")
-                    s3p *= "$stores_p\n"
-                    s3m *= "$stores_m\n"
+                    # Combine Vec{2,T} results into wide vectors and store
+                    if n2 * 2 == floats_per_vec && n2 == 4
+                        # FFT8 case: 4 Vec{2,T} -> Vec{8,T}
+                        # shufflevector only takes 1-2 sources, so do nested combines
+                        # Use let block to avoid register pressure
+                        s3p *= "let\n"
+                        s3p *= "    y_tmp1 = shufflevector($(vec_vars_p[1]), $(vec_vars_p[2]), Val((0, 1, 2, 3)))\n"
+                        s3p *= "    y_tmp2 = shufflevector($(vec_vars_p[3]), $(vec_vars_p[4]), Val((0, 1, 2, 3)))\n"
+                        s3p *= "    y_wide1 = shufflevector(y_tmp1, y_tmp2, Val((0, 1, 2, 3, 4, 5, 6, 7)))\n"
+                        s3p *= "    vstore(y_wide1, y, 1)\n"
+                        s3p *= "end\n"
+                        s3m *= "let\n"
+                        s3m *= "    y_tmp3 = shufflevector($(vec_vars_m[1]), $(vec_vars_m[2]), Val((0, 1, 2, 3)))\n"
+                        s3m *= "    y_tmp4 = shufflevector($(vec_vars_m[3]), $(vec_vars_m[4]), Val((0, 1, 2, 3)))\n"
+                        s3m *= "    y_wide2 = shufflevector(y_tmp3, y_tmp4, Val((0, 1, 2, 3, 4, 5, 6, 7)))\n"
+                        s3m *= "    vstore(y_wide2, y, $(floats_per_vec + 1))\n"
+                        s3m *= "end\n"
+                    else
+                        # Fall back to individual stores with correct stride
+                        stores_p = join(["vstore($(vec_vars_p[i]), y, $(1 + (i-1)*2))" for i in 1:n2], "\n")
+                        stores_m = join(["vstore($(vec_vars_m[i]), y, $(1 + (i+n2-1)*2))" for i in 1:n2], "\n")
+                        s3p *= "$stores_p\n"
+                        s3m *= "$stores_m\n"
+                    end
                 else
                     lhs_p = join([y[i] for i in 1:n2], ", ")
                     rhs_p = join(["$(t[i]) + $(t[i+n2])" for i in 1:n2], ", ")
@@ -914,16 +974,16 @@ function recfft2_simd(y, x, d, w, root, ::Type{T}, tmp_base=1, mode=:vgather, py
                 s3p = tmp_decls
 
                 lhs_p = join([y[i] for i in 1:n2], ", ")
-                rhs_parts_p = [w[1] == "1" ? "$(t[1]) + $(t[1+n2])" : "$(sat_expr_simd("($(t[1]) + $(t[1+n2]))", w[1], T, floats_per_vec))"]
+                rhs_parts_p = [w[1] == "1" ? "$(t[1]) + $(t[1+n2])" : "$(sat_expr_simd("($(t[1]) + $(t[1+n2]))", w[1], T, actual_vec_size))"]
                 for i in 2:n2
-                    push!(rhs_parts_p, "$(sat_expr_simd("tmp$(i-2)", w[i], T, floats_per_vec))")
+                    push!(rhs_parts_p, "$(sat_expr_simd("tmp$(i-2)", w[i], T, actual_vec_size))")
                 end
                 rhs_p = join(rhs_parts_p, ", ")
 
                 lhs_m = join([y[i+n2] for i in 1:n2], ", ")
-                rhs_parts_m = ["$(sat_expr_simd("($(t[1]) - $(t[1+n2]))", w[n2+1], T, floats_per_vec))"]
+                rhs_parts_m = ["$(sat_expr_simd("($(t[1]) - $(t[1+n2]))", w[n2+1], T, actual_vec_size))"]
                 for i in 2:n2
-                    push!(rhs_parts_m, "$(sat_expr_simd("tmp$(n2+i-3)", w[n2+i], T, floats_per_vec))")
+                    push!(rhs_parts_m, "$(sat_expr_simd("tmp$(n2+i-3)", w[n2+i], T, actual_vec_size))")
                 end
                 rhs_m = join(rhs_parts_m, ", ")
 
@@ -961,73 +1021,95 @@ function sat_expr_simd(vec_name::String, twiddle, ::Type{T}, floats_per_vec::Int
                 push!(swap_indices, i+1)  # imag component (1-based)
                 push!(swap_indices, i)    # real component (1-based)
             end
-            # Generate sign mask to negate imaginary parts (now at odd indices after swap)
-            sign_mask = join(["0x$(i % 2 == 0 ? "00000000" : "80000000")" for i in 1:floats_per_vec], ", ")
+            # Generate sign mask to negate real parts (now at even indices after swap)
+            sign_mask = join(["0x$(i % 2 == 1 ? "80000000" : "00000000")" for i in 1:floats_per_vec], ", ")
             return "shufflevector(signflip($vec_name, Vec{$floats_per_vec,UInt32}(($sign_mask))), Val(($(join(swap_indices .- 1, ", ")))))"
         elseif twiddle == "-im"
             # -i*(r+ii) = -ir + i = i - ir → [r,i] becomes [i, -r]
-            # Generate shuffle indices to swap r,i pairs: [r1,i1,r2,i2,...] -> [i1,r1,i2,r2,...]
-            # For 1-based indexing: [1,2,3,4,...] we want [2,1,4,3,...]
-            # After subtracting 1 for 0-based: [1,0,3,2,...]
+            # Step 1: signflip to negate real parts: [r,i] -> [-r,i]
+            # Step 2: swap to get [i,-r]
             swap_indices = Int[]
             for i in 1:2:floats_per_vec
                 push!(swap_indices, i+1)  # imag component (1-based)
                 push!(swap_indices, i)    # real component (1-based)
             end
-            # Generate sign mask to negate real parts (now at even indices after swap)
-            sign_mask = join(["0x$(i % 2 == 1 ? "00000000" : "80000000")" for i in 1:floats_per_vec], ", ")
+            # Generate sign mask to negate real parts (at even indices, i % 2 == 1 in 1-based)
+            sign_mask = join(["0x$(i % 2 == 1 ? "80000000" : "00000000")" for i in 1:floats_per_vec], ", ")
             return "shufflevector(signflip($vec_name, Vec{$floats_per_vec,UInt32}(($sign_mask))), Val(($(join(swap_indices .- 1, ", ")))))"
         elseif twiddle == "INV_SQRT2_Q4"
-
             # (r+ii) * (1-i)/√2 = (r+i)/√2 + i(i-r)/√2 = ((r+i), (i-r))/√2
-            num_complex = floats_per_vec ÷ 2
-            # Extract real and imag parts
-            r_indices = [2i-1 for i in 1:num_complex]
-            i_indices = [2i for i in 1:num_complex]
 
-            # Interleave for final result: r1, i1, r2, i2, ...
-            interleave_indices = Int[]
-            for i in 0:num_complex-1
-                push!(interleave_indices, i)            
-                push!(interleave_indices, i + num_complex)  
+            if floats_per_vec == 2
+                # Special case for Vec{2, Float32} - single complex number [r, i]
+                # Want [(r+i)/√2, (i-r)/√2]
+                return """(let
+                    v = $vec_name
+                    v_swap = shufflevector(v, Val((1, 0)))
+                    v_sum = v + v_swap
+                    v_diff = v - v_swap
+                    shufflevector(v_sum, v_diff, Val((0, 3))) * INV_SQRT2
+                end)"""
+            else
+                num_complex = floats_per_vec ÷ 2
+                # Extract real and imag parts
+                r_indices = [2i-1 for i in 1:num_complex]
+                i_indices = [2i for i in 1:num_complex]
+
+                # Interleave for final result: r1, i1, r2, i2, ...
+                interleave_indices = Int[]
+                for i in 0:num_complex-1
+                    push!(interleave_indices, i)
+                    push!(interleave_indices, i + num_complex)
+                end
+
+                return """(let
+                    v = $vec_name
+                    v_r = shufflevector(v, Val(($(join(r_indices .- 1, ", ")))))
+                    v_i = shufflevector(v, Val(($(join(i_indices .- 1, ", ")))))
+                    v_sum = v_r + v_i
+                    v_diff = v_i - v_r
+                    shufflevector(v_sum, v_diff, Val(($(join(interleave_indices, ", "))))) * INV_SQRT2
+                end)"""
             end
-
-            return """(let
-                v = $vec_name
-                v_r = shufflevector(v, Val(($(join(r_indices .- 1, ", ")))))
-                v_i = shufflevector(v, Val(($(join(i_indices .- 1, ", ")))))
-                v_sum = v_r + v_i
-                v_diff = v_i - v_r
-                shufflevector(v_sum, v_diff, Val(($(join(interleave_indices, ", "))))) * INV_SQRT2 
-            end)"""
         elseif twiddle == "-INV_SQRT2_Q1"
+            # -(r+ii) * (1+i)/√2 = [-(r-i)/√2, -(r+i)/√2] = [(i-r)/√2, -(r+i)/√2]
 
-            num_complex = floats_per_vec ÷ 2
-            r_indices = [2i-1 for i in 1:num_complex]
-            i_indices = [2i for i in 1:num_complex]
+            if floats_per_vec == 2
+                # Special case for Vec{2, Float32} - single complex number [r, i]
+                # Want [(i-r)/√2, -(r+i)/√2]
+                return """(let
+                    v = $vec_name
+                    v_swap = shufflevector(v, Val((1, 0)))
+                    v_sum = v + v_swap
+                    v_diff = v - v_swap
+                    shufflevector(v_diff, -v_sum, Val((1, 2))) * INV_SQRT2
+                end)"""
+            else
+                num_complex = floats_per_vec ÷ 2
+                r_indices = [2i-1 for i in 1:num_complex]
+                i_indices = [2i for i in 1:num_complex]
 
-            # Interleave for final result: r1, i1, r2, i2, ...
-            interleave_indices = Int[]
-            for i in 0:num_complex-1
-                push!(interleave_indices, i)            
-                push!(interleave_indices, i + num_complex)  
+                # Interleave for final result: r1, i1, r2, i2, ...
+                interleave_indices = Int[]
+                for i in 0:num_complex-1
+                    push!(interleave_indices, i)
+                    push!(interleave_indices, i + num_complex)
+                end
+
+                return """(let
+                    v = $vec_name
+                    v_r = shufflevector(v, Val(($(join(r_indices .- 1, ", ")))))
+                    v_i = shufflevector(v, Val(($(join(i_indices .- 1, ", ")))))
+                    v_sum = v_r + v_i
+                    v_diff = v_i - v_r
+                    shufflevector(v_diff, -v_sum, Val(($(join(interleave_indices, ", "))))) * INV_SQRT2
+                end)"""
             end
-
-            return """(let
-                v = $vec_name
-                v_r = shufflevector(v, Val(($(join(r_indices .- 1, ", ")))))
-                v_i = shufflevector(v, Val(($(join(i_indices .- 1, ", ")))))
-                v_sum = v_r + v_i
-                v_diff = v_i - v_r
-                shufflevector(v_diff, -v_sum, Val(($(join(interleave_indices, ", "))))) * INV_SQRT2 
-            end)"""
         end
             try
               # Meta.parse returns an expression, which needs to be evaluated/used
               # or passed to the Tuple logic. We'll evaluate it to get the value.
               twiddle_parsed = Core.eval(Main, Meta.parse(twiddle))
-              @show twiddle_parsed
-              @show typeof(twiddle_parsed)
                   
               # If successfully parsed into a Tuple, jump to the Tuple logic below
               if twiddle_parsed isa Tuple
@@ -1041,7 +1123,6 @@ function sat_expr_simd(vec_name::String, twiddle, ::Type{T}, floats_per_vec::Int
             error("Unknown string twiddle factor: $twiddle")
     elseif twiddle isa Tuple
         # General CISPI twiddle
-        @show twiddle
         num, den, quadrant = twiddle
         c = "COSPI_$(num)_$(den)"
         s = "SINPI_$(num)_$(den)"
@@ -1167,13 +1248,6 @@ function vec_mul_twiddle_op(op::String, vec1::String, vec2::String, twiddle::Str
 end
 
 # Vectorized XOR operation to flip sign at chosen vector elements
-@inline function signflip(v::Vec{N,T}, mask::Vec{N,UInt32}) where {N, T<:AbstractFloat}
-    # Reinterpret float as uint, XOR with sign bit, reinterpret back.
-    # Julia doesn't like bitwise operations on its floats...
-    v_uint = reinterpret(Vec{N,UInt32}, v)
-    v_flipped = v_uint ⊻ mask
-    return reinterpret(Vec{N,T}, v_flipped)
-end
 
 @inline function vfft8(x::Vector{Float32}, y::Vector{Float32}) 
     @inbounds @fastmath begin
@@ -1334,4 +1408,12 @@ end
         vstore(y1_8_top, y, 1)
         vstore(y1_8_bot, y, 9)
     end
+end
+
+@inline function signflip(v::Vec{N,T}, mask::Vec{N,UInt32}) where {N, T<:AbstractFloat}
+    # Reinterpret float as uint, XOR with sign bit, reinterpret back.
+    # Julia doesn't like bitwise operations on its floats...
+    v_uint = reinterpret(Vec{N,UInt32}, v)
+    v_flipped = v_uint ⊻ mask
+    return reinterpret(Vec{N,T}, v_flipped)
 end

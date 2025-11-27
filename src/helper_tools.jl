@@ -1,4 +1,5 @@
 #Helper Tools for CatabraFFT
+using SIMD
 
 # Custom view type for zero-allocation reshaping of vectors to matrices
 struct StaticReshapedArray{T,N,AA<:AbstractArray} <: AbstractArray{T,N}
@@ -113,4 +114,12 @@ function find_closest_factors(n::Int, prime_powers_preference::Bool=true)
     end
     
     error("Unable to find non-prime factors for $n")
+end
+
+@inline function signflip(v::Vec{N,T}, mask::Vec{N,UInt32}) where {N, T<:AbstractFloat}
+    # Reinterpret float as uint, XOR with sign bit, reinterpret back.
+    # Julia doesn't like bitwise operations on its floats...
+    v_uint = reinterpret(Vec{N,UInt32}, v)
+    v_flipped = v_uint ⊻ mask
+    return reinterpret(Vec{N,T}, v_flipped)
 end
