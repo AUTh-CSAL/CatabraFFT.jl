@@ -260,11 +260,80 @@ function substitute_strided_final_loop(kernel_expr::Expr, out_var, in_var, strid
                     return Expr(:ref, arr_sym, index_expr)
                 end
 
+            # Handle vload/vstore calls: vload(Vec{N,T}, array, position) or vstore(value, array, position)
+            elseif ex.head == :call && length(ex.args) >= 3
+                func_name = ex.args[1]
+                if func_name == :vload && length(ex.args) == 4
+                    # vload(Vec{N,T}, array_sym, position)
+                    vec_type = ex.args[2]
+                    arr_arg = ex.args[3]
+                    pos_arg = ex.args[4]
+                    arr_sym_check = arr_arg isa Symbol ? arr_arg : Symbol(arr_arg)
+
+                    if (arr_sym_check == out_sym || arr_sym_check == in_sym) && isa(pos_arg, Int)
+                        # Transform position using same logic as array references
+                        idx_val = pos_arg
+                        template_complex_num = (idx_val - 1) ÷ 2
+                        is_imag = (idx_val - 1) % 2 == 1
+
+                        # vload is always a load (is_lhs=false)
+                        implicit_template_load_stride = size ÷ radix
+                        if implicit_template_load_stride == 0
+                            implicit_template_load_stride = 1
+                        end
+                        k = template_complex_num ÷ implicit_template_load_stride
+
+                        strided_float_offset = k * stride * 2
+                        total_const_offset = strided_float_offset + (is_imag ? 1 : 0)
+                        base_var_expr = :((2 * idx) - 1)
+
+                        pos_expr = if total_const_offset == 0
+                            base_var_expr
+                        else
+                            :($base_var_expr + $total_const_offset)
+                        end
+
+                        return Expr(:call, :vload, vec_type, arr_arg, pos_expr)
+                    end
+
+                elseif func_name == :vstore && length(ex.args) == 4
+                    # vstore(value, array_sym, position)
+                    value_arg = ex.args[2]
+                    arr_arg = ex.args[3]
+                    pos_arg = ex.args[4]
+                    arr_sym_check = arr_arg isa Symbol ? arr_arg : Symbol(arr_arg)
+
+                    if (arr_sym_check == out_sym || arr_sym_check == in_sym) && isa(pos_arg, Int)
+                        # Transform position using same logic as array references
+                        idx_val = pos_arg
+                        template_complex_num = (idx_val - 1) ÷ 2
+                        is_imag = (idx_val - 1) % 2 == 1
+
+                        # vstore is always a store (is_lhs=true)
+                        k = template_complex_num
+
+                        strided_float_offset = k * stride * 2
+                        total_const_offset = strided_float_offset + (is_imag ? 1 : 0)
+                        base_var_expr = :((2 * idx) - 1)
+
+                        pos_expr = if total_const_offset == 0
+                            base_var_expr
+                        else
+                            :($base_var_expr + $total_const_offset)
+                        end
+
+                        # Transform value recursively (it might contain loads)
+                        transformed_value = transform(value_arg, false)
+                        return Expr(:call, :vstore, transformed_value, arr_arg, pos_expr)
+                    end
+                end
+                # Fall through to general case if not matched
+
             # Recursive traversal for assignment expressions
             elseif ex.head == :(=)
                 # Apply the strided logic to both LHS (Store - is_lhs=true) and RHS (Load - is_lhs=false)
                 return Expr(:(=), transform(ex.args[1], true), transform(ex.args[2], false))
-                
+
             # Recursive traversal for tuples, blocks, calls, etc.
             else
                 # Clean up metadata lines from the initial quote (like #= none:3 =#)
