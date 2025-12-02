@@ -921,19 +921,23 @@ function recfft2_simd(y, x, d, w, root, ::Type{T}, floats_per_vec, tmp_base=1, m
                     # Each vec_vars element is Vec{2,T}, combine n2 of them into Vec{floats_per_vec,T}
                     if n2 * 2 == floats_per_vec && n2 == 4
                         # FFT8 case: 4 Vec{2,T} -> Vec{8,T}
+                        # Extract store positions from y array template
+                        store_pos_p = parse(Int, match(r"\[(\d+)\]", y[1]).captures[1])  # First element
+                        store_pos_m = parse(Int, match(r"\[(\d+)\]", y[2*n2 + 1]).captures[1])  # n2+1'th element
+
                         # shufflevector only takes 1-2 sources, so do nested combines
                         # Use let block to avoid register pressure
                         s3p *= "let\n"
                         s3p *= "    y_tmp1 = shufflevector($(vec_vars_p[1]), $(vec_vars_p[2]), Val((0, 1, 2, 3)))\n"
                         s3p *= "    y_tmp2 = shufflevector($(vec_vars_p[3]), $(vec_vars_p[4]), Val((0, 1, 2, 3)))\n"
                         s3p *= "    y_wide1 = shufflevector(y_tmp1, y_tmp2, Val((0, 1, 2, 3, 4, 5, 6, 7)))\n"
-                        s3p *= "    vstore(y_wide1, $output_buffer, 1)\n"
+                        s3p *= "    vstore(y_wide1, $output_buffer, $store_pos_p)\n"
                         s3p *= "end\n"
                         s3m *= "let\n"
                         s3m *= "    y_tmp3 = shufflevector($(vec_vars_m[1]), $(vec_vars_m[2]), Val((0, 1, 2, 3)))\n"
                         s3m *= "    y_tmp4 = shufflevector($(vec_vars_m[3]), $(vec_vars_m[4]), Val((0, 1, 2, 3)))\n"
                         s3m *= "    y_wide2 = shufflevector(y_tmp3, y_tmp4, Val((0, 1, 2, 3, 4, 5, 6, 7)))\n"
-                        s3m *= "    vstore(y_wide2, $output_buffer, $(floats_per_vec + 1))\n"
+                        s3m *= "    vstore(y_wide2, $output_buffer, $store_pos_m)\n"
                         s3m *= "end\n"
                     else
                         # Fall back to individual stores - extract positions from y array
@@ -968,19 +972,23 @@ function recfft2_simd(y, x, d, w, root, ::Type{T}, floats_per_vec, tmp_base=1, m
                     # Combine Vec{2,T} results into wide vectors and store
                     if n2 * 2 == floats_per_vec && n2 == 4
                         # FFT8 case: 4 Vec{2,T} -> Vec{8,T}
+                        # Extract store positions from y array template
+                        store_pos_p = parse(Int, match(r"\[(\d+)\]", y[1]).captures[1])  # First element
+                        store_pos_m = parse(Int, match(r"\[(\d+)\]", y[2*n2 + 1]).captures[1])  # n2+1'th element
+
                         # shufflevector only takes 1-2 sources, so do nested combines
                         # Use let block to avoid register pressure
                         s3p *= "let\n"
                         s3p *= "    y_tmp1 = shufflevector($(vec_vars_p[1]), $(vec_vars_p[2]), Val((0, 1, 2, 3)))\n"
                         s3p *= "    y_tmp2 = shufflevector($(vec_vars_p[3]), $(vec_vars_p[4]), Val((0, 1, 2, 3)))\n"
                         s3p *= "    y_wide1 = shufflevector(y_tmp1, y_tmp2, Val((0, 1, 2, 3, 4, 5, 6, 7)))\n"
-                        s3p *= "    vstore(y_wide1, $output_buffer, 1)\n"
+                        s3p *= "    vstore(y_wide1, $output_buffer, $store_pos_p)\n"
                         s3p *= "end\n"
                         s3m *= "let\n"
                         s3m *= "    y_tmp3 = shufflevector($(vec_vars_m[1]), $(vec_vars_m[2]), Val((0, 1, 2, 3)))\n"
                         s3m *= "    y_tmp4 = shufflevector($(vec_vars_m[3]), $(vec_vars_m[4]), Val((0, 1, 2, 3)))\n"
                         s3m *= "    y_wide2 = shufflevector(y_tmp3, y_tmp4, Val((0, 1, 2, 3, 4, 5, 6, 7)))\n"
-                        s3m *= "    vstore(y_wide2, $output_buffer, $(floats_per_vec + 1))\n"
+                        s3m *= "    vstore(y_wide2, $output_buffer, $store_pos_m)\n"
                         s3m *= "end\n"
                     else
                         # Fall back to individual stores - extract positions from y array
