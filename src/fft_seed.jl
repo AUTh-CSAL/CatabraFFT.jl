@@ -1,5 +1,7 @@
 include("suffix.jl")
 include("radix_plan.jl")
+include("simd_merge.jl")
+include("recfft2_simd.jl")  # New SIMD implementation with automatic twiddle fusion
 using SIMD
 
 const SIMD_BITS = 256
@@ -451,87 +453,6 @@ function sat_expr(sign, x1, x2, w)
     end
 end
 
-"""
-Apply twiddle factor w to vector containing n_complex complex numbers
-"""
-function sat_expr_vec(vec_name, w, T, n_complex)
-    if w == "1"
-        # Identity - no operation needed
-        return vec_name
-        
-    elseif w == "-im"
-        # -im rotation: swap real/imag and negate imaginary
-        # For [r1,i1,r2,i2,...] -> [i1,-r1,i2,-r2,...]
-        swap_indices = Int[]
-        for i in 1:n_complex
-            push!(swap_indices, 2*i)     # imaginary first
-            push!(swap_indices, 2*i - 1) # real second
-        end
-        
-        neg_pattern = join([i % 2 == 0 ? "-1" : "1" for i in 1:2*n_complex], ",")
-        
-        return """shufflevector($vec_name, Val(($(join(swap_indices.-1, ","))))) * Vec{$(2*n_complex),$T}(($neg_pattern))"""
-        
-    elseif w == "INV_SQRT2_Q4"
-        # (1-i)/√2 transformation
-        # (a+bi) * (1-i)/√2 = [(a+b)/√2, (b-a)/√2]
-        
-        # First create sum and diff vectors
-        sum_indices = []
-        diff_indices = []
-        for i in 1:n_complex
-            r_idx = 2*i - 1
-            i_idx = 2*i
-            push!(sum_indices, "$vec_name[$r_idx] + $vec_name[$i_idx]")
-            push!(diff_indices, "$vec_name[$i_idx] - $vec_name[$r_idx]")
-        end
-        
-        return """Vec{$(2*n_complex),$T}(($(join(vcat(sum_indices, diff_indices), ","))) * INV_SQRT2)"""
-        
-    elseif startswith(w, "CISPI")
-        # General twiddle factor application
-        parsed = parse_cispi(w)
-        c = "COSPI_$(parsed.num)_$(parsed.den)"
-        s = "SINPI_$(parsed.num)_$(parsed.den)"
-        
-        # Create cos and sin vectors
-        cos_sin_pattern = join([i % 2 == 1 ? c : s for i in 1:2*n_complex], ",")
-        
-        if parsed.q1
-            # cos + i*sin
-            return """complex_multiply($vec_name, Vec{$(2*n_complex),$T}(($cos_sin_pattern)))"""
-        else
-            # cos - i*sin
-            sin_neg_pattern = join([i % 2 == 1 ? c : "-$s" for i in 1:2*n_complex], ",")
-            return """complex_multiply($vec_name, Vec{$(2*n_complex),$T}(($sin_neg_pattern)))"""
-        end
-    else
-        # Fallback for unhandled cases
-        return vec_name
-    end
-end
-
-# Helper for complex multiplication of vectors
-@inline function complex_multiply(v1::Vec{N,T}, v2::Vec{N,T}) where {N,T}
-  @fastmath @inbounds begin
-    # v1 = [r1,i1,r2,i2,...], v2 = [c1,s1,c2,s2,...]
-    # Result: [r1*c1-i1*s1, r1*s1+i1*c1, ...]
-    
-    # Extract real and imaginary parts
-    v1_r = shufflevector(v1, Val(tuple([2i-1 for i in 1:N÷2]...)))
-    v1_i = shufflevector(v1, Val(tuple([2i for i in 1:N÷2]...)))
-    v2_r = shufflevector(v2, Val(tuple([2i-1 for i in 1:N÷2]...)))
-    v2_i = shufflevector(v2, Val(tuple([2i for i in 1:N÷2]...)))
-    
-    # Complex multiplication
-    res_r = muladd(v1_r, v2_r, -v1_i * v2_i)
-    res_i = muladd(v1_r, v2_i, v1_i * v2_r)
-    
-    # Interleave back
-    return shufflevector(res_r, res_i, Val(tuple(vcat([[2i-1,2i+N÷2-1] for i in 1:N÷2]...)...)))
-  end
-end
-
 function inccounter()
   let counter = 0
     return () -> (counter += 1)
@@ -539,8 +460,6 @@ function inccounter()
 end
 
 inc = inccounter()
-
-
 
 # Scalar version of the recursive radix generator for n = 2^q sizes
 function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1, mode=:default, py="", input_buffer="x") where T <: AbstractFloat
@@ -655,8 +574,14 @@ function recfft2(y, x, d, w, root, ::Type{T}, tmp_base=1, mode=:default, py="", 
   return s
 end
 
+# OLD IMPLEMENTATION - REPLACED BY recfft2_simd.jl
 # Complete SIMD FFT kernel generator
 """
+OLD recfft2_simd - REPLACED BY NEW IMPLEMENTATION IN recfft2_simd.jl
+
+This old implementation is kept for reference only.
+Use the new recfft2_simd from recfft2_simd.jl instead.
+
 recfft2_simd(y, x, d, w, root, ::Type{T}; SIMD_WIDTH=256, tmp_base=1, mode=:default, py="")
 
 A SIMD-aware code-generator replacement for your scalar recfft2 codegen.
@@ -678,10 +603,12 @@ Generates horizontal SIMD operations like vfft8_fastest.
 - Uses signflip (XOR) for sign corrections
 - Ensures Vec{N,T} fits in hardware SIMD registers
 """
-function recfft2_simd(y, x, d, w, root, ::Type{T}, floats_per_vec, tmp_base=1, mode=:vgather, py="", complexes_per_vec=4, input_buffer="x", output_buffer="y") where T <: AbstractFloat
+# OLD - Commented out, replaced by recfft2_simd.jl
+#=
+@inline function recfft2_simd_OLD(y, x, d, w, root, ::Type{T}, floats_per_vec, tmp_base=1, mode=:vgather, py="", complexes_per_vec=4, input_buffer="x", output_buffer="y") where T <: AbstractFloat
     n = length(x)  # Number of complex numbers
 
-    SIMD_WIDTH = floats_per_vec * sizeof(T) * 8
+    @show SIMD_WIDTH = floats_per_vec * sizeof(T) * 8
 
     # Helper: generate shuffle indices to extract real or imag parts
     function make_extract_indices(which::Symbol, n_complex::Int)
@@ -701,18 +628,6 @@ function recfft2_simd(y, x, d, w, root, ::Type{T}, floats_per_vec, tmp_base=1, m
             push!(indices, i + n_complex)  # from v_i
         end
         return join(indices, ", ")
-    end
-
-    # Helper: generate signflip mask
-    function make_signflip_mask(pattern::Vector{Bool}, vec_size::Int, ::Type{T})
-        # pattern[i] = true means flip sign at position i
-        # For Float32: sign bit is 0x80000000, for Float64: 0x8000000000000000
-        UIntType = T == Float32 ? "UInt32" : (T == Float64 ? "UInt64" : "UInt16")
-        sign_bit = T == Float32 ? "0x80000000" : (T == Float64 ? "0x8000000000000000" : "0x8000")
-        zero_bit = T == Float32 ? "0x00000000" : (T == Float64 ? "0x0000000000000000" : "0x0000")
-
-        mask_vals = [pattern[min(i, length(pattern))] ? sign_bit : zero_bit for i in 1:vec_size]
-        return "Vec{$vec_size,$UIntType}(($(join(mask_vals, ", "))))"
     end
 
     if n == 1
@@ -738,13 +653,11 @@ function recfft2_simd(y, x, d, w, root, ::Type{T}, floats_per_vec, tmp_base=1, m
 
                     # Load, butterfly, apply twiddles, store
                     """
-                    # Load 2 complex numbers as Vec{2,T} each
                     $(x[1]) = vload(Vec{2,$T}, $input_buffer, $pos1)
                     $(x[2]) = vload(Vec{2,$T}, $input_buffer, $pos2)
 
                     # Butterfly
                     tmp0 = $(x[1]) - $(x[2])
-                    $py
                     t1 = $(x[1]) + $(x[2])
                     t2 = $(sat_expr_simd("tmp0", d[1], T, 2))
 
@@ -767,21 +680,16 @@ function recfft2_simd(y, x, d, w, root, ::Type{T}, floats_per_vec, tmp_base=1, m
                 store_pos2 = parse(Int, match(r"\[(\d+)\]", y[3]).captures[1])
 
                 """
-                # Load
                 $(x[1]) = vload(Vec{2,$T}, $input_buffer, $pos1)
                 $(x[2]) = vload(Vec{2,$T}, $input_buffer, $pos2)
-
-                # Butterfly
                 t1 = $(x[1]) + $(x[2])
                 t2 = $(x[1]) - $(x[2])
-
-                # Store
                 vstore(t1, $output_buffer, $store_pos1)
                 vstore(t2, $output_buffer, $store_pos2)
                 """
             else
                 if isnothing(w)
-                    # Non-root, no twiddles: simple butterfly
+                    # Non-root, no twiddles: simple butterfly, SIMD causes overhead, ILP 'scalar' usage is preferable.
                     """
                     $(y[1]), $(y[2]) = $(x[1]) + $(x[2]), $(x[1]) - $(x[2])
                     """
@@ -793,6 +701,7 @@ function recfft2_simd(y, x, d, w, root, ::Type{T}, floats_per_vec, tmp_base=1, m
                         $(y[2]) = $(sat_expr_simd("($(x[1]) - $(x[2]))", w[2], T, 2))
                         """
                     else
+                        #TODO Collapse sat_expr_simd to vectorized 'FUNCTOR' operaitons
                         """
                         $(y[1]) = $(sat_expr_simd("($(x[1]) + $(x[2]))", w[1], T, 2))
                         $(y[2]) = $(sat_expr_simd("($(x[1]) - $(x[2]))", w[2], T, 2))
@@ -801,9 +710,7 @@ function recfft2_simd(y, x, d, w, root, ::Type{T}, floats_per_vec, tmp_base=1, m
                 end
             end
         end
-
         return something(s, "")
-
     else
         # RECURSIVE CASE: Split into two sub-transforms, then combine
         n2 = n ÷ 2
@@ -816,13 +723,13 @@ function recfft2_simd(y, x, d, w, root, ::Type{T}, floats_per_vec, tmp_base=1, m
             raw_load = load_gen_simd(x; mode=mode, T=T, ptr_name=input_buffer, SIMD_BITS=SIMD_WIDTH)
 
             # Map loaded variables to expected names using shufflevector
-            # load_gen_simd creates either: l_all, or v1, v2, v3, ...
+            # load_gen_simd creates either: l_all, or l1, l2, l3, ...
             # We need to extract specific complexes to x[1], x[2], etc.
             assignments = String[]
             if n <= complexes_per_vec
                 # Single vector loaded as l_all
                 # Extract each complex number (2 floats) to individual variables
-                for (i, var) in enumerate(x)
+                @inbounds for (i, var) in enumerate(x)
                     # Calculate indices for i-th complex number (0-indexed for shufflevector)
                     idx_start = 2 * (i - 1)
                     shuffle_indices = join([idx_start, idx_start + 1], ", ")
@@ -833,7 +740,7 @@ function recfft2_simd(y, x, d, w, root, ::Type{T}, floats_per_vec, tmp_base=1, m
                 # Need to extract and potentially combine across vectors
                 n_vecs = cld(n, complexes_per_vec)  # Number of loaded vectors
 
-                for (i, var) in enumerate(x)
+                @inbounds for (i, var) in enumerate(x)
                     # Which complex number is this (1-indexed)
                     complex_idx = i
                     # Which vector contains it (1-indexed)
@@ -843,13 +750,11 @@ function recfft2_simd(y, x, d, w, root, ::Type{T}, floats_per_vec, tmp_base=1, m
                     # Float indices within the vector (0-indexed)
                     idx_start = 2 * pos_in_vec
                     shuffle_indices = join([idx_start, idx_start + 1], ", ")
-
                     push!(assignments, "$var = shufflevector(l$vec_idx, Val(($shuffle_indices)))")
                 end
             end
 
             load_str = raw_load * "\n" * join(assignments, "\n") * "\n"
-            #store_str = "py = reinterpret($T, y)\n"
             store_str = "\n"
             (load_str, store_str)
         else
@@ -871,10 +776,10 @@ function recfft2_simd(y, x, d, w, root, ::Type{T}, floats_per_vec, tmp_base=1, m
         tmp_decls = if n > 2
             parts = String[]
             # Create sum and diff temporaries
-            for i in 2:n2
+            @inbounds for i in 2:n2
                 push!(parts, "tmp$(i-2) = $(t[i]) + $(t[i+n2])")
             end
-            for i in 2:n2
+            @inbounds for i in 2:n2
                 push!(parts, "tmp$(n2+i-3) = $(t[i]) - $(t[i+n2])")
             end
             join(parts, "\n") * "\n"
@@ -1037,18 +942,11 @@ function recfft2_simd(y, x, d, w, root, ::Type{T}, floats_per_vec, tmp_base=1, m
         return load_code * s1 * s2 * s3p * s3m
     end
 end
-
-function vec_mul_twiddle_d(vec_name::String, c_idx::Int, s_idx::Int, ::Type{T}, floats_per_vec::Int) where T
-    # Use d[c_idx] for cos, d[s_idx] for sin in vectorized complex multiplication
-    c = "d[$c_idx]"
-    s = "d[$s_idx]"
-    # Call the same CISPI multiplication code, but with direct references to d
-    return vec_mul_cispi_code(vec_name, c, s, false, T, floats_per_vec)  # false = Q4 quadrant (cos - i*sin)
-end
+=# # End of old recfft2_simd_OLD - Use new implementation from recfft2_simd.jl
 
 # SIMD code generation helpers for complex twiddle multiplication
 # These generate actual SIMD.jl expressions that will be inlined
-function sat_expr_simd(vec_name::String, twiddle, ::Type{T}, floats_per_vec::Int) where T
+function sat_expr_simd(vec_name::String, twiddle, ::Type{T}, floats_per_vec::Int) where T <: AbstractFloat
     if twiddle isa String
         if twiddle == "1"
             return vec_name
@@ -1064,8 +962,8 @@ function sat_expr_simd(vec_name::String, twiddle, ::Type{T}, floats_per_vec::Int
                 push!(swap_indices, i)    # real component (1-based)
             end
             # Generate sign mask to negate real parts (now at even indices after swap)
-            sign_mask = join(["0x$(i % 2 == 1 ? "80000000" : "00000000")" for i in 1:floats_per_vec], ", ")
-            return "shufflevector(signflip($vec_name, Vec{$floats_per_vec,UInt32}(($sign_mask))), Val(($(join(swap_indices .- 1, ", ")))))"
+            sign_mask = make_signflip_mask([true, false], floats_per_vec, T)
+            return "shufflevector(signflip($vec_name, $sign_mask), Val(($(join(swap_indices .- 1, ", ")))))"
         elseif twiddle == "-im"
             # -i*(r+ii) = -ir + i = i - ir → [r,i] becomes [i, -r]
             # Step 1: signflip to negate real parts: [r,i] -> [-r,i]
@@ -1076,8 +974,8 @@ function sat_expr_simd(vec_name::String, twiddle, ::Type{T}, floats_per_vec::Int
                 push!(swap_indices, i)    # real component (1-based)
             end
             # Generate sign mask to negate real parts (at even indices, i % 2 == 1 in 1-based)
-            sign_mask = join(["0x$(i % 2 == 1 ? "80000000" : "00000000")" for i in 1:floats_per_vec], ", ")
-            return "shufflevector(signflip($vec_name, Vec{$floats_per_vec,UInt32}(($sign_mask))), Val(($(join(swap_indices .- 1, ", ")))))"
+            sign_mask = make_signflip_mask([true, false], floats_per_vec, T)
+            return "shufflevector(signflip($vec_name, $sign_mask), Val(($(join(swap_indices .- 1, ", ")))))"
         elseif twiddle == "INV_SQRT2_Q4"
             # (r+ii) * (1-i)/√2 = (r+i)/√2 + i(i-r)/√2 = ((r+i), (i-r))/√2
 
@@ -1131,7 +1029,7 @@ function sat_expr_simd(vec_name::String, twiddle, ::Type{T}, floats_per_vec::Int
 
                 # Interleave for final result: r1, i1, r2, i2, ...
                 interleave_indices = Int[]
-                for i in 0:num_complex-1
+                @inbounds for i in 0:num_complex-1
                     push!(interleave_indices, i)
                     push!(interleave_indices, i + num_complex)
                 end
@@ -1158,7 +1056,6 @@ function sat_expr_simd(vec_name::String, twiddle, ::Type{T}, floats_per_vec::Int
               # If parsing failed, it's a genuinely unknown string twiddle factor.
                 error("Unknown string twiddle factor: $twiddle")
             end
-
             error("Unknown string twiddle factor: $twiddle")
     elseif twiddle isa Tuple
         # General CISPI twiddle
@@ -1166,15 +1063,13 @@ function sat_expr_simd(vec_name::String, twiddle, ::Type{T}, floats_per_vec::Int
         c = "COSPI_$(num)_$(den)"
         s = "SINPI_$(num)_$(den)"
 
-        #return vec_mul_cispi_code(vec_name, c, s, parsed.q1, T, floats_per_vec)
-
         num_complex = floats_per_vec ÷ 2
         r_indices = [2i-1 for i in 1:num_complex]
         i_indices = [2i for i in 1:num_complex]
 
         # Interleave for final result: r1, i1, r2, i2, ...
         interleave_indices = Int[]
-        for i in 0:num_complex-1
+        @inbounds for i in 0:num_complex-1
             push!(interleave_indices, i)            # from out_r
             push!(interleave_indices, i + num_complex)  # from out_i
         end
@@ -1267,17 +1162,7 @@ function sat_expr_simd(vec_name::String, twiddle, ::Type{T}, floats_per_vec::Int
     end
 end
 
-# Wraper: apply twiddle to (vec1 op vec2)
-function vec_mul_twiddle_op(op::String, vec1::String, vec2::String, twiddle::String, ::Type{T}, floats_per_vec::Int) where T
-    if twiddle == "1"
-        return "$vec1 $op $vec2"
-    else
-        return vec_mul_twiddle("($vec1 $op $vec2)", twiddle, T, floats_per_vec)
-    end
-end
-
 # Vectorized XOR operation to flip sign at chosen vector elements
-
 @inline function vfft8(x::Vector{Float32}, y::Vector{Float32}) 
     @inbounds @fastmath begin
         INV_SQRT2 = 0.7071067811865476f0
@@ -1445,4 +1330,16 @@ end
     v_uint = reinterpret(Vec{N,UInt32}, v)
     v_flipped = v_uint ⊻ mask
     return reinterpret(Vec{N,T}, v_flipped)
+end
+
+# Helper: generate signflip mask
+function make_signflip_mask(pattern::Vector{Bool}, vec_size::Int, ::Type{T}) where T <: AbstractFloat
+    # pattern[i] = true means flip sign at position i
+    # For Float32: sign bit is 0x80000000, for Float64: 0x8000000000000000
+    UIntType = T == Float32 ? "UInt32" : (T == Float64 ? "UInt64" : "UInt16")
+    sign_bit = T == Float32 ? "0x80000000" : (T == Float64 ? "0x8000000000000000" : "0x8000")
+    zero_bit = T == Float32 ? "0x00000000" : (T == Float64 ? "0x0000000000000000" : "0x0000")
+
+    mask_vals = [pattern[min(i, length(pattern))] ? sign_bit : zero_bit for i in 1:vec_size]
+    return "Vec{$vec_size,$UIntType}(($(join(mask_vals, ", "))))"
 end
