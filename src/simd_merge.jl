@@ -139,12 +139,14 @@ end
 """Generate code for a single imaginary operation (im or -im)"""
 function gen_single_imaginary(op::Op, ::Type{T}, floats_per_vec::Int) where T
     if op.twiddle == "im"
-        # i*(r+ii) = -i + ir → swap and flip real
-        sign_mask = gen_signflip_mask([true, false], floats_per_vec, T)
+        # i*(r+ii) = -ir + i = i - ir → (r,i) -> (-i,r)
+        # signflip imag, then swap: (r,i) -> (r,-i) -> (-i,r)
+        sign_mask = gen_signflip_mask([false, true], floats_per_vec, T)
         return "$(op.output) = shufflevector(signflip($(op.input), $sign_mask), Val((1, 0)))"
     elseif op.twiddle == "-im"
-        # -i*(r+ii) = i - ir → swap and flip imag
-        sign_mask = gen_signflip_mask([false, true], floats_per_vec, T)
+        # -i*(r+ii) = -(-ir + i) = ir - i = i(r-i) → (r,i) -> (i,-r)
+        # signflip real, then swap: (r,i) -> (-r,i) -> (i,-r)
+        sign_mask = gen_signflip_mask([true, false], floats_per_vec, T)
         return "$(op.output) = shufflevector(signflip($(op.input), $sign_mask), Val((1, 0)))"
     else
         error("Unknown imaginary twiddle: $(op.twiddle)")
@@ -163,7 +165,10 @@ function gen_single_trig(op::Op, ::Type{T}, floats_per_vec::Int) where T
 
     interleave = join(vcat([[i, i + num_complex] for i in 0:num_complex-1]...), ", ")
 
-    if quadrant == :Q1
+    # Handle both enum values and symbols for backward compatibility
+    quad_val = quadrant isa Symbol ? quadrant : Symbol(string(quadrant))
+
+    if quad_val == :Q1
         return """$(op.output) = (let
             v_r = shufflevector($(op.input), Val(($r_indices)))
             v_i = shufflevector($(op.input), Val(($i_indices)))
@@ -171,7 +176,7 @@ function gen_single_trig(op::Op, ::Type{T}, floats_per_vec::Int) where T
             out_i = muladd(v_r, $s, v_i * $c)
             shufflevector(out_r, out_i, Val(($interleave)))
         end)"""
-    elseif quadrant == :Q4
+    elseif quad_val == :Q4
         return """$(op.output) = (let
             v_r = shufflevector($(op.input), Val(($r_indices)))
             v_i = shufflevector($(op.input), Val(($i_indices)))
@@ -179,7 +184,7 @@ function gen_single_trig(op::Op, ::Type{T}, floats_per_vec::Int) where T
             out_i = muladd(-v_r, $s, v_i * $c)
             shufflevector(out_r, out_i, Val(($interleave)))
         end)"""
-    elseif quadrant == :ImQ4
+    elseif quad_val == :ImQ4
         return """$(op.output) = (let
             v_r = shufflevector($(op.input), Val(($r_indices)))
             v_i = shufflevector($(op.input), Val(($i_indices)))
@@ -187,14 +192,48 @@ function gen_single_trig(op::Op, ::Type{T}, floats_per_vec::Int) where T
             out_i = muladd(v_r, $c, v_i * $s)
             shufflevector(out_r, out_i, Val(($interleave)))
         end)"""
-    else
-        # Fallback for other quadrants
+    elseif quad_val == :ImQ1
         return """$(op.output) = (let
             v_r = shufflevector($(op.input), Val(($r_indices)))
             v_i = shufflevector($(op.input), Val(($i_indices)))
-            # TODO: Implement other quadrants
-            shufflevector(v_r, v_i, Val(($interleave)))
+            out_r = muladd(-v_r, $s, -v_i * $c)
+            out_i = muladd(v_r, $c, -v_i * $s)
+            shufflevector(out_r, out_i, Val(($interleave)))
         end)"""
+    elseif quad_val == :NegQ1
+        return """$(op.output) = (let
+            v_r = shufflevector($(op.input), Val(($r_indices)))
+            v_i = shufflevector($(op.input), Val(($i_indices)))
+            out_r = muladd(-v_r, $c, v_i * $s)
+            out_i = muladd(-v_r, $s, -v_i * $c)
+            shufflevector(out_r, out_i, Val(($interleave)))
+        end)"""
+    elseif quad_val == :NegQ4
+        return """$(op.output) = (let
+            v_r = shufflevector($(op.input), Val(($r_indices)))
+            v_i = shufflevector($(op.input), Val(($i_indices)))
+            out_r = muladd(-v_r, $c, -v_i * $s)
+            out_i = muladd(v_r, $s, -v_i * $c)
+            shufflevector(out_r, out_i, Val(($interleave)))
+        end)"""
+    elseif quad_val == :NegImQ1
+        return """$(op.output) = (let
+            v_r = shufflevector($(op.input), Val(($r_indices)))
+            v_i = shufflevector($(op.input), Val(($i_indices)))
+            out_r = muladd(v_r, $s, v_i * $c)
+            out_i = muladd(-v_r, $c, v_i * $s)
+            shufflevector(out_r, out_i, Val(($interleave)))
+        end)"""
+    elseif quad_val == :NegImQ4
+        return """$(op.output) = (let
+            v_r = shufflevector($(op.input), Val(($r_indices)))
+            v_i = shufflevector($(op.input), Val(($i_indices)))
+            out_r = muladd(-v_r, $s, v_i * $c)
+            out_i = muladd(-v_r, $c, -v_i * $s)
+            shufflevector(out_r, out_i, Val(($interleave)))
+        end)"""
+    else
+        error("Unknown quadrant: $quad_val (original: $quadrant)")
     end
 end
 
@@ -227,6 +266,12 @@ end
 """Fuse operations where all are IMAGINARY (im, -im, any mix)"""
 function fuse_all_imaginary(ops::Vector{Op}, ::Type{T}, floats_per_vec::Int) where T
     n = length(ops)
+
+    # For single operation, use scalar generation to avoid unnecessary complexity
+    if n == 1
+        return gen_single_imaginary(ops[1], T, floats_per_vec)
+    end
+
     input_names = [op.input for op in ops]
     output_names = [op.output for op in ops]
 
@@ -236,10 +281,10 @@ function fuse_all_imaginary(ops::Vector{Op}, ::Type{T}, floats_per_vec::Int) whe
 
     for op in ops
         if op.twiddle == "im"
-            push!(sign_patterns, Bool[true, false])  # Flip real
+            push!(sign_patterns, Bool[false, true])  # Flip imag: (r,i)->(r,-i)->(swap)->(-i,r)
             push!(swap_required, true)
         elseif op.twiddle == "-im"
-            push!(sign_patterns, Bool[false, true])  # Flip imag
+            push!(sign_patterns, Bool[true, false])  # Flip real: (r,i)->(-r,i)->(swap)->(i,-r)
             push!(swap_required, true)
         end
     end
@@ -277,38 +322,81 @@ end
 """Fuse operations where all are TRIG (cispi with any values)"""
 function fuse_all_trig(ops::Vector{Op}, ::Type{T}, floats_per_vec::Int) where T
     n = length(ops)
+
+    # For single operation, use scalar generation to avoid Vec{1,T} overhead
+    if n == 1
+        return gen_single_trig(ops[1], T, floats_per_vec)
+    end
+
     input_names = [op.input for op in ops]
     output_names = [op.output for op in ops]
     num_complex_per_op = floats_per_vec ÷ 2
     total_complex = n * num_complex_per_op
 
-    # Extract cos/sin symbols from twiddles with symmetry optimization
-    # Key insight: cos(π*a/b) = sin(π*(b/2 - a)/b) for complementary angles
-    cos_syms = String[]
-    sin_syms = String[]
+    # Bake signs into constants - NO separate sign vectors!
+    # out_r = muladd(v_r, cos_r, v_i .* sin_i)
+    # out_i = muladd(v_r, sin_r, v_i .* cos_i)
+    cos_r_vals = String[]  # cos values for out_r (with sign)
+    sin_i_vals = String[]  # sin values for out_i term (with sign)
+    sin_r_vals = String[]  # sin values for out_i FMA (with sign)
+    cos_i_vals = String[]  # cos values for out_i term (with sign)
 
     for op in ops
         num, den, quadrant = op.twiddle
+        quad_val = quadrant isa Symbol ? quadrant : Symbol(string(quadrant))
 
-        # Use symmetry: cos(π*a/b) = sin(π*(den/2 - a)/den)
-        # For standard trig operations, optimize to reuse constants
         cos_sym = "COSPI_$(num)_$(den)"
         sin_sym = "SINPI_$(num)_$(den)"
 
-        # Check for complementary angle: if num + complement = den/2
-        # Then cos(num/den) = sin(complement/den)
-        complement = den ÷ 2 - num
-        if complement > 0 && complement < den ÷ 2
-            # Example: cos(1/8) = sin(3/8), so COSPI_1_8 can reuse SINPI_3_8's position
-            # But for code generation, we'll use the canonical form and let Julia optimize
-            # Actually, for explicit optimization as user requested:
-            # cos(π/8) = sin(3π/8), so use SINPI_$(complement)_$(den) for cos
-            # sin(π/8) = cos(3π/8), so use COSPI_$(complement)_$(den) for sin
+        # Map quadrants - bake signs directly into constant names
+        # Base formula: (r+ii)*(c+si) = (rc - si) + i(rs + ic)
+        if quad_val == :Q1  # cispi(θ) = cos + i*sin
+            # out_r = v_r * c - v_i * s  =  muladd(v_r, c, v_i * (-s))
+            # out_i = v_r * s + v_i * c  =  muladd(v_r, s, v_i * c)
+            r_c, i_s, r_s, i_c = cos_sym, "-$sin_sym", sin_sym, cos_sym
+        elseif quad_val == :Q4  # cispi(-θ) = cos - i*sin
+            # out_r = v_r * c + v_i * s
+            # out_i = -v_r * s + v_i * c
+            r_c, i_s, r_s, i_c = 1.0, 1.0, -1.0, 1.0
+        elseif quad_val == :ImQ1  # i*cispi(θ) = -sin + i*cos
+            # out_r = -v_r * s - v_i * c
+            # out_i = v_r * c - v_i * s
+            r_c, i_s, r_s, i_c = -1.0, -1.0, 1.0, -1.0
+            cos_sym, sin_sym = sin_sym, cos_sym  # Swap roles
+        elseif quad_val == :ImQ4  # i*cispi(-θ) = sin + i*cos
+            # out_r = v_r * s - v_i * c
+            # out_i = v_r * c + v_i * s
+            r_c, i_s, r_s, i_c = 1.0, -1.0, 1.0, 1.0
+            cos_sym, sin_sym = sin_sym, cos_sym  # Swap roles
+        elseif quad_val == :NegQ1  # -cispi(θ) = -cos - i*sin
+            # out_r = -v_r * c + v_i * s
+            # out_i = -v_r * s - v_i * c
+            r_c, i_s, r_s, i_c = -1.0, 1.0, -1.0, -1.0
+        elseif quad_val == :NegQ4  # -cispi(-θ) = -cos + i*sin
+            # out_r = -v_r * c - v_i * s
+            # out_i = v_r * s - v_i * c
+            r_c, i_s, r_s, i_c = -1.0, -1.0, 1.0, -1.0
+        elseif quad_val == :NegImQ1  # -i*cispi(θ) = sin - i*cos
+            # out_r = v_r * s + v_i * c
+            # out_i = -v_r * c + v_i * s
+            r_c, i_s, r_s, i_c = -1.0, 1.0, 1.0, 1.0
+            cos_sym, sin_sym = sin_sym, cos_sym  # Swap roles
+        elseif quad_val == :NegImQ4  # -i*cispi(-θ) = -sin - i*cos
+            # out_r = -v_r * s + v_i * c
+            # out_i = -v_r * c - v_i * s
+            r_c, i_s, r_s, i_c = -1.0, 1.0, -1.0, -1.0
+            cos_sym, sin_sym = sin_sym, cos_sym  # Swap roles
+        else
+            error("Unknown quadrant in fuse_all_trig: $quad_val")
         end
 
         for _ in 1:num_complex_per_op
             push!(cos_syms, cos_sym)
             push!(sin_syms, sin_sym)
+            push!(r_cos_signs, r_c)
+            push!(i_sin_signs, i_s)
+            push!(r_sin_signs, r_s)
+            push!(i_cos_signs, i_c)
         end
     end
 
@@ -322,8 +410,12 @@ function fuse_all_trig(ops::Vector{Op}, ::Type{T}, floats_per_vec::Int) where T
     push!(code_lines, "v_i = shufflevector($merged_var, Val(($i_indices)))")
     push!(code_lines, "cos_vec = Vec{$total_complex,$T}(($(join(cos_syms, ", "))))")
     push!(code_lines, "sin_vec = Vec{$total_complex,$T}(($(join(sin_syms, ", "))))")
-    push!(code_lines, "out_r = muladd(v_r, cos_vec, -v_i .* sin_vec)")
-    push!(code_lines, "out_i = muladd(v_r, sin_vec, v_i .* cos_vec)")
+    push!(code_lines, "r_cos_sign = Vec{$total_complex,$T}(($(join(r_cos_signs, ", "))))")
+    push!(code_lines, "i_sin_sign = Vec{$total_complex,$T}(($(join(i_sin_signs, ", "))))")
+    push!(code_lines, "r_sin_sign = Vec{$total_complex,$T}(($(join(r_sin_signs, ", "))))")
+    push!(code_lines, "i_cos_sign = Vec{$total_complex,$T}(($(join(i_cos_signs, ", "))))")
+    push!(code_lines, "out_r = (v_r .* cos_vec .* r_cos_sign) .+ (v_i .* sin_vec .* i_sin_sign)")
+    push!(code_lines, "out_i = (v_r .* sin_vec .* r_sin_sign) .+ (v_i .* cos_vec .* i_cos_sign)")
 
     interleave = Int[]
     for i in 0:total_complex-1
@@ -347,6 +439,12 @@ end
 """Fuse operations where all are SQRT2 (any mix of variants)"""
 function fuse_all_sqrt2(ops::Vector{Op}, ::Type{T}, floats_per_vec::Int) where T
     n = length(ops)
+
+    # For single operation, use scalar generation to avoid unnecessary complexity
+    if n == 1
+        return gen_single_sqrt2(ops[1], T, floats_per_vec)
+    end
+
     input_names = [op.input for op in ops]
     output_names = [op.output for op in ops]
 
@@ -581,113 +679,7 @@ function merge_ops(ops::Vector{Op}, ::Type{T}, floats_per_vec::Int, simd_bits::I
             end
         end
 
-        # **NEW**: ALWAYS recombine into single wide_result for register efficiency
-        if n > 1 && can_merge(n, floats_per_vec, T, simd_bits)
-            output_names = [op.output for op in ops]
-            total_floats = n * floats_per_vec
-
-            # Build hierarchical shuffle combining n Vec{2,T} -> Vec{2n,T}
-            # Output format: SINGLE wide_result variable
-            if n == 2
-                # 2 ops: Simple 2-input shuffle
-                wide_code = "wide_result = shufflevector($(output_names[1]), $(output_names[2]), Val((0,1,2,3)))"
-            elseif n == 4
-                # 4 ops: Hierarchical pairwise then merge (for AVX2)
-                wide_code = """wide_result = (let
-    tmp_pair1 = shufflevector($(output_names[1]), $(output_names[2]), Val((0,1,2,3)))
-    tmp_pair2 = shufflevector($(output_names[3]), $(output_names[4]), Val((0,1,2,3)))
-    shufflevector(tmp_pair1, tmp_pair2, Val((0,1,2,3,4,5,6,7)))
-end)"""
-            elseif n == 8
-                # 8 ops: Build Vec{16,T} for AVX512 or split for AVX2
-                wide_code = """wide_result = (let
-    pair1 = shufflevector($(output_names[1]), $(output_names[2]), Val((0,1,2,3)))
-    pair2 = shufflevector($(output_names[3]), $(output_names[4]), Val((0,1,2,3)))
-    pair3 = shufflevector($(output_names[5]), $(output_names[6]), Val((0,1,2,3)))
-    pair4 = shufflevector($(output_names[7]), $(output_names[8]), Val((0,1,2,3)))
-    quad1 = shufflevector(pair1, pair2, Val((0,1,2,3,4,5,6,7)))
-    quad2 = shufflevector(pair3, pair4, Val((0,1,2,3,4,5,6,7)))
-    shufflevector(quad1, quad2, Val((0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15)))
-end)"""
-            else
-                # General case: Flatten indices
-                indices = join(0:total_floats-1, ", ")
-                wide_code = "wide_result = shufflevector($(join(output_names, ", ")), Val(($indices)))"
-            end
-
-            push!(code_parts, "# Recombine into wide_result for register efficiency")
-            push!(code_parts, wide_code)
-        else
-            # If can't merge or n==1, just use the single operation result directly
-            # Set wide_result = that single result for consistency
-            if n == 1
-                push!(code_parts, "wide_result = $(ops[1].output)")
-            end
-        end
-
         return join(code_parts, "\n") * "\n"
     end
 end
 
-# ============================================================================
-# TESTS
-# ============================================================================
-
-function test_v3()
-    println("="^80)
-    println("PATTERN-BASED SIMD FUSION TESTS (V3)")
-    println("="^80)
-
-    # Test 1: All identity
-    println("\n[Test 1] All identity (no fusion needed)")
-    ops = [Op("t$i", "input$i", "1") for i in 1:4]
-    code = merge_ops(ops, Float32, 2, 256)
-    println(code)
-
-    # Test 2: All imaginary (mixed im and -im)
-    println("\n[Test 2] All imaginary (im + -im mixed)")
-    ops = [Op("t1", "in1", "im"), Op("t2", "in2", "-im"),
-           Op("t3", "in3", "im"), Op("t4", "in4", "-im")]
-    code = merge_ops(ops, Float32, 2, 256)
-    println(code)
-
-    # Test 3: All trig (different values)
-    println("\n[Test 3] All trig (different cispi values)")
-    ops = [Op("t$i", "in$i", (i, 8, :Q1)) for i in 1:4]
-    code = merge_ops(ops, Float32, 2, 256)
-    println(code)
-
-    # Test 4: Identity + imaginary (heterogeneous)
-    println("\n[Test 4] Heterogeneous: identity + imaginary")
-    ops = [Op("t1", "in1", "1"), Op("t2", "in2", "1"),
-           Op("t3", "in3", "im"), Op("t4", "in4", "-im")]
-    code = merge_ops(ops, Float32, 2, 256)
-    println(code)
-
-    # Test 5: Imaginary + trig (heterogeneous)
-    println("\n[Test 5] Heterogeneous: imaginary + trig")
-    ops = [Op("t1", "in1", "im"), Op("t2", "in2", "-im"),
-           Op("t3", "in3", (1, 8, :Q1)), Op("t4", "in4", (2, 8, :Q1))]
-    code = merge_ops(ops, Float32, 2, 256)
-    println(code)
-
-    # Test 6: Real-world FFT pattern (USER REQUESTED)
-    println("\n[Test 6] USER REQUESTED: 1 + im + 2 trig")
-    ops = [Op("tvec1", "input1", "1"),
-           Op("tvec2", "input2", "im"),
-           Op("tvec3", "input3", (1, 8, :Q1)),
-           Op("tvec4", "input4", (2, 8, :Q1))]
-    code = merge_ops(ops, Float32, 2, 256)
-    println(code)
-
-    # Test 7: Actual n=16 FFT second-half twiddles (k=0,1,2,3 for n=16)
-    println("\n[Test 7] n=16 FFT pattern: 1 + trig + sqrt2 + trig")
-    ops = [Op("tvec1", "input1", "1"),               # k=0
-           Op("tvec2", "input2", (1, 8, :Q4)),       # k=1: cispi(-1/8)
-           Op("tvec3", "input3", "INV_SQRT2_Q4"),    # k=2: cispi(-1/4)
-           Op("tvec4", "input4", (3, 8, :ImQ4))]     # k=3: cispi(-3/8)
-    code = merge_ops(ops, Float32, 2, 256)
-    println(code)
-
-    println("\n" * "="^80)
-end

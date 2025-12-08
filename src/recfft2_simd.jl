@@ -48,7 +48,6 @@ Arguments:
 
     # RECURSIVE CASE: n > 2
     else
-        println("n = $n")
         return generate_recursive_fft(y, x, d, w, root, T, floats_per_vec, tmp_base,
                                      mode, py, complexes_per_vec, input_buffer, output_buffer,
                                      SIMD_WIDTH, n)
